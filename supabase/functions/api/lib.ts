@@ -184,8 +184,8 @@ export async function viewAsCaller(admin0: Caller, targetId: string): Promise<Ca
   const { data } = await admin.from("app_users").select("*").eq("id", targetId).maybeSingle();
   if (!data) throw new HttpError(404, "User not found");
   const hit = callerCache.get("viewas:" + targetId);
-  if (hit && hit.until > Date.now()) return hit.caller;
-  return await callerFromRow({ ...data, active: true }, "viewas:" + targetId);
+  if (hit && hit.until > Date.now()) return { ...hit.caller, mustChangePassword: false };
+  return { ...(await callerFromRow({ ...data, active: true }, "viewas:" + targetId)), mustChangePassword: false };
 }
 
 export const isAdmin = (c: Caller) => c.role === "Admin";

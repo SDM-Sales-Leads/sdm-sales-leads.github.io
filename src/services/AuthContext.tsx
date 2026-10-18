@@ -35,7 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const data = await res.json();
       setUser(data.user);
       setPermissions(data.permissions);
-      setMustChange(!!data.user?.mustChangePassword);
+      setMustChange(!!data.user?.mustChangePassword && !sessionStorage.getItem('sdm_view_as'));   // an admin viewing as someone never sees that person's password screen
       return true;
     } catch {
       meStatus.current = 0;

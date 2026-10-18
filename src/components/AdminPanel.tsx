@@ -121,18 +121,9 @@ export const AdminPanel: React.FC = () => {
       }
 
       if (pRes.status === 'fulfilled') {
-        let permissions = pRes.value || [];
+        const permissions = pRes.value || [];
 
-        // Ensure new roles exist
-        ['PMO', 'Procurement', 'Community', 'Sales Team', 'Sales Operation'].forEach(newRole => {
-          if (!permissions.some(p => p.role === newRole)) {
-            const template = permissions.find(p => p.role === 'Development' || p.role === 'Finance');
-            if (template) {
-              permissions.push({ ...template, role: newRole });
-            }
-          }
-        });
-
+        // the list is exactly what the server holds: a role deleted here must not come back on the next load
         setRolePermissions(permissions);
       } else {
         console.error('Failed to load role permissions:', pRes.reason);
@@ -488,7 +479,7 @@ export const AdminPanel: React.FC = () => {
                 <option value="Sales Team">Sales Team</option>
                 <option value="Sales Operation">Sales Operation</option>
               </select>
-              {(newUser.role === 'Sales Rep' || newUser.role === 'Sales Team') && (
+              {(newUser.role === 'Sales Rep') && (
                 <select
                   className="input-field col-span-2"
                   value={newUser.teamLeaderId || ''}
@@ -500,7 +491,7 @@ export const AdminPanel: React.FC = () => {
                   ))}
                 </select>
               )}
-              {(newUser.role === 'Sales Rep' || newUser.role === 'Sales Team' || newUser.role === 'Sales Team Leader') && (
+              {(newUser.role === 'Sales Rep' || newUser.role === 'Sales Team Leader') && (
                 <input
                   type="number" min={0} step={1000}
                   className="input-field col-span-2"
@@ -576,7 +567,7 @@ export const AdminPanel: React.FC = () => {
                                 <option value="Sales Operation">Sales Operation</option>
                               </select>
                             </div>
-                            {(editUserData.role === 'Sales Rep' || editUserData.role === 'Sales Team') && (
+                            {(editUserData.role === 'Sales Rep') && (
                               <select 
                                 className="text-[10px] font-bold uppercase p-1 rounded border border-black/10 w-full"
                                 value={editUserData.teamLeaderId || ''}
@@ -588,7 +579,7 @@ export const AdminPanel: React.FC = () => {
                                 ))}
                               </select>
                             )}
-                            {(editUserData.role === 'Sales Rep' || editUserData.role === 'Sales Team' || editUserData.role === 'Sales Team Leader') && (
+                            {(editUserData.role === 'Sales Rep' || editUserData.role === 'Sales Team Leader') && (
                               <input
                                 type="number" min={0} step={1000}
                                 className="text-xs p-1 rounded border border-black/10 w-full"
@@ -819,6 +810,21 @@ export const AdminPanel: React.FC = () => {
                 <div className="lg:col-span-3">
                   <div className="flex justify-between items-center mb-6 border-b border-black/5 pb-4">
                     <h3 className="font-bold text-xl">{rolePermissions[selectedRoleIndex].role} Permissions</h3>
+                    {rolePermissions[selectedRoleIndex].role !== 'Admin' && users.filter((u) => u.role === rolePermissions[selectedRoleIndex].role).length === 0 && (
+                      <button
+                        onClick={async () => {
+                          const r = rolePermissions[selectedRoleIndex].role;
+                          if (!window.confirm(`Delete the role "${r}"? No user has it. This cannot be undone.`)) return;
+                          try {
+                            const next = rolePermissions.filter((x) => x.role !== r);
+                            await adminService.saveRolePermissions(next);
+                            setRolePermissions(next); setSelectedRoleIndex(0);
+                            setActionStatus({ type: 'success', message: `Role "${r}" deleted.` });
+                          } catch (err: any) { setActionStatus({ type: 'error', message: `Could not delete the role: ${err.message}` }); }
+                        }}
+                        className="px-4 py-2 bg-black/5 text-brand-gray hover:bg-brand-red hover:text-white transition-all rounded-xl font-bold text-xs"
+                      >Delete this role</button>
+                    )}
                     <button 
                        onClick={() => setSelectedRoleForDepts(selectedRoleIndex)}
                        className="px-4 py-2 bg-brand-red/10 text-brand-red hover:bg-brand-red hover:text-white transition-all rounded-xl font-bold text-xs flex items-center gap-2"
@@ -832,11 +838,11 @@ export const AdminPanel: React.FC = () => {
                     <div>
                       <h4 className="font-bold text-xs text-brand-gray uppercase mb-3 tracking-wider">Core System Access</h4>
                       <div className="flex flex-wrap gap-2">
-                        <PermissionToggle label="Dashboard" active={rolePermissions[selectedRoleIndex].canViewDashboard} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewDashboard', val)} />
-                        <PermissionToggle label="Tickets" active={rolePermissions[selectedRoleIndex].canViewTickets} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewTickets', val)} />
-                        <PermissionToggle label="Knowledge Base" active={rolePermissions[selectedRoleIndex].canViewKnowledgeBase} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewKnowledgeBase', val)} />
-                        <PermissionToggle label="Workflow Builder" active={rolePermissions[selectedRoleIndex].canViewWorkflowBuilder} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewWorkflowBuilder', val)} />
-                        <PermissionToggle label="Admin Panel" active={rolePermissions[selectedRoleIndex].canViewAdminPanel} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewAdminPanel', val)} />
+                        <PermissionToggle label="Service desk: overview" active={rolePermissions[selectedRoleIndex].canViewDashboard} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewDashboard', val)} />
+                        <PermissionToggle label="Service desk: tickets and new ticket" active={rolePermissions[selectedRoleIndex].canViewTickets} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewTickets', val)} />
+                        <PermissionToggle label="Service desk: knowledge base" active={rolePermissions[selectedRoleIndex].canViewKnowledgeBase} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewKnowledgeBase', val)} />
+                        <PermissionToggle label="Workflow & SLA" active={rolePermissions[selectedRoleIndex].canViewWorkflowBuilder} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewWorkflowBuilder', val)} />
+                        <PermissionToggle label="Setup: users, roles, system" active={rolePermissions[selectedRoleIndex].canViewAdminPanel} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewAdminPanel', val)} />
                       </div>
                     </div>
 
@@ -857,28 +863,28 @@ export const AdminPanel: React.FC = () => {
                          <span className="w-2 h-2 rounded-full bg-blue-500"></span> Inquiries Sales Module
                       </h4>
                       <div className="flex flex-wrap gap-2 mb-4">
-                        <PermissionToggle label="Access Inquiries Sales" active={!!rolePermissions[selectedRoleIndex].canViewSalesCrm} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesCrm', val)} />
+                        <PermissionToggle label="Access the Sales CRM (Home, Leads, Reports...)" active={!!rolePermissions[selectedRoleIndex].canViewSalesCrm} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesCrm', val)} />
                       </div>
                       
                       {rolePermissions[selectedRoleIndex].canViewSalesCrm && (
                         <div className="pl-4 border-l-2 border-black/5 flex flex-wrap gap-2">
-                          <PermissionToggle label="Executive Board" active={!!rolePermissions[selectedRoleIndex].canViewSalesDashboard} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesDashboard', val)} />
-                          <PermissionToggle label="Sales Leads" active={!!rolePermissions[selectedRoleIndex].canViewSalesLeads} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesLeads', val)} />
-                          <PermissionToggle label="Contacts" active={!!rolePermissions[selectedRoleIndex].canViewSalesContacts} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesContacts', val)} />
-                          <PermissionToggle label="Corporate Accounts" active={!!rolePermissions[selectedRoleIndex].canViewSalesCompanies} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesCompanies', val)} />
-                          <PermissionToggle label="Mail Ingestion" active={!!rolePermissions[selectedRoleIndex].canViewSalesMail} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesMail', val)} />
-                          <PermissionToggle label="Routing Rules" active={!!rolePermissions[selectedRoleIndex].canViewSalesRules} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesRules', val)} />
-                          <PermissionToggle label="Activities Feed" active={!!rolePermissions[selectedRoleIndex].canViewSalesActivities} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesActivities', val)} />
-                          <PermissionToggle label="Sales Reports" active={!!rolePermissions[selectedRoleIndex].canViewSalesReports} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesReports', val)} />
-                          <PermissionToggle label="Plots Inventory" active={!!rolePermissions[selectedRoleIndex].canViewSalesPlotsInventory} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesPlotsInventory', val)} />
-                          <PermissionToggle label="Bulk Transfer" active={!!rolePermissions[selectedRoleIndex].canViewSalesTransfer} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesTransfer', val)} />
-                          <PermissionToggle label="Won Deals / Cash (AR)" active={!!rolePermissions[selectedRoleIndex].canViewSalesFinance} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesFinance', val)} />
+                          <PermissionToggle label="Reports dashboard (Home numbers and Reports)" active={!!rolePermissions[selectedRoleIndex].canViewSalesDashboard} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesDashboard', val)} />
+                          <PermissionToggle label="Leads (list, calendar)" active={!!rolePermissions[selectedRoleIndex].canViewSalesLeads} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesLeads', val)} />
+                          <PermissionToggle label="Customers: contacts" active={!!rolePermissions[selectedRoleIndex].canViewSalesContacts} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesContacts', val)} />
+                          <PermissionToggle label="Customers: corporate accounts" active={!!rolePermissions[selectedRoleIndex].canViewSalesCompanies} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesCompanies', val)} />
+                          <PermissionToggle label="Intake: mailbox" active={!!rolePermissions[selectedRoleIndex].canViewSalesMail} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesMail', val)} />
+                          <PermissionToggle label="Setup: routing rules, pool and dropdown lists (sees ALL leads)" active={!!rolePermissions[selectedRoleIndex].canViewSalesRules} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesRules', val)} />
+                          <PermissionToggle label="Leads: activity log" active={!!rolePermissions[selectedRoleIndex].canViewSalesActivities} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesActivities', val)} />
+                          <PermissionToggle label="Reports (all tabs)" active={!!rolePermissions[selectedRoleIndex].canViewSalesReports} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesReports', val)} />
+                          <PermissionToggle label="Land and offers: plots, offers, printed offers" active={!!rolePermissions[selectedRoleIndex].canViewSalesPlotsInventory} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesPlotsInventory', val)} />
+                          <PermissionToggle label="Intake: Excel import/export and duplicates" active={!!rolePermissions[selectedRoleIndex].canViewSalesTransfer} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesTransfer', val)} />
+                          <PermissionToggle label="Deals: won deals and cash (view)" active={!!rolePermissions[selectedRoleIndex].canViewSalesFinance} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesFinance', val)} />
                           <PermissionToggle label="Confirm cash received" active={!!rolePermissions[selectedRoleIndex].canConfirmCash} onChange={(val) => updatePermission(selectedRoleIndex, 'canConfirmCash', val)} />
-                          <PermissionToggle label="Contracts (view)" active={!!rolePermissions[selectedRoleIndex].canViewSalesContracts} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesContracts', val)} />
-                          <PermissionToggle label="Contracts (manage)" active={!!rolePermissions[selectedRoleIndex].canManageContracts} onChange={(val) => updatePermission(selectedRoleIndex, 'canManageContracts', val)} />
-                          <PermissionToggle label="Targets & My Report" active={!!rolePermissions[selectedRoleIndex].canViewSalesTargets} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesTargets', val)} />
-                          <PermissionToggle label="External Sales" active={!!rolePermissions[selectedRoleIndex].canViewSalesExternal} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesExternal', val)} />
-                          <PermissionToggle label="Lead audit trail" active={!!rolePermissions[selectedRoleIndex].canViewSalesAudit} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesAudit', val)} />
+                          <PermissionToggle label="Deals: contracts (view)" active={!!rolePermissions[selectedRoleIndex].canViewSalesContracts} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesContracts', val)} />
+                          <PermissionToggle label="Deals: contracts (manage, Excel import)" active={!!rolePermissions[selectedRoleIndex].canManageContracts} onChange={(val) => updatePermission(selectedRoleIndex, 'canManageContracts', val)} />
+                          <PermissionToggle label="Targets" active={!!rolePermissions[selectedRoleIndex].canViewSalesTargets} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesTargets', val)} />
+                          <PermissionToggle label="BD and external sales" active={!!rolePermissions[selectedRoleIndex].canViewSalesExternal} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesExternal', val)} />
+                          <PermissionToggle label="Setup: lead audit trail" active={!!rolePermissions[selectedRoleIndex].canViewSalesAudit} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesAudit', val)} />
                           <PermissionToggle label="See ALL leads (read-only)" active={!!rolePermissions[selectedRoleIndex].canViewAllLeads} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewAllLeads', val)} />
                           <PermissionToggle label="Edit lead contact details / add unassigned leads (marketing)" active={!!rolePermissions[selectedRoleIndex].canEditLeadIdentity} onChange={(val) => updatePermission(selectedRoleIndex, 'canEditLeadIdentity', val)} />
                           <PermissionToggle label="Distribute leads (all leads, reassign)" active={!!rolePermissions[selectedRoleIndex].canDistributeLeads} onChange={(val) => updatePermission(selectedRoleIndex, 'canDistributeLeads', val)} />

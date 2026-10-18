@@ -71,13 +71,13 @@ export const SPECS: Record<string, Spec> = {
   contacts: {
     table: "crm_contacts", soft: true,
     cols: (d) => ({ phone_norm: normPhone(d.phoneNumber) || null, email_norm: normEmail(d.email) || null, name_norm: normName(d.name) || null }),
-    owns: (_c, scope) => scope !== "finance",
+    owns: () => true,
     canDelete: (_c, scope) => scope === "all" || scope === "team",
   },
   companies: {
     table: "crm_companies", soft: true,
     cols: (d) => ({ name_norm: normName(d.name) || null }),
-    owns: (_c, scope) => scope !== "finance",
+    owns: () => true,
     canDelete: (_c, scope) => scope === "all" || scope === "team",
   },
   tasks: {
@@ -122,6 +122,20 @@ function externalRule(d: any, old: any | null, c: Caller, scope: CrmScope): stri
 
 const IDENTITY_FIELDS = ["customerName", "companyName", "phoneNumber", "phone2", "email", "source", "priority", "date", "project", "requiredSize", "industry", "nationality", "refNo", "description"];
 
+/** contacts and companies: a salesperson sees the customers of the leads he or she owns, a team leader those of the team;
+ *  Sales Operation, Admin, Marketing, Finance and the view-all roles see every one */
+async function linkedKeys(c: Caller, scope: CrmScope, team: string[]) {
+  if (scope === "all" || scope === "viewall" || scope === "finance") return null;
+  const ids = [c.id, ...(scope === "team" ? team : [])];
+  const rows = await pageAll((a, b) => admin.from("crm_leads").select("phone_norm,email_norm,data->companyName").in("assigned_to", ids).is("deleted_at", null).order("id").range(a, b), 50000).catch(() => []);
+  const k = { phones: new Set<string>(), emails: new Set<string>(), companies: new Set<string>() };
+  for (const r of rows || []) { if (r.phone_norm) k.phones.add(r.phone_norm); if (r.email_norm) k.emails.add(r.email_norm); const n = normName((r as any).companyName); if (n) k.companies.add(n); }
+  return k;
+}
+const linkedOk = (name: string, r: any, k: { phones: Set<string>; emails: Set<string>; companies: Set<string> } | null) =>
+  !k || (name === "contacts" ? !!((r.phone_norm && k.phones.has(r.phone_norm)) || (r.email_norm && k.emails.has(r.email_norm))) : name === "companies" ? !!(r.name_norm && k.companies.has(r.name_norm)) : true);
+const LINKED = new Set(["contacts", "companies"]);
+
 const out = (r: any) => ({ ...r.data, id: r.id, _rev: r.updated_at || r.created_at });
 
 for (const [name, spec] of Object.entries(SPECS)) {
@@ -134,9 +148,10 @@ for (const [name, spec] of Object.entries(SPECS)) {
       // delta: only rows changed after `since`, plus ids removed since then (cheap: one indexed query)
       const iso = new Date(since).toISOString();
       const team0 = scope === "team" ? await teamIds(c) : [];
+      const lk0 = LINKED.has(name) ? await linkedKeys(c, scope, team0) : null;
       const ch = await pageAll((a, b) => admin.from(spec.table).select("*").gt("updated_at", iso).order("updated_at", { ascending: true }).order("id").range(a, b), 20000).catch(() => { throw new HttpError(500, "Could not load " + name); });
-      const live = (ch || []).filter((r: any) => !r.deleted_at && spec.owns(c, scope, team0, r)).map(out);
-      const gone = (ch || []).filter((r: any) => r.deleted_at || !spec.owns(c, scope, team0, r)).map((r: any) => r.id);
+      const live = (ch || []).filter((r: any) => !r.deleted_at && spec.owns(c, scope, team0, r) && linkedOk(name, r, lk0)).map(out);
+      const gone = (ch || []).filter((r: any) => r.deleted_at || !spec.owns(c, scope, team0, r) || !linkedOk(name, r, lk0)).map((r: any) => r.id);
       return { delta: true, rows: live, removed: gone, now: nowIso() };
     }
     let data: any[];
@@ -151,7 +166,8 @@ for (const [name, spec] of Object.entries(SPECS)) {
         return p.range(a, name === "email-logs" ? Math.min(b, 499) : b);
       }, name === "email-logs" ? 500 : 50000);
     } catch { throw new HttpError(500, "Could not load " + name); }
-    return (data || []).filter((r: any) => spec.owns(c, scope, team, r)).map(out);
+    const lk = LINKED.has(name) ? await linkedKeys(c, scope, team) : null;
+    return (data || []).filter((r: any) => spec.owns(c, scope, team, r) && linkedOk(name, r, lk)).map(out);
   });
 
   route("POST", `/crm/${name}`, async ({ req, c }) => {
@@ -169,6 +185,7 @@ for (const [name, spec] of Object.entries(SPECS)) {
     if (upserts.length > 500 || deletes.length > 500) throw bad("Too many rows in one save (max 500)");
     if (name === "email-logs" && scope !== "all") throw forbidden();
     const team = scope === "team" ? await teamIds(c) : [];
+    const lkw = LINKED.has(name) && rawScope !== "viewall" ? await linkedKeys(c, scope, team) : null;
     const saved: any[] = [], conflicts: string[] = [], rejected: { id: string; reason: string }[] = [], idMap: Record<string, string> = {};
     const auditRows: any[] = [];
     await refreshCustomStatuses();
@@ -194,7 +211,7 @@ for (const [name, spec] of Object.entries(SPECS)) {
         if (ex) {
           if (ex.deleted_at) { rejected.push({ id, reason: "was deleted" }); continue; }
           let identityOnly = false;
-          if (!spec.owns(c, scope, team, ex)) {
+          if (!spec.owns(c, scope, team, ex) || (LINKED.has(name) && (scope === "finance" || !linkedOk(name, ex, lkw)))) {
             if (mkt && name === "leads") identityOnly = true; // marketing: contact details only
             else { rejected.push({ id, reason: "not yours" }); continue; }
           }

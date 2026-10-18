@@ -37,7 +37,7 @@ export function buildGroups(p: any, role?: string): NavGroup[] {
     G('setup', 'Setup', Settings, '⚙', [s('rules', 'Routing rules', 'rules', p?.canViewSalesRules), s('audit', 'Audit trail', 'audit', p?.canViewSalesAudit), t('admin', 'Users & settings', 'admin', p?.canViewAdminPanel), t('health', 'System health', 'health', p?.canViewAdminPanel)]),
     G('bd', 'BD & External', Briefcase, '↗', [s('bd-tracker', 'BD tracker', 'bd-tracker', BD_ROLES.includes(role || '')), s('external', 'External sales', 'external-sales', p?.canViewSalesExternal)]),
     G('help', 'Help', GraduationCap, '🎓', [s('guide', 'How to use', 'guide', crmAny)]),
-    G('service', 'Service desk', LifeBuoy, '🎫', [t('svc-dash', 'Overview', 'dashboard', p?.canViewDashboard), t('tickets', 'My tickets', 'tickets', p?.canViewTickets), t('new-ticket', 'New ticket', 'new-ticket', true), t('workflow', 'Workflow & SLA', 'workflow-sla', p?.canViewWorkflowBuilder), t('kb', 'Knowledge base', 'kb', p?.canViewKnowledgeBase)]),
+    G('service', 'Service desk', LifeBuoy, '🎫', [t('svc-dash', 'Overview', 'dashboard', p?.canViewDashboard), t('tickets', 'My tickets', 'tickets', p?.canViewTickets), t('new-ticket', 'New ticket', 'new-ticket', p?.canViewTickets), t('workflow', 'Workflow & SLA', 'workflow-sla', p?.canViewWorkflowBuilder), t('kb', 'Knowledge base', 'kb', p?.canViewKnowledgeBase)]),
   ].filter(Boolean) as NavGroup[];
 }
 export const groupOf = (groups: NavGroup[], tab: string, sub: string) => groups.find((g) => g.items.some((i) => isHere(i, tab, sub)));

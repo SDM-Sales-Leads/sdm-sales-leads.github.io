@@ -22,8 +22,8 @@ export function isUntouched(d: any): boolean {
 const chunks = <T>(a: T[], n: number) => { const o: T[][] = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; };
 
 /** one-off: leads brought from the old CRM that nobody touched go back to the pool (their follow-up date was only a default) */
-export async function unassignUntouched(dryRun: boolean) {
-  const rows = await pageAll((a, b) => admin.from("crm_leads").select("id,assigned_to,data").is("deleted_at", null).not("assigned_to", "is", null).eq("status", "New").not("data->>legacyId", "is", null).order("id").range(a, b), 20000);
+export async function unassignUntouched(dryRun: boolean, everyLead = false) {
+  const rows = await pageAll((a, b) => { let q: any = admin.from("crm_leads").select("id,assigned_to,data").is("deleted_at", null).not("assigned_to", "is", null).eq("status", "New"); if (!everyLead) q = q.not("data->>legacyId", "is", null); return q.order("id").range(a, b); }, 20000);
   const hit = (rows || []).filter((r: any) => isUntouched(r.data));
   const byOwner: Record<string, number> = {};
   for (const r of hit) { const n = r.data?.assignedSalespersonName || "?"; byOwner[n] = (byOwner[n] || 0) + 1; }
@@ -74,7 +74,7 @@ export async function fillPool(limit = 300) {
 route("POST", "/admin/unassign-untouched", async ({ req, c }) => {
   needAdmin(c);
   let b: any = {}; try { b = await req.json(); } catch { /* none */ }
-  return await unassignUntouched(b?.dryRun !== false && b?.confirm !== "RETURN UNTOUCHED TO THE POOL");
+  return await unassignUntouched(b?.dryRun !== false && b?.confirm !== "RETURN UNTOUCHED TO THE POOL", b?.everyLead === true);
 });
 
 route("GET", "/crm/pool/status", async ({ c }) => {

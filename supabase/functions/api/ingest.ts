@@ -285,7 +285,7 @@ export async function loadQueue() {
 type RStats = { at: number; open: Record<string, number>; total: Record<string, number>; today: Record<string, number>; sqm: Record<string, number> };
 const ROUTE_STATS = new Map<string, RStats>();
 /** opts.sim: a dry run. Nothing is saved or cached; the same object carries the pretend state from one lead to the next. */
-export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?: any[] }): Promise<{ id: string; name: string } | null> {
+export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?: any[]; ignoreDaily?: boolean; noBackup?: boolean }): Promise<{ id: string; name: string } | null> {
   if (q.assignmentMethod === "Manual Assignment Only") return null;
 
   const { data: users } = await admin.from("app_users").select("id,name,role,active,on_leave").in("role", SALES_ROLES);
@@ -321,11 +321,12 @@ export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?:
   // call center leads are the most urgent: they ignore every limit (open leads, daily, sqm)
   const isCC = /call center/i.test(String(lead?.channel || ""));
   const maxOpen = isCC ? 0 : Number(q.maxLeadsPerSalesperson) || 0;
-  const maxDay = isCC ? 0 : Number(q.maxDailyAssignment) || 0;
+  const maxDay = isCC || opts?.ignoreDaily ? 0 : Number(q.maxDailyAssignment) || 0;
   let elig = pool.filter((u: any) => (!maxOpen || (open[u.id] || 0) < maxOpen) && (!maxDay || (today[u.id] || 0) < maxDay) && (!maxSqm || (sqm[u.id] || 0) + leadSize <= maxSqm || (sqm[u.id] || 0) === 0));
   if (opts?.trace) for (const u of pool) opts.trace.push({ id: u.id, name: u.name, open: open[u.id] || 0, sqm: sqm[u.id] || 0, eligible: elig.some((e: any) => e.id === u.id) });
   if (!elig.length) {
     // overflow: back-up person, else leave unassigned in the queue for a manager
+    if (opts?.noBackup) return null;
     const b = asUuid(q.backupSalespersonId);
     const bu = q.enableOverflowQueue && b ? pool.find((u: any) => u.id === b) : null;
     return bu ? { id: bu.id, name: bu.name } : null;

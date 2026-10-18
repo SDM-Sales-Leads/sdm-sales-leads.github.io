@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { toast } from 'sonner';
 import { AssignmentMethod, Lead } from './types';
 import { crmService } from './crmService';
 import { isOpenStatus } from './leadConfig';
@@ -34,6 +35,19 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
   const [maxSqm, setMaxSqm] = useState('');
   const [maxOpen, setMaxOpen] = useState('');
   const [maxDay, setMaxDay] = useState('');
+  const [pool, setPool] = useState<{ unassigned: number; maxOpen: number } | null>(null);
+  const [poolBusy, setPoolBusy] = useState(false);
+  const loadPool = () => { fetch('/api/crm/pool/status').then((r) => (r.ok ? r.json() : null)).then((j) => j && setPool(j)).catch(() => {}); };
+  useEffect(() => { loadPool(); }, []);
+  const fillPool = async () => {
+    setPoolBusy(true);
+    try {
+      const r = await fetch('/api/crm/pool/fill', { method: 'POST' }); const j = await r.json().catch(() => ({}));
+      if (!r.ok) toast.error(j.error || 'The pool could not be handed out.');
+      else toast.success(`${j.assigned || 0} leads handed out. ${j.left || 0} still waiting${j.left ? ' (everyone is at the limit)' : ''}.`);
+      loadPool(); void crmService.refreshDelta({ force: true });
+    } catch { toast.error('Could not reach the server.'); } finally { setPoolBusy(false); }
+  };
   const [unknownSqm, setUnknownSqm] = useState('');
   const [testSizes, setTestSizes] = useState('10000, 5000, 5000');
   const [testing, setTesting] = useState(false);
@@ -213,6 +227,14 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
                 </label>
               </div>
             )}
+
+            <div className="rounded-xl border border-brand-red/25 bg-brand-red/5 p-3.5 text-xs flex flex-wrap items-center gap-3">
+              <div className="flex-1 min-w-[200px]">
+                <div className="font-extrabold text-brand-black text-sm">Pool of unassigned leads: {pool ? pool.unassigned.toLocaleString('en-US') : '…'}</div>
+                <div className="text-brand-gray font-semibold mt-0.5">Leads nobody worked on wait here. Every 5 minutes the oldest ones (call center first) go to whoever has fewer open leads than the limit, fair by number and size.</div>
+              </div>
+              {hasAdminRole && <button type="button" disabled={poolBusy} onClick={fillPool} className="bg-brand-red disabled:opacity-50 text-white px-4 py-2 rounded-xl font-bold">{poolBusy ? 'Handing out…' : 'Hand out the pool now'}</button>}
+            </div>
 
             <label className="block text-xs">
               <span className="font-bold text-brand-black">Max open leads per salesperson</span>

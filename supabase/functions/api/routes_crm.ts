@@ -378,7 +378,31 @@ route("POST", "/crm/leads/purge-all", async ({ req, c }) => {
   // the owner's go-live wipe: every lead with its history, the customers and companies, tasks, activities, lead audit, bell notices and
   // reminder marks are removed for good. Tickets, workflow, users, roles, settings, mail logs and the Land Bank copy stay untouched.
   const counts: Record<string, number> = {};
-  for (const t of ["crm_lead_audit", "crm_notifications", "crm_reminders_sent", "crm_tasks", "crm_activities", "crm_leads", "crm_contacts", "crm_companies"]) {
+  // optional: keep the real leads that arrived on or after this day (they exist only here, not in the old CRM export); test leads never stay
+  const keepFrom = typeof b.keepFrom === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.keepFrom) ? b.keepFrom : "";
+  if (keepFrom) {
+    const rows = await pageAll((a, z) => admin.from("crm_leads").select("id,phone_norm,email_norm,data->>date,data->>customerName,data->>email,data->>companyName").order("id").range(a, z), 50000);
+    const isTest = (r: any) => /^(zz |test )/i.test(String(r.customerName || "")) || /@example\.(test|com)$/i.test(String(r.email || ""));
+    const keep = (rows || []).filter((r: any) => String(r.date || "") >= keepFrom && !isTest(r));
+    const keepIds = new Set(keep.map((r: any) => r.id));
+    const drop = (rows || []).filter((r: any) => !keepIds.has(r.id)).map((r: any) => r.id);
+    for (let i = 0; i < drop.length; i += 150) {
+      const part = drop.slice(i, i + 150);
+      await admin.from("crm_lead_audit").delete().in("lead_id", part);
+      const del = await admin.from("crm_leads").delete().in("id", part);
+      if (del.error) throw new HttpError(500, "Could not clear leads");
+    }
+    counts.crm_leads_removed = drop.length; counts.crm_leads_kept = keep.length;
+    const ph = new Set(keep.map((r: any) => r.phone_norm).filter(Boolean)), em = new Set(keep.map((r: any) => r.email_norm).filter(Boolean)), co = new Set(keep.map((r: any) => normName(r.companyName)).filter(Boolean));
+    const cons = await pageAll((a, z) => admin.from("crm_contacts").select("id,phone_norm,email_norm").order("id").range(a, z), 50000);
+    const dropC = (cons || []).filter((r: any) => !((r.phone_norm && ph.has(r.phone_norm)) || (r.email_norm && em.has(r.email_norm)))).map((r: any) => r.id);
+    for (let i = 0; i < dropC.length; i += 150) await admin.from("crm_contacts").delete().in("id", dropC.slice(i, i + 150));
+    const comps = await pageAll((a, z) => admin.from("crm_companies").select("id,name_norm").order("id").range(a, z), 50000);
+    const dropK = (comps || []).filter((r: any) => !(r.name_norm && co.has(r.name_norm))).map((r: any) => r.id);
+    for (let i = 0; i < dropK.length; i += 150) await admin.from("crm_companies").delete().in("id", dropK.slice(i, i + 150));
+    counts.crm_contacts = dropC.length; counts.crm_companies = dropK.length;
+  }
+  for (const t of keepFrom ? ["crm_notifications", "crm_reminders_sent", "crm_tasks", "crm_activities"] : ["crm_lead_audit", "crm_notifications", "crm_reminders_sent", "crm_tasks", "crm_activities", "crm_leads", "crm_contacts", "crm_companies"]) {
     const { count } = await admin.from(t).select("*", { count: "exact", head: true });
     const col = t === "crm_reminders_sent" ? "key" : "id";
     const del = await admin.from(t).delete().not(col, "is", null);

@@ -32,6 +32,8 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
   const [showSavedToast, setShowSavedToast] = useState(false);
   const [sqmWeight, setSqmWeight] = useState(50);
   const [maxSqm, setMaxSqm] = useState('');
+  const [maxOpen, setMaxOpen] = useState('');
+  const [maxDay, setMaxDay] = useState('');
   const [unknownSqm, setUnknownSqm] = useState('');
   const [testSizes, setTestSizes] = useState('10000, 5000, 5000');
   const [testing, setTesting] = useState(false);
@@ -46,7 +48,7 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
   useEffect(() => {
     const s = crmService.getQueueSettings();
     if (s && s.assignmentMethod) setActiveStrategy(s.assignmentMethod);
-    if (s) { setSqmWeight(typeof s.sqmWeight === 'number' ? s.sqmWeight : 50); setMaxSqm(Number(s.maxSqmPerSalesperson) > 0 ? String(s.maxSqmPerSalesperson) : ''); setUnknownSqm(Number(s.unknownLeadSqm) > 0 ? String(s.unknownLeadSqm) : ''); }
+    if (s) { setMaxDay(Number(s.maxDailyAssignment) > 0 ? String(s.maxDailyAssignment) : ''); setMaxOpen(Number(s.maxLeadsPerSalesperson) > 0 ? String(s.maxLeadsPerSalesperson) : ''); setSqmWeight(typeof s.sqmWeight === 'number' ? s.sqmWeight : 50); setMaxSqm(Number(s.maxSqmPerSalesperson) > 0 ? String(s.maxSqmPerSalesperson) : ''); setUnknownSqm(Number(s.unknownLeadSqm) > 0 ? String(s.unknownLeadSqm) : ''); }
     const refresh = () => { setLeads(crmService.getLeads()); setPeople(crmService.getSalesPeople()); setSettings(crmService.getQueueSettings()); };
     window.addEventListener('crm-data-changed', refresh);
     return () => window.removeEventListener('crm-data-changed', refresh);
@@ -110,6 +112,8 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
       ...currentSettings,
       assignmentMethod: activeStrategy,
       sqmWeight,
+      maxLeadsPerSalesperson: Math.max(0, Math.floor(Number(maxOpen) || 0)),
+      maxDailyAssignment: Math.max(0, Math.floor(Number(maxDay) || 0)),
       maxSqmPerSalesperson: sqmOf(maxSqm),
       unknownLeadSqm: sqmOf(unknownSqm),
     });
@@ -209,6 +213,18 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
                 </label>
               </div>
             )}
+
+            <label className="block text-xs">
+              <span className="font-bold text-brand-black">Max open leads per salesperson</span>
+              <input type="number" min={0} className="input-field mt-1" placeholder="No limit (e.g. 300)" value={maxOpen} disabled={!hasAdminRole} onChange={(e) => setMaxOpen(e.target.value)} />
+              <span className="text-[10px] text-brand-gray font-semibold">Open = not Won, Lost, Not Interested, Low Budget or Wrong Number (contacted or not). At this number the person gets no new leads; closing one frees a place. Call center leads ignore this limit.</span>
+            </label>
+
+            <label className="block text-xs">
+              <span className="font-bold text-brand-black">Max new leads per person per day</span>
+              <input type="number" min={0} className="input-field mt-1" placeholder="No limit" value={maxDay} disabled={!hasAdminRole} onChange={(e) => setMaxDay(e.target.value)} />
+              <span className="text-[10px] text-brand-gray font-semibold">Leave empty for no daily limit. Call center leads ignore it.</span>
+            </label>
 
             {hasAdminRole ? (
               <div className="flex items-center justify-between pt-4 border-t border-brand-gray/10">

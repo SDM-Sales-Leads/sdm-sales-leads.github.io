@@ -107,6 +107,7 @@ route("POST", "/auth/reset", async ({ req }) => {
 // ---------------------------------------------------------------------------------------------
 route("POST", "/crm/bulk-email", async ({ req, c }) => {
   _nc(c);
+  throw bad("Customer e-mails are not sent from the system. Use your own mailbox: download the e-mail file or open it in your e-mail program.");
   if (await notifyOnHold()) throw bad("E-mails to customers are switched off during testing. Use \"Open in my own e-mail\" instead.");
   await rateLimit(`bulkmail:${c.id}`, 3600, 600);
   const b = await body(req, 200_000);

@@ -41,35 +41,10 @@ export const CrmBulkMessage: React.FC<{ leads: Lead[]; mode: 'whatsapp' | 'email
   // ---------------- e-mail ----------------
   const [subject, setSubject] = useState('Elsewedy Industrial Development');
   const [text, setText] = useState('Dear {name},\n\nThank you for your interest in {project}.\n\n\n\nBest regards,\n{rep}');
-  const [sure, setSure] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [failed, setFailed] = useState<{ id: string; reason: string }[]>([]);
   const withMail = useMemo(() => leads.filter(validMail), [leads]);
   const addresses = useMemo(() => [...new Set(withMail.map((l) => l.email!.trim().toLowerCase()))], [withMail]);
   const generic = (t: string) => t.replace(/\{name\}/g, 'Sir / Madam').replace(/\{company\}/g, 'your company').replace(/\{project\}/g, 'our industrial cities').replace(/\{rep\}/g, userName);
 
-  const sendSystem = async () => {
-    setBusy(true); setFailed([]); setProgress(0);
-    const bad: { id: string; reason: string }[] = [];
-    try {
-      const parts = chunk(withMail, 20);
-      let n = 0;
-      for (const part of parts) {
-        const res = await fetch('/api/crm/bulk-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadIds: part.map((l) => l.id), subject, message: text }) });
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) { toast.error(j.error || 'The e-mails could not be sent.'); break; }
-        for (const r of j.results || []) {
-          const l = part.find((x) => x.id === r.id);
-          if (r.ok && l) mark(l, 'email', `${subject}\n${text}`.slice(0, 380)); else bad.push({ id: r.id, reason: r.reason || 'failed' });
-        }
-        n += part.length; setProgress(Math.round((n / withMail.length) * 100));
-        if ((j.results || []).length < part.length) break;   // the server stopped early (mail server trouble)
-      }
-      setFailed(bad);
-      toast.success('Done. Sent e-mails are logged on each lead.');
-    } catch { toast.error('Could not reach the server.'); } finally { setBusy(false); }
-  };
   const openBcc = (part: Lead[]) => {
     const href = `mailto:?bcc=${encodeURIComponent(part.map((l) => l.email!.trim()).join(','))}&subject=${encodeURIComponent(generic(subject))}&body=${encodeURIComponent(generic(text))}`;
     window.location.href = href;
@@ -124,16 +99,7 @@ export const CrmBulkMessage: React.FC<{ leads: Lead[]; mode: 'whatsapp' | 'email
               <p className="text-[11px] text-brand-gray">You can use <b>{'{name}'}</b>, <b>{'{company}'}</b>, <b>{'{project}'}</b> and <b>{'{rep}'}</b>: each customer gets their own details.</p>
 
               <div className="rounded-xl border border-brand-gray/20 p-4 space-y-2.5">
-                <div className="font-extrabold text-brand-black text-[13px]">1. Send from the system (personal mail to each customer)</div>
-                <p className="text-[11px] text-brand-gray">Each customer receives their own e-mail (no one sees the others). Their replies come to you. Every e-mail is logged on the lead.</p>
-                <label className="flex items-start gap-2 font-semibold"><input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} className="mt-0.5" /> I confirm: send this e-mail to {withMail.length.toLocaleString('en-US')} customers.</label>
-                <button type="button" disabled={!sure || busy || !withMail.length || !subject.trim() || !text.trim()} onClick={sendSystem} className="bg-brand-red disabled:opacity-40 text-white font-extrabold px-5 py-2.5 rounded-xl inline-flex items-center gap-2"><Send size={15} />{busy ? `Sending… ${progress}%` : `Send to ${withMail.length.toLocaleString('en-US')} customers`}</button>
-                {busy && <div className="h-2 bg-brand-gray/15 rounded-full overflow-hidden"><div className="h-full bg-brand-red transition-all" style={{ width: `${progress}%` }} /></div>}
-                {failed.length > 0 && <p className="text-rose-700 font-semibold">{failed.length} not sent: {failed.slice(0, 5).map((f) => `${f.id} (${f.reason})`).join(', ')}{failed.length > 5 ? '…' : ''}</p>}
-              </div>
-
-              <div className="rounded-xl border border-brand-gray/20 p-4 space-y-2.5">
-                <div className="font-extrabold text-brand-black text-[13px]">2. Use my own mailbox (everyone in BCC)</div>
+                <div className="font-extrabold text-brand-black text-[13px]">Send from my own mailbox (everyone in BCC)</div>
                 <p className="text-[11px] text-brand-gray">Opens your e-mail program with the customers hidden in BCC, in batches of 40 (mail programs refuse longer lists). {'{name}'} becomes "Sir / Madam". Opened leads are logged as e-mailed.</p>
                 <div className="flex flex-wrap gap-2">
                   {chunk(withMail, 40).map((part, i) => <button key={i} type="button" onClick={() => openBcc(part)} className="border border-brand-gray/30 hover:border-brand-red hover:text-brand-red font-bold px-3 py-2 rounded-xl">Batch {i + 1} ({part.length})</button>)}

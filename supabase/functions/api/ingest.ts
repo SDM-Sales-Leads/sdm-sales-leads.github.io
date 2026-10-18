@@ -33,7 +33,7 @@ export const DEFAULT_QUEUE = {
 };
 
 export const SALES_ROLES = ["Sales Rep", "Sales Representative", "Sales Team", "Sales Team Leader"];
-const CLOSED = new Set(["Won", "Lost", "Duplicate", "Invalid", "Not Interested", "Closed"]);
+const CLOSED = new Set(["Won", "Lost", "Duplicate", "Invalid", "Not Interested", "Low Budget", "Wrong Number", "Closed"]);
 const PRIORITIES = ["Urgent", "High", "Normal", "Low"];
 const SUBJECT_HINTS = ["sales lead", "inquiry", "enquiry", "contact", "form", "lead", "request", "new submission", "plan your visit"];
 
@@ -317,9 +317,11 @@ export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?:
   }
   const { open, total, today, sqm } = st;
   const leadSize = effectiveSqm(lead?.requiredSize, q);
-  const maxSqm = Number(q.maxSqmPerSalesperson) || 0;
-  const maxOpen = Number(q.maxLeadsPerSalesperson) || 0;
-  const maxDay = Number(q.maxDailyAssignment) || 0;
+  const maxSqm = /call center/i.test(String(lead?.channel || "")) ? 0 : Number(q.maxSqmPerSalesperson) || 0;
+  // call center leads are the most urgent: they ignore every limit (open leads, daily, sqm)
+  const isCC = /call center/i.test(String(lead?.channel || ""));
+  const maxOpen = isCC ? 0 : Number(q.maxLeadsPerSalesperson) || 0;
+  const maxDay = isCC ? 0 : Number(q.maxDailyAssignment) || 0;
   let elig = pool.filter((u: any) => (!maxOpen || (open[u.id] || 0) < maxOpen) && (!maxDay || (today[u.id] || 0) < maxDay) && (!maxSqm || (sqm[u.id] || 0) + leadSize <= maxSqm || (sqm[u.id] || 0) === 0));
   if (opts?.trace) for (const u of pool) opts.trace.push({ id: u.id, name: u.name, open: open[u.id] || 0, sqm: sqm[u.id] || 0, eligible: elig.some((e: any) => e.id === u.id) });
   if (!elig.length) {

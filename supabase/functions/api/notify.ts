@@ -203,6 +203,23 @@ export async function escalateCallCenter() {
       }
     }
   }
+  // second step: the team leader had 24 more hours; still no contact after 48 hours -> Sales Operation is told too (once per lead)
+  const late48 = late.filter((x) => x.hrs >= 48);
+  if (late48.length) {
+    const k48 = late48.map((x) => `cc48:${x.l.id}`); const seen48 = new Set<string>();
+    for (let i = 0; i < k48.length; i += 100) { const { data: r } = await admin.from("crm_reminders_sent").select("key").in("key", k48.slice(i, i + 100)); (r || []).forEach((y: any) => seen48.add(y.key)); }
+    const f48 = late48.filter((x) => !seen48.has(`cc48:${x.l.id}`)).slice(0, 30);
+    if (f48.length) {
+      await admin.from("crm_reminders_sent").upsert(f48.map((x) => ({ key: `cc48:${x.l.id}` })));
+      const { data: ops48 } = await admin.from("app_users").select("id").eq("role", "Sales Operation").neq("active", false);
+      const base48 = await appBase();
+      for (const u of (ops48 || [])) {
+        await addNotifications(f48.map((x) => ({ userId: u.id, type: "escalation", leadId: x.l.id, title: `Call center lead still not contacted after 48 hours: ${x.d.customerName || x.l.id}`, body: `Owner: ${x.d.assignedSalespersonName || "—"}. The team leader was alerted 24 hours ago.` })));
+        await emailUser(u.id, `Call center leads still waiting after 48 hours (${f48.length})`, shell("Call center leads: no contact after 48 hours",
+          `<ul style="padding-left:18px">${f48.slice(0, 25).map((x) => `<li>${escHtml(x.d.customerName || "—")} (${escHtml(x.d.assignedSalespersonName || "—")}) — <a href="${escHtml(leadLink(base48, x.l.id))}" style="color:#A6192E;font-weight:700">${escHtml(x.l.id)}</a></li>`).join("")}</ul>`), "Escalation");
+      }
+    }
+  }
   if (!late.length) return { ccLate: 0, ccUnowned: lonely.length };
   const keys = late.map((x) => `cc24:${x.l.id}`);
   const seen = new Set<string>();

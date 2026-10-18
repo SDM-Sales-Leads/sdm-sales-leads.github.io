@@ -1847,14 +1847,14 @@ ${user.name || ''}`);
             {pageLeads.map((l) => {
               const cc = ccState(l, Date.now());
               return (
-                <div key={l.id} className={`flex gap-3 px-3.5 py-3.5 ${cc ? 'bg-red-50/70 shadow-[inset_4px_0_0_#A6192E]' : selectedSet.has(l.id) ? 'bg-brand-red/5' : ''}`}>
+                <div key={l.id} className={`flex gap-3 px-3.5 py-3.5 ${cc ? 'bg-brand-red/5 shadow-[inset_4px_0_0_#A6192E]' : selectedSet.has(l.id) ? 'bg-brand-red/5' : ''}`}>
                   <button type="button" onClick={() => handleSelectLead(l.id)} aria-label={`Select lead ${l.id}`} className="pt-0.5 self-start">
                     {selectedSet.has(l.id) ? <CheckSquare size={20} className="text-brand-red" /> : <Square size={20} className="text-brand-gray/50" />}
                   </button>
                   <button type="button" onClick={() => setSelectedLead(l)} className="flex-1 min-w-0 text-left">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-[11px] font-bold text-brand-gray">{l.id}</span>
-                      {cc && <span className={`text-[9px] font-extrabold rounded px-1.5 py-0.5 text-white ${cc.overdue ? 'bg-red-600' : 'bg-amber-500'}`}>CC {cc.overdue ? 'LATE' : '24h'}</span>}
+                      {cc && <span className={`text-[9px] font-extrabold rounded px-1.5 py-0.5 text-white ${cc.overdue ? 'bg-brand-red' : 'bg-brand-red/75'}`}>CC {cc.overdue ? 'LATE' : '24h'}</span>}
                       <span className={`ml-auto whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${statusClass(l.status)}`}>{l.status}</span>
                     </div>
                     <div className="mt-1 font-extrabold text-[15px] text-brand-black truncate" dir="auto">{l.customerName || '—'}</div>

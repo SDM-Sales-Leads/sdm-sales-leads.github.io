@@ -49,7 +49,7 @@ export function statusAfterAction(current: string, action: LoggedAction, outcome
   else if (action === 'meeting') next = 'Scheduled Meeting';
   else if (action === 'visit') next = 'Site Visit Scheduled';
   else if (action === 'call') {
-    next = ({ 'Line Busy': 'No Answer', 'No Answer': 'No Answer', 'Wrong Number': 'Wrong Number', 'Asked to Call Back': 'Client Will Call Back', 'Not Interested': 'Not Interested' } as Record<string, string>)[outcome] || null;
+    next = ({ 'Line Busy': 'No Answer – Sent WhatsApp', 'No Answer': 'No Answer – Sent WhatsApp', 'Wrong Number': 'Wrong Number', 'Asked to Call Back': 'Client Will Call Back', 'Not Interested': 'Not Interested' } as Record<string, string>)[outcome] || null;
   }
   if (!next || next === current) return null;
   const moves = action === 'meeting' || action === 'visit' ? (stage === 'active' || (stage === 'pipeline' && current !== 'Negotiation')) : stage === 'active';

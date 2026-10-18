@@ -316,7 +316,7 @@ for (const [name, spec] of Object.entries(SPECS)) {
         (ins.data || []).forEach((x: any) => saved.push({ id: x.id, _rev: x.updated_at || x.created_at }));
         if (name === "leads") {
           await ensureContactsAndCompaniesBulk(newRows.map((n) => n.lead)).catch(() => {});
-          for (const n of newRows) { const as = asUuid(n.lead?.assignedSalespersonId); if (as) touched.push({ id: n.id, prev: null, next: as, d: n.lead, fresh: [] }); }
+          for (const n of newRows) { const as = asUuid(n.lead?.assignedSalespersonId); if (as && !n.lead?.legacyId) touched.push({ id: n.id, prev: null, next: as, d: n.lead, fresh: [] }); }
         }
       } else {
         // one bad row must not sink the batch: fall back to row-by-row so the culprit is named
@@ -375,10 +375,22 @@ route("POST", "/crm/leads/purge-all", async ({ req, c }) => {
   needAdmin(c);
   const b = await body(req, 1000);
   if (b.confirm !== "DELETE ALL LEADS") throw bad('Send { "confirm": "DELETE ALL LEADS" } to confirm');
-  const { count } = await admin.from("crm_leads").select("id", { count: "exact", head: true }).is("deleted_at", null);
-  await admin.from("crm_leads").update({ deleted_at: nowIso() }).is("deleted_at", null);
-  await logActivity(c, "Purge Leads", `${count || 0} leads removed (soft delete)`, "admin");
-  return { success: true, message: "All leads removed.", count: count || 0 };
+  // the owner's go-live wipe: every lead with its history, the customers and companies, tasks, activities, lead audit, bell notices and
+  // reminder marks are removed for good. Tickets, workflow, users, roles, settings, mail logs and the Land Bank copy stay untouched.
+  const counts: Record<string, number> = {};
+  for (const t of ["crm_lead_audit", "crm_notifications", "crm_reminders_sent", "crm_tasks", "crm_activities", "crm_leads", "crm_contacts", "crm_companies"]) {
+    const { count } = await admin.from(t).select("*", { count: "exact", head: true });
+    const col = t === "crm_reminders_sent" ? "key" : "id";
+    const del = await admin.from(t).delete().not(col, "is", null);
+    if (del.error) throw new HttpError(500, `Could not clear ${t}`);
+    counts[t] = count || 0;
+  }
+  await admin.from("crm_external_sales").delete().eq("data->>customerName", "QA ext");
+  // the next automatic Facebook / mail run must not bring back what the old CRM export already holds
+  await setConfig("fb_sheet", { ...(await getConfig<any>("fb_sheet", {})), since: nowIso(), cursor: nowIso() });
+  await setConfig("rr_cursor", {});
+  await logActivity(c, "Purge Leads", `Go-live wipe: ${JSON.stringify(counts)}`, "admin");
+  return { success: true, message: "All lead data removed.", counts };
 });
 
 route("POST", "/crm/reparse-lead", async ({ req, c }) => {

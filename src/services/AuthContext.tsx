@@ -48,6 +48,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setPermissions(null);
     setMustChange(false);
     wipeCrmCache();
+    try { sessionStorage.removeItem('sdm_view_as'); } catch { /* ignore */ }
   }, []);
 
   const login = async (email: string, password: string): Promise<void> => {

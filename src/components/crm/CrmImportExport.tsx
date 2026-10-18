@@ -6,7 +6,7 @@ import { csvCell, parseCSV } from '../../lib/plots';
 import { useAuth } from '../../services/AuthContext';
 import { readXlsx, buildXlsx } from './xlsxLite';
 import {
-  XLSX_HEADERS, buildPlan, summarize, reportRows, leadToRow, Plan, Person, cleanCell,
+  XLSX_HEADERS, buildPlan, parseHistory, HistRow, summarize, reportRows, leadToRow, Plan, Person, cleanCell,
 } from './importEngine';
 import { STATUSES, SOURCES, PROJECTS, PRIORITIES } from './leadConfig';
 import {
@@ -19,7 +19,7 @@ interface CrmImportExportProps {
   currentRole: string;
 }
 
-const MAX_IMPORT_BYTES = 15 * 1024 * 1024;
+const MAX_IMPORT_BYTES = 80 * 1024 * 1024;
 const MAX_IMPORT_ROWS = 20000;
 const CHUNK = 100;
 const ID_OK = /^[A-Za-z0-9_.:-]{1,60}$/;
@@ -58,6 +58,7 @@ export const CrmImportExport: React.FC<CrmImportExportProps> = ({ leads, onLeads
   const [result, setResult] = useState<null | { added: number; updated: number; failed: number; cancelled: boolean }>(null);
   const sheetRef = useRef<{ headers: string[]; body: string[][] } | null>(null);
   const cancelRef = useRef(false);
+  const historyRef = useRef<Map<string, HistRow[]> | undefined>(undefined);
 
   const visibleLeads = useMemo(() => leads.filter((l) => !l.mergedInto), [leads]);
   const summary = useMemo(() => (plan && !plan.fatal ? summarize(plan, dupMode) : null), [plan, dupMode]);
@@ -71,7 +72,7 @@ export const CrmImportExport: React.FC<CrmImportExportProps> = ({ leads, onLeads
     const s = sheetRef.current!;
     const label = user?.name || 'User';
     return buildPlan(s.headers, s.body, {
-      existing: crmService.getLeads(), people: people(), canOwners, scopeAll, leaveUnassigned,
+      existing: crmService.getLeads(), people: people(), canOwners, scopeAll, leaveUnassigned, history: historyRef.current,
       me: { id: String(user?.id ?? ''), name: label }, userLabel: label, fileName: name,
       today: new Date().toISOString().slice(0, 10), dupMode, updateExisting: upd,
     }, (done, total) => setProg({ done, total, label: 'Checking rows' }));
@@ -84,15 +85,23 @@ export const CrmImportExport: React.FC<CrmImportExportProps> = ({ leads, onLeads
     setError(''); setResult(null); setPlan(null);
     if (isReadOnly) { setError('Unauthorized. You do not have permissions to import records.'); return; }
     if (!/\.(xlsx|csv)$/i.test(file.name)) { setError('Please choose an .xlsx or .csv file (an old .xls file: open it in Excel and save as .xlsx).'); return; }
-    if (file.size > MAX_IMPORT_BYTES) { setError('File is too large (max 15 MB).'); return; }
+    if (file.size > MAX_IMPORT_BYTES) { setError('File is too large (max 80 MB).'); return; }
     setPhase('reading'); setFileName(file.name); setProg({ done: 0, total: 0, label: 'Reading the file' });
     await tick();
     try {
       let headers: string[] = []; let body: string[][] = [];
       if (/\.xlsx$/i.test(file.name)) {
-        const sh = await readXlsx(await file.arrayBuffer(), 'Leads');
+        const buf = await file.arrayBuffer();
+        const sh = await readXlsx(buf, 'Leads');
         headers = (sh.rows[0] || []).map((h) => cleanCell(h));
         body = sh.rows.slice(1);
+        // migration file: a second sheet "Comments & Notes" holds each lead's comments, assignments, status changes and call outcomes
+        historyRef.current = undefined;
+        try {
+          setProg({ done: 0, total: 0, label: 'Reading the history sheet' }); await tick();
+          const h = await readXlsx(buf, 'Comments & Notes');
+          if (h.name.toLowerCase() === 'comments & notes') { const hm = parseHistory(h.rows); if (hm.size) { historyRef.current = hm; setDupMode('import'); } }
+        } catch { /* a plain lead sheet has no history sheet */ }
       } else {
         const objs = parseCSV(await file.text()) as Record<string, string>[];
         if (objs.length) { headers = Object.keys(objs[0]); body = objs.map((o) => headers.map((h) => o[h] ?? '')); }

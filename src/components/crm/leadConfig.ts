@@ -4,10 +4,13 @@
 import type { Lead } from './types';
 
 export const STATUS_GROUPS: { group: string; statuses: string[] }[] = [
-  { group: 'Pipeline', statuses: ['New'] },
-  { group: 'Contact attempt', statuses: ['Sent WhatsApp', 'No Answer – Sent WhatsApp', 'Out of Coverage – Sent WhatsApp', 'Wrong Number', 'Mail Sent', 'Call Back', 'Client Will Call Back', 'Need Time to Study Our Offer'] },
-  { group: 'Sales progress', statuses: ['Offer Sent – Following Up', 'Scheduled Meeting', 'Site Visit Scheduled', 'Negotiation', 'Not Interested', 'Low Budget'] },
-  { group: 'Closing', statuses: ['Won', 'Lost'] },
+  { group: 'New', statuses: ['New'] },
+  { group: 'Contact attempt', statuses: ['Sent WhatsApp', 'No Answer – Sent WhatsApp', 'Out of Coverage – Sent WhatsApp', 'Mail Sent'] },
+  { group: 'Follow-up', statuses: ['Call Back', 'Client Will Call Back', 'Need Time to Study Our Offer'] },
+  { group: 'Sales pipeline', statuses: ['Offer Sent – Following Up', 'Scheduled Meeting', 'Site Visit Scheduled', 'Negotiation'] },
+  { group: 'Won', statuses: ['Won'] },
+  { group: 'Closed: declined', statuses: ['Lost', 'Low Budget', 'Not Interested'] },
+  { group: 'Closed: invalid', statuses: ['Wrong Number'] },
 ];
 export const STATUSES: string[] = STATUS_GROUPS.flatMap((g) => g.statuses);
 /** statuses that older rows (and the mail intake) may still carry; shown but not offered */

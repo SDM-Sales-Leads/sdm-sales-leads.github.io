@@ -1,5 +1,6 @@
 // The lead detail form: every field of the sales team's previous CRM, with its required-field rules (spec_A 2.4, 4.1-4.7).
 // Field enabling is a convenience; the server decides and its refusal is shown as a toast by crmService.
+import { StatusPicker } from './StatusPicker';
 import { Collapse } from './Collapse';
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Lock, Save, RotateCcw } from 'lucide-react';
@@ -153,11 +154,7 @@ export const LeadEditor: React.FC<Props> = ({ lead, auth, actorName, actorId, on
       <Collapse title="Status & follow-up" defaultOpen forceOpen={!!err} summary={`${status} · next follow-up ${d.nextFollowUpDate || '—'}`}>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
         <Field label="Status" locked={lockedFollow}>
-          <select value={status} disabled={lockedFollow} onChange={(e) => onStatus(e.target.value)} className={inputCls}>
-            {statusOptions(lead.status).map((g) => (
-              <optgroup key={g.group} label={g.group}>{g.statuses.map((s) => <option key={s} value={s}>{s}</option>)}</optgroup>
-            ))}
-          </select>
+          <StatusPicker value={status} disabled={lockedFollow} onChange={onStatus} className={inputCls} />
         </Field>
         <Field label="Priority" locked={lockedCore}>
           <select value={d.priority} disabled={lockedCore} onChange={(e) => set('priority', e.target.value)} className={inputCls}>

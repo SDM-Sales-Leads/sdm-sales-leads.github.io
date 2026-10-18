@@ -32,7 +32,7 @@ export function allowedOrigins(): string[] {
 }
 export function corsHeaders(origin: string | null): Record<string, string> {
   const h: Record<string, string> = {
-    "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info",
+    "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info, x-view-as",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
@@ -175,6 +175,17 @@ export async function callerFromEmail(email: string): Promise<Caller> {
   const rows = (data || []).filter((r: any) => String(r.email || "").toLowerCase() === e);
   if (rows.length !== 1) throw new HttpError(403, "This account has no access to Sales Leads");
   return await callerFromRow(rows[0], "email:" + e);
+}
+
+/** an administrator looking at the system as another person ("view as"): everything is judged with that person's role and data */
+export async function viewAsCaller(admin0: Caller, targetId: string): Promise<Caller> {
+  if (admin0.role !== "Admin") throw new HttpError(403, "Only an administrator can view as another user");
+  if (!/^[0-9a-f-]{36}$/i.test(targetId)) throw new HttpError(400, "Unknown user");
+  const { data } = await admin.from("app_users").select("*").eq("id", targetId).maybeSingle();
+  if (!data) throw new HttpError(404, "User not found");
+  const hit = callerCache.get("viewas:" + targetId);
+  if (hit && hit.until > Date.now()) return hit.caller;
+  return await callerFromRow({ ...data, active: true }, "viewas:" + targetId);
 }
 
 export const isAdmin = (c: Caller) => c.role === "Admin";

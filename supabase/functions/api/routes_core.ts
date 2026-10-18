@@ -27,14 +27,9 @@ route("GET", "/auth/permissions/:role", async ({ c, params }) => {
   return { role: params.role, ...(data?.perms || { canViewDashboard: true, canViewTickets: true, canViewKnowledgeBase: true }) };
 });
 
-route("POST", "/me/password-changed", async ({ c }) => {
-  // only clear the flag when the login's password really changed a moment ago
-  const { data: au } = await admin.auth.admin.getUserById(c.id);
-  const at = Date.parse(String((au?.user as any)?.updated_at || "")), signedIn = Date.parse(String((au?.user as any)?.last_sign_in_at || "")) || 0;
-  // a sign-in touches both stamps together; a password change moves updated_at past the sign-in
-  if (!(Date.now() - at < 10 * 60_000 && at - signedIn > 1500)) throw bad("Choose a new password first");
-  await admin.from("app_users").update({ must_change_password: false }).eq("id", c.id);
-  return { success: true };
+route("POST", "/me/password-changed", async () => {
+  // the flag is only cleared by /auth/reset, which needs the code e-mailed to the user
+  throw bad("Use the 6-digit code from your e-mail to choose a new password");
 });
 
 // ---------------------------------------------------------------------------------------------

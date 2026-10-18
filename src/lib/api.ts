@@ -17,6 +17,7 @@ export function installApiFetch() {
     const headers = new Headers(init.headers || {});
     if (token) headers.set('Authorization', `Bearer ${token}`);
     headers.set('apikey', SUPABASE_KEY);
+    try { const va = JSON.parse(sessionStorage.getItem('sdm_view_as') || 'null'); if (va?.id) headers.set('x-view-as', va.id); } catch { /* none */ }
     const res = await original(API_BASE + url.slice(4), { ...init, headers });
     if (res.status === 401 && token) {
       // the session is no longer valid: go back to the sign-in page

@@ -27,6 +27,7 @@ import { OldViewShell } from './components/OldViewShell';
 import { GlassShell } from './components/GlassShell';
 import { GlassHome } from './components/GlassHome';
 import { MobileTabBar } from './components/MobileTabBar';
+import { ViewAsBar } from './components/ViewAsBar';
 import { GroupTabs } from './components/GroupTabs';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
@@ -286,6 +287,7 @@ export default function App() {
     <AuthProvider>
       <ThemeProvider>
         <AppContent />
+        <ViewAsBar />
         <Toaster position="bottom-right" />
       </ThemeProvider>
     </AuthProvider>

@@ -1,3 +1,4 @@
+import { StatusPicker } from './StatusPicker';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../services/AuthContext';
 import { Lead, TimelineEvent, LeadStatus } from './types';
@@ -694,10 +695,7 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
               {modal === 'status' && (
                 <>
                   <div><label className={lbl}>New status</label>
-                    <select value={stStatus} onChange={(e) => setStStatus(e.target.value)} className={fieldCls}>
-                      <option value="">Choose…</option>
-                      {STATUS_GROUPS.map((g) => <optgroup key={g.group} label={g.group}>{g.statuses.filter((s) => s !== 'Won').map((s) => <option key={s} value={s}>{s}</option>)}</optgroup>)}
-                    </select>
+                    <StatusPicker value={stStatus} onChange={setStStatus} className={fieldCls} hide={['Won']} allowEmpty />
                     <p className="text-[10px] text-brand-gray mt-1">To mark a deal Won, open the lead: it needs the deal value.</p>
                   </div>
                   {REQ_DATETIME.includes(stStatus) && (

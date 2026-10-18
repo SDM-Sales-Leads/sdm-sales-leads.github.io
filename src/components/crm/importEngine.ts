@@ -246,6 +246,8 @@ function findCols(headers: string[]): Cols {
     notes: find(['notes', 'description', 'comment']),
     leadDate: find(['leaddate', 'created', 'date']),
     lastContact: find(['lastcontact']),
+    qualNotes: find(['qualificationnotes']),
+    lostCategory: find(['lostcategory']),
   };
   // Era rule: when a "Phone" column exists, "Customer Number" is the reference number; otherwise it IS the phone.
   const phoneCol = find(['phone', 'mobile'], /2$/);
@@ -288,11 +290,62 @@ export interface PlanCtx {
   today: string;
   dupMode: 'skip' | 'import';
   updateExisting: boolean;
+  history?: Map<string, HistRow[]>;    // the "Comments & Notes" sheet, by lead id (migration from the old CRM)
 }
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 const uid = () => Math.random().toString(36).slice(2, 11);
 const put = (o: any, k: string, v: any) => { if (v !== '' && v !== undefined && v !== null && !(typeof v === 'number' && Number.isNaN(v))) o[k] = v; };
+
+// ---------------------------------------------------------------------------------------------
+// the history sheet ("Comments & Notes"): one row per comment, note, assignment, status change or call outcome
+// ---------------------------------------------------------------------------------------------
+export interface HistRow { date: string; time: string; by: string; type: string; comment: string }
+export function parseHistory(rows: string[][]): Map<string, HistRow[]> {
+  const out = new Map<string, HistRow[]>();
+  if (rows.length < 2) return out;
+  const hs = rows[0].map((h) => compact(cleanCell(h)));
+  const at = (n: string) => hs.indexOf(n);
+  const ci = { id: at('leadid'), date: at('date'), time: at('time'), by: at('writtenby'), type: at('type'), text: at('comment') };
+  if (ci.id < 0 || ci.text < 0 || ci.type < 0) return out;
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i]; if (!r) continue;
+    const id = cleanCell(r[ci.id]).toLowerCase(); const text = String(r[ci.text] ?? '').trim();
+    if (!id || !text) continue;
+    const e: HistRow = { date: normDate(cleanCell(r[ci.date])), time: ci.time >= 0 ? normTime(cleanCell(r[ci.time])) : '', by: ci.by >= 0 ? cleanCell(r[ci.by]) : '', type: cleanCell(r[ci.type]), comment: text.slice(0, 4000) };
+    const a = out.get(id); if (a) a.push(e); else out.set(id, [e]);
+  }
+  return out;
+}
+const histStamp = (e: HistRow): string => {
+  const d = e.date || new Date().toISOString().slice(0, 10);
+  const t = e.time && /^\d{1,2}:\d{2}/.test(e.time) ? e.time.padStart(5, '0').slice(0, 5) : '12:00';
+  const ms = Date.parse(`${d}T${t}:00+03:00`);          // Cairo time in the old CRM
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : new Date().toISOString();
+};
+/** comments stay comments; assignments, status changes, call outcomes and system lines become the lead's timeline (notes and qualification
+ *  notes already sit in the lead's own columns). Returns what to set on the lead. */
+export function applyHistory(lead: any, entries: HistRow[]) {
+  const comments: any[] = []; const events: TimelineEvent[] = [];
+  let firstContact = '', lastAssign = '';
+  entries.forEach((e, n) => {
+    const ts = histStamp(e);
+    const id = 'h_' + uid() + n;
+    if (e.type === 'Comment') comments.push({ id, date: ts.slice(0, 10), time: (e.time || '').slice(0, 5), user: e.by || 'Imported', comment: e.comment, isPrivate: false });
+    else if (e.type === 'Assignment') { events.push({ id, timestamp: ts, type: 'Assignment', user: e.by || 'System', title: 'Assignment', description: e.comment }); if (!lastAssign || ts > lastAssign) lastAssign = ts; }
+    else if (e.type === 'Status change') { events.push({ id, timestamp: ts, type: 'Status Change', user: e.by || 'System', title: 'Status changed', description: e.comment }); if (!firstContact || ts < firstContact) firstContact = ts; }
+    else if (e.type === 'Call outcome') { events.push({ id, timestamp: ts, type: 'Call', user: e.by || 'System', title: 'Call', description: e.comment }); if (!firstContact || ts < firstContact) firstContact = ts; }
+    else if (e.type === 'System') events.push({ id, timestamp: ts, type: 'Import', user: e.by || 'System', title: 'System', description: e.comment });
+  });
+  events.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  comments.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  lead.comments = comments;
+  lead.timeline = [...events, ...(lead.timeline || [])];
+  lead.assignedDate = lastAssign || (lead.date ? `${lead.date}T09:00:00.000Z` : lead.assignedDate);
+  if (firstContact && lead.status !== 'New') lead.firstContactAt = firstContact;
+  const last = [...events.map((x) => x.timestamp), ...comments.map((c) => histStamp({ date: c.date, time: c.time } as HistRow))].sort().pop();
+  if (last) lead.lastUpdated = last;
+}
 
 export async function buildPlan(headers: string[], body: string[][], ctx: PlanCtx, onProgress?: (done: number, total: number) => void): Promise<Plan> {
   const cols = findCols(headers);
@@ -355,6 +408,8 @@ export async function buildPlan(headers: string[], body: string[][], ctx: PlanCt
     put(f, 'plotNo', cell(r, 'plotNo'));
     put(f, 'lostReason', cell(r, 'lostReason'));
     put(f, 'notes', cell(r, 'notes'));
+    put(f, 'qualNotes', cell(r, 'qualNotes'));
+    put(f, 'lostCategory', cell(r, 'lostCategory'));
     const rawPrio = cell(r, 'priority');
     if (rawPrio) { const p = normPriority(rawPrio); if (p) f.priority = p; else warn(`Priority "${rawPrio}" not recognised`); }
     const q = cell(r, 'qualification').toLowerCase();
@@ -473,7 +528,7 @@ export async function buildPlan(headers: string[], body: string[][], ctx: PlanCt
       phoneNumber: f.phoneNumber || '', email: f.email || '', requiredSize: f.requiredSize ?? '', priority: f.priority || 'Medium',
       status: finalStatus, lastUpdated: nowIso, expectedClosingDate: '', description: '', comments: [], attachments: [],
     };
-    for (const k of ['companyName', 'phone2', 'industry', 'nationality', 'refNo', 'plotNo', 'notes', 'lostReason', 'qualification', 'temperature', 'soldArea', 'totalSoldValue', 'dealValue',
+    for (const k of ['companyName', 'phone2', 'industry', 'nationality', 'refNo', 'plotNo', 'notes', 'lostReason', 'lostCategory', 'qualNotes', 'qualification', 'temperature', 'soldArea', 'totalSoldValue', 'dealValue',
       'meetingDate', 'meetingTime', 'eoiApplicable', 'eoiDate', 'reservationDate', 'contractDate', 'nextFollowUpDate', 'offerSent', 'offerDate', 'lastContactDate']) put(lead, k, f[k]);
     if (assignee) { lead.assignedSalespersonId = assignee.id; lead.assignedSalespersonName = assignee.name; lead.assignedDate = nowIso; }
     if (legacyOwner) lead.legacyOwnerName = legacyOwner;
@@ -487,6 +542,7 @@ export async function buildPlan(headers: string[], body: string[][], ctx: PlanCt
       id: 'imp_' + uid(), timestamp: nowIso, type: 'Import', user: ctx.userLabel, title: 'Imported from Excel',
       description: `Row ${rowNo} of ${ctx.fileName}` + (fileId ? ` (previous Lead ID ${fileId})` : '') + (legacyOwner ? `. Owner written as "${legacyOwner}" (not matched: left unassigned)` : ''),
     }];
+    if (fileId && ctx.history?.has(fileId.toLowerCase())) applyHistory(lead, ctx.history.get(fileId.toLowerCase())!);
     row.lead = lead as Lead;
     // later rows of the file are compared with this one (also when it is a duplicate itself, like the old engine)
     for (const k of keys) if (!fileKey.has(k) && !keyOwner.has(k)) fileKey.set(k, rowNo);

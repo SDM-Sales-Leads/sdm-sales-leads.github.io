@@ -10,12 +10,12 @@ export const StatusPicker: React.FC<{ value: string; onChange: (s: string) => vo
   useEffect(() => { if (own) setTab(own); }, [own, value]);
   const cur = groups.find((g) => g.group === tab);
   return (
-    <div className="flex gap-2">
-      <select aria-label="Status tab" value={tab} disabled={disabled} onChange={(e) => { const g = groups.find((x) => x.group === e.target.value); setTab(e.target.value); if (g && g.statuses.length === 1 && g.statuses[0] !== value) onChange(g.statuses[0]); }} className={`${className} flex-1 min-w-0`}>
+    <div className="flex flex-col gap-1.5">
+      <select aria-label="Status tab" value={tab} disabled={disabled} onChange={(e) => { const g = groups.find((x) => x.group === e.target.value); setTab(e.target.value); if (g && g.statuses.length === 1 && g.statuses[0] !== value) onChange(g.statuses[0]); }} className={`${className} w-full min-w-0`}>
         {allowEmpty && !tab && <option value="">Tab…</option>}
         {groups.map((g) => <option key={g.group} value={g.group}>{g.group}</option>)}
       </select>
-      <select aria-label="Status" value={cur?.statuses.includes(value) ? value : ''} disabled={disabled} onChange={(e) => e.target.value && onChange(e.target.value)} className={`${className} flex-[1.4] min-w-0`}>
+      <select aria-label="Status" value={cur?.statuses.includes(value) ? value : ''} disabled={disabled} onChange={(e) => e.target.value && onChange(e.target.value)} className={`${className} w-full min-w-0`}>
         {!cur?.statuses.includes(value) && <option value="">Choose…</option>}
         {(cur?.statuses || []).map((s) => <option key={s} value={s}>{s}</option>)}
       </select>

@@ -1930,13 +1930,13 @@ ${user.name || ''}`);
 
       {/* -------------------- 2. KANBAN BOARD VIEW -------------------- */}
       {viewMode === 'kanban' && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 overflow-x-auto pb-4">
+        <div className="flex gap-4 overflow-x-auto pb-4 items-start">
           {KANBAN_COLS.map((col) => {
             const all = kanban[col.key];
             const cap = kanbanCap[col.key] || KANBAN_PAGE;
             const shown = all.slice(0, cap);
             return (
-              <div key={col.key} className="bg-brand-gray/5 border border-brand-gray/20 rounded-2xl p-4 flex flex-col h-[550px] min-w-[250px]">
+              <div key={col.key} className="bg-brand-gray/5 border border-brand-gray/20 rounded-2xl p-4 flex flex-col h-[550px] flex-1 min-w-[270px] shrink-0">
                 <div className="flex justify-between items-center mb-3">
                   <span className={`text-[10px] font-extrabold uppercase tracking-wider ${col.title}`}>{col.label}</span>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${col.badge}`}>{all.length.toLocaleString('en-US')}</span>

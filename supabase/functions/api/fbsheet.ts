@@ -132,14 +132,15 @@ export async function syncFacebook(opts: { since?: string; byUser?: string } = {
     const seenIds = new Set<string>(); rows = rows.filter((r) => !seenIds.has(r.fbId) && seenIds.add(r.fbId));
     // only leads newer than the last one handled. The sheet can receive a lead many hours after it was created (the Facebook connector is slow,
     // and created_time mixes time zones), so look back 3 days from the newest lead seen: the lead id and the phone/e-mail check prevent doubles
-    const from = Math.max(Date.parse(since), cfg.cursor && !isNaN(Date.parse(cfg.cursor)) ? Date.parse(cfg.cursor) - 72 * 3600_000 : 0);
+    const from = opts.since ? Date.parse(since) : Math.max(Date.parse(since), cfg.cursor && !isNaN(Date.parse(cfg.cursor)) ? Date.parse(cfg.cursor) - 72 * 3600_000 : 0);
     rows = rows.filter((r) => Date.parse(r.time) > from).sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
     if (!rows.length) { await setConfig("fb_sheet", { ...(await getConfig<any>("fb_sheet", {})), lastTab: names[names.length - 1], lastRun: nowIso() }); return { fbNew: 0, fbTab: names[names.length - 1] }; }
 
     const known = new Set<string>();
     for (let i = 0; i < rows.length; i += 100) {
       const ids = rows.slice(i, i + 100).map((r) => r.fbId);
-      ((await admin.from("crm_email_logs").select("id").in("id", ids)).data || []).forEach((r: any) => known.add(r.id));
+      // only a lead that was really created counts as known: rows logged as Duplicate or Failed are looked at again (the rules may have changed)
+      ((await admin.from("crm_email_logs").select("id").in("id", ids).eq("data->>status", "Success")).data || []).forEach((r: any) => known.add(r.id));
       ((await admin.from("crm_leads").select("email_id").in("email_id", ids)).data || []).forEach((r: any) => known.add(r.email_id));
     }
     const todo = rows.filter((r) => !known.has(r.fbId));
@@ -149,7 +150,7 @@ export async function syncFacebook(opts: { since?: string; byUser?: string } = {
       const base = { id: r.fbId, receivedTime: new Date(r.time).toISOString(), sender: "Facebook Leads (Google Sheet)", subject: `${r.parsed.customerName || r.parsed.phoneNumber} · ${r.parsed.project || "no project"}` };
       try {
         if (!r.parsed.customerName && !r.parsed.phoneNumber) { await logMail(base, "Failed", { ...base, bodyPreview: r.text, error: "No name or phone number" }); failed++; continue; }
-        const dup = await findDuplicate(r.parsed);
+        const dup = await findDuplicate(r.parsed, { phoneFirst: true });
         if (dup) { await logMail(base, "Duplicate", { ...base, bodyPreview: r.text, parsedLeadId: dup.id, error: dup.deleted ? "Skipped: matches a lead that was deleted on purpose" : `Duplicate of ${dup.id}` }); dups++; continue; }
         const lead = await createLeadFromParsed(r.parsed, { ...base, channel: "Facebook Leads", origin: "the Facebook leads sheet", leadDate: cairoDate(r.time) } as any, r.text, opts.byUser || "System");
         await logMail(base, "Success", { ...base, bodyPreview: r.text, parsedLeadId: lead.id });

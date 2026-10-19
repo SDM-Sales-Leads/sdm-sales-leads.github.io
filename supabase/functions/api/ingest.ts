@@ -372,12 +372,13 @@ export function leadColumns(l: any) {
   };
 }
 
-export async function findDuplicate(parsed: Parsed): Promise<{ id: string; deleted: boolean } | null> {
+export async function findDuplicate(parsed: Parsed, opts: { phoneFirst?: boolean } = {}): Promise<{ id: string; deleted: boolean } | null> {
   const phone = normPhone(parsed.phoneNumber);
   const email = normEmail(parsed.email);
   const filters: string[] = [];
   if (phone) filters.push(`phone_norm.eq.${phone}`);
-  if (email) filters.push(`email_norm.eq.${email.replace(/[,()]/g, "")}`);
+  // phoneFirst (Facebook form): a new phone number is a new contact even when the e-mail was used before; the e-mail only decides when there is no phone
+  if (email && !(opts.phoneFirst && phone)) filters.push(`email_norm.eq.${email.replace(/[,()]/g, "")}`);
   if (!filters.length) return null;
   const { data } = await admin.from("crm_leads").select("id,deleted_at").or(filters.join(",")).limit(1);
   return data && data[0] ? { id: data[0].id, deleted: !!data[0].deleted_at } : null;

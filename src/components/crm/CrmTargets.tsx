@@ -129,7 +129,7 @@ export const CrmTargets: React.FC<CrmTargetsProps> = ({ leads }) => {
     return m;
   }, [leads, ext, year, monthKey, ptype, pq, pm]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const targetOf = (p: { id: string; target: number }) => { const v = tg[p.id]?.[pkey]; return v !== undefined ? v : (ptype === 'year' && pyear === nowD.getFullYear() ? targetOf(p) : 0); };
+  const targetOf = (p: { id: string; target: number }) => { const v = tg[p.id]?.[pkey]; return v !== undefined ? v : (ptype === 'year' && pyear === nowD.getFullYear() ? p.target : 0); };
   const stat = (id: string) => stats.get(id) || blank();
   const achieved = (id: string) => stat(id).wonValue + stat(id).ext;
   const pctOf = (id: string, target: number) => target > 0 ? (achieved(id) / target) * 100 : null;

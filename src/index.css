@@ -229,3 +229,14 @@ button.glass-card:hover { transform: translateY(-2px); box-shadow: 0 10px 26px r
 .glass-input { font-size: calc(13px * var(--ui-scale)); }
 .mobile-tabbar button { font-size: calc(10.5px * var(--ui-scale)); }
 .gtabs button { font-size: calc(12.5px * var(--ui-scale)); }
+
+/* Windows (modals) on a phone: they scroll as a whole, are never centred off-screen, and sit above the bottom tab bar */
+@media (max-width: 767px) {
+  .fixed.inset-0.flex[class*="z-50"], .fixed.inset-0.flex[class*="z-[100]"], .fixed.inset-0.flex[class*="z-[60]"] {
+    overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; align-items: flex-start !important; padding: 8px 8px calc(12px + env(safe-area-inset-bottom)) !important;
+  }
+  .fixed.inset-0.flex[class*="z-50"] > *, .fixed.inset-0.flex[class*="z-[100]"] > *, .fixed.inset-0.flex[class*="z-[60]"] > * { margin-top: auto; margin-bottom: auto; max-height: none !important; width: 100%; max-width: 100%; }
+  body:has(.fixed.inset-0.flex[class*="z-50"]) .mobile-tabbar, body:has(.fixed.inset-0.flex[class*="z-[100]"]) .mobile-tabbar, body:has(.fixed.inset-0.flex[class*="z-[60]"]) .mobile-tabbar { display: none; }
+}
+input[type="date"], input[type="time"], input[type="datetime-local"] { min-width: 0; max-width: 100%; -webkit-appearance: none; appearance: none; }
+.grid > * { min-width: 0; }

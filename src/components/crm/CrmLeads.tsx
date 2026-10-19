@@ -2890,7 +2890,7 @@ ${user.name || ''}`);
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white border border-brand-gray/20 rounded-2xl w-full max-w-md shadow-xl overflow-hidden flex flex-col max-h-[94dvh]"
+            className="bg-white border border-brand-gray/20 rounded-2xl w-full max-w-md shadow-xl overflow-clip"
           >
             <div className="shrink-0 p-4 sm:p-5 border-b border-brand-gray/15 flex justify-between items-center bg-brand-black text-white">
               <h4 className="font-bold text-sm uppercase tracking-wide">
@@ -2901,7 +2901,7 @@ ${user.name || ''}`);
               </button>
             </div>
 
-            <div className="p-4 sm:p-6 space-y-3 sm:space-y-4 overflow-y-auto min-h-0 overscroll-contain text-xs">
+            <div className="p-4 sm:p-6 space-y-3 sm:space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] uppercase font-bold text-brand-gray mb-1.5">Date</label>
@@ -3145,7 +3145,7 @@ ${user.name || ''}`);
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white border border-brand-gray/20 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[94dvh] text-xs"
+            className="bg-white border border-brand-gray/20 rounded-2xl w-full max-w-lg shadow-xl overflow-clip text-xs"
           >
             <div className="shrink-0 p-4 sm:p-5 border-b border-brand-gray/15 flex justify-between items-center bg-green-600 text-white">
               <h4 className="font-bold text-sm uppercase tracking-wide flex items-center gap-2">
@@ -3157,7 +3157,7 @@ ${user.name || ''}`);
               </button>
             </div>
 
-            <div className="p-4 sm:p-6 space-y-3 sm:space-y-4 overflow-y-auto min-h-0 overscroll-contain font-medium">
+            <div className="p-4 sm:p-6 space-y-3 sm:space-y-4 font-medium">
               <div className="p-3 bg-green-50 border border-green-100 rounded-xl flex gap-2 text-green-800">
                 <Info size={16} className="text-green-600 flex-shrink-0 mt-0.5" />
                 <p className="text-[10px] leading-relaxed">
@@ -3226,7 +3226,7 @@ ${user.name || ''}`);
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white border border-brand-gray/20 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[94dvh] text-xs"
+            className="bg-white border border-brand-gray/20 rounded-2xl w-full max-w-lg shadow-xl overflow-clip text-xs"
           >
             <div className="shrink-0 p-4 sm:p-5 border-b border-brand-gray/15 flex justify-between items-center bg-blue-600 text-white">
               <h4 className="font-bold text-sm uppercase tracking-wide flex items-center gap-2">
@@ -3238,7 +3238,7 @@ ${user.name || ''}`);
               </button>
             </div>
 
-            <div className="p-4 sm:p-6 space-y-3 sm:space-y-4 overflow-y-auto min-h-0 overscroll-contain font-medium">
+            <div className="p-4 sm:p-6 space-y-3 sm:space-y-4 font-medium">
               <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl flex gap-2 text-blue-800">
                 <Info size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
                 <p className="text-[10px] leading-relaxed">

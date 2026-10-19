@@ -1,4 +1,5 @@
 import { crmService } from './crm/crmService';
+import { TextSizeButton } from './TextSizeButton';
 import React, { useState, useEffect, useMemo } from 'react';
 import { buildGroups, groupOf } from './navGroups';
 import { useAuth } from '../services/AuthContext';
@@ -508,6 +509,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </>
         )}
 
+          <TextSizeButton className={`w-full flex items-center gap-3 py-2.5 rounded-xl text-white/60 hover:bg-white/5 hover:text-white transition-all ${isCollapsed ? 'justify-center px-0' : 'px-4'}`} compact={isCollapsed} />
           <button
             translate="no"
             title={getLang() === 'ar' ? 'Switch to English' : 'التبديل إلى العربية'}

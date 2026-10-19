@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { TextSizeButton } from './TextSizeButton';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Grid2x2, LogOut, Menu, PanelRightClose, PanelRightOpen, Search, X } from 'lucide-react';
 import { useAuth } from '../services/AuthContext';
@@ -96,6 +97,7 @@ export const GlassShell: React.FC<{ activeTab: string; crmSubTab: string; go: (t
           </div>
           <ViewSwitch className="flex-col !rounded-2xl !p-1" />
           <button type="button" translate="no" title={getLang() === 'ar' ? 'Switch to English' : 'التبديل إلى العربية'} onClick={() => setLang(getLang() === 'ar' ? 'en' : 'ar')} className="glass-rail-btn text-[13px] font-extrabold">{getLang() === 'ar' ? 'EN' : 'ع'}</button>
+          <TextSizeButton compact className="glass-rail-btn text-[13px]" />
           <button type="button" title="Sign out" onClick={logout} className="glass-rail-btn"><LogOut size={19} /></button>
         </aside>
 
@@ -188,7 +190,7 @@ export const GlassShell: React.FC<{ activeTab: string; crmSubTab: string; go: (t
                 </div>
               </div>
             ); })}
-            <div className="flex gap-2 items-center lg:hidden pt-2"><ViewSwitch /><button type="button" onClick={() => setLang(getLang() === 'ar' ? 'en' : 'ar')} className="glass-pill px-4 py-2 text-xs font-bold" translate="no">{getLang() === 'ar' ? 'English' : 'العربية'}</button><button type="button" onClick={logout} className="glass-pill px-4 py-2 text-xs font-bold">Sign out</button></div>
+            <div className="flex gap-2 items-center lg:hidden pt-2 flex-wrap"><ViewSwitch /><TextSizeButton className="glass-pill px-4 py-2 text-xs font-bold" /><button type="button" onClick={() => setLang(getLang() === 'ar' ? 'en' : 'ar')} className="glass-pill px-4 py-2 text-xs font-bold" translate="no">{getLang() === 'ar' ? 'English' : 'العربية'}</button><button type="button" onClick={logout} className="glass-pill px-4 py-2 text-xs font-bold">Sign out</button></div>
           </div>
         </div>, document.body)}
     </div>

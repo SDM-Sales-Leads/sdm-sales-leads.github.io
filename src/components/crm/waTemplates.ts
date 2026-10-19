@@ -1,6 +1,7 @@
 // The sales team's WhatsApp message library (11 bilingual templates, kept word for word from the previous CRM).
 // Placeholders: {rep} {project} {date} {time} {name} {company}.
 import type { Lead } from './types';
+import { cleanPersonName } from '../../lib/personName';
 
 export const WA_TEMPLATES: Record<string, { ar: string; en: string }> = {
   "Initial introduction": {
@@ -69,7 +70,7 @@ export function waCompose(key: string, lang: WaLang = getWaLang()): string {
 
 export function waFill(text: string, l: Partial<Lead>, rep: string, when?: { date?: string; time?: string }): string {
   return text
-    .replace(/\{name\}/g, l.customerName || '')
+    .replace(/\{name\}/g, cleanPersonName(l.customerName))
     .replace(/\{company\}/g, l.companyName || 'your company')
     .replace(/\{project\}/g, l.project || 'our industrial cities')
     .replace(/\{rep\}/g, rep)

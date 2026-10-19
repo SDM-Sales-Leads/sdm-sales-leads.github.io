@@ -215,3 +215,17 @@ button.glass-card:hover { transform: translateY(-2px); box-shadow: 0 10px 26px r
 .gtabs.on-dark button.on { background: #A6192E; color: #fff; }
 .glass-home-h { color: #2D2926; }
 .glass-view .glass-home-h { color: #fff; }
+
+/* Text size (Aa button): the small fixed pixel sizes follow the chosen scale too */
+:root { --ui-scale: 1; }
+.text-\[8px\] { font-size: calc(8px * var(--ui-scale)); }
+.text-\[9px\] { font-size: calc(9px * var(--ui-scale)); }
+.text-\[10px\] { font-size: calc(10px * var(--ui-scale)); }
+.text-\[10\.5px\] { font-size: calc(10.5px * var(--ui-scale)); }
+.text-\[11px\] { font-size: calc(11px * var(--ui-scale)); }
+.text-\[12px\] { font-size: calc(12px * var(--ui-scale)); }
+.text-\[13px\] { font-size: calc(13px * var(--ui-scale)); }
+.text-\[15px\] { font-size: calc(15px * var(--ui-scale)); }
+.glass-input { font-size: calc(13px * var(--ui-scale)); }
+.mobile-tabbar button { font-size: calc(10.5px * var(--ui-scale)); }
+.gtabs button { font-size: calc(12.5px * var(--ui-scale)); }

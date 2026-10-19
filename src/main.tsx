@@ -4,11 +4,13 @@ import { installStorageGuard } from './lib/storageGuard';
 import { installApiFetch } from './lib/api';
 import { installCairoTime } from './lib/cairoTime';
 import { installTelemetry, markReload } from './lib/telemetry';
+import { applyTextSize } from './lib/textSize';
 
 // must run before any component reads storage or calls /api
 installStorageGuard();
 installApiFetch();
 installCairoTime();
+applyTextSize();
 installTelemetry();
 
 // A new version replaces the page files on the server. A tab that was opened before still points at the old file names:

@@ -33,7 +33,8 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
   const [showSavedToast, setShowSavedToast] = useState(false);
   const [sqmWeight, setSqmWeight] = useState(50);
   const [maxSqm, setMaxSqm] = useState('');
-  const [maxOpen, setMaxOpen] = useState('');
+  const [maxTouched, setMaxTouched] = useState('300');
+  const [maxUntouched, setMaxUntouched] = useState('300');
   const [maxDay, setMaxDay] = useState('');
   const [pool, setPool] = useState<{ unassigned: number; maxOpen: number } | null>(null);
   const [poolBusy, setPoolBusy] = useState(false);
@@ -62,7 +63,7 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
   useEffect(() => {
     const s = crmService.getQueueSettings();
     if (s && s.assignmentMethod) setActiveStrategy(s.assignmentMethod);
-    if (s) { setMaxDay(Number(s.maxDailyAssignment) > 0 ? String(s.maxDailyAssignment) : ''); setMaxOpen(Number(s.maxLeadsPerSalesperson) > 0 ? String(s.maxLeadsPerSalesperson) : ''); setSqmWeight(typeof s.sqmWeight === 'number' ? s.sqmWeight : 50); setMaxSqm(Number(s.maxSqmPerSalesperson) > 0 ? String(s.maxSqmPerSalesperson) : ''); setUnknownSqm(Number(s.unknownLeadSqm) > 0 ? String(s.unknownLeadSqm) : ''); }
+    if (s) { setMaxDay(Number(s.maxDailyAssignment) > 0 ? String(s.maxDailyAssignment) : ''); setMaxTouched(String(Number(s.maxTouchedPerSalesperson) >= 0 && s.maxTouchedPerSalesperson !== undefined ? s.maxTouchedPerSalesperson : 300)); setMaxUntouched(String(s.maxUntouchedPerSalesperson !== undefined ? s.maxUntouchedPerSalesperson : 300)); setSqmWeight(typeof s.sqmWeight === 'number' ? s.sqmWeight : 50); setMaxSqm(Number(s.maxSqmPerSalesperson) > 0 ? String(s.maxSqmPerSalesperson) : ''); setUnknownSqm(Number(s.unknownLeadSqm) > 0 ? String(s.unknownLeadSqm) : ''); }
     const refresh = () => { setLeads(crmService.getLeads()); setPeople(crmService.getSalesPeople()); setSettings(crmService.getQueueSettings()); };
     window.addEventListener('crm-data-changed', refresh);
     return () => window.removeEventListener('crm-data-changed', refresh);
@@ -126,7 +127,9 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
       ...currentSettings,
       assignmentMethod: activeStrategy,
       sqmWeight,
-      maxLeadsPerSalesperson: Math.max(0, Math.floor(Number(maxOpen) || 0)),
+      maxTouchedPerSalesperson: Math.max(0, Math.floor(Number(maxTouched) || 0)),
+      maxUntouchedPerSalesperson: Math.max(0, Math.floor(Number(maxUntouched) || 0)),
+      maxLeadsPerSalesperson: Math.max(0, Math.floor(Number(maxTouched) || 0)) + Math.max(0, Math.floor(Number(maxUntouched) || 0)),
       maxDailyAssignment: Math.max(0, Math.floor(Number(maxDay) || 0)),
       maxSqmPerSalesperson: sqmOf(maxSqm),
       unknownLeadSqm: sqmOf(unknownSqm),
@@ -236,11 +239,18 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
               {hasAdminRole && <button type="button" disabled={poolBusy} onClick={fillPool} className="bg-brand-red disabled:opacity-50 text-white px-4 py-2 rounded-xl font-bold">{poolBusy ? 'Handing out…' : 'Hand out the pool now'}</button>}
             </div>
 
-            <label className="block text-xs">
-              <span className="font-bold text-brand-black">Max open leads per salesperson</span>
-              <input type="number" min={0} className="input-field mt-1" placeholder="No limit (e.g. 300)" value={maxOpen} disabled={!hasAdminRole} onChange={(e) => setMaxOpen(e.target.value)} />
-              <span className="text-[10px] text-brand-gray font-semibold">Open = not Won, Lost, Not Interested, Low Budget or Wrong Number (contacted or not). At this number the person gets no new leads; closing one frees a place. Call center leads ignore this limit.</span>
-            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block text-xs">
+                <span className="font-bold text-brand-black">Max touched leads per salesperson</span>
+                <input type="number" min={0} className="input-field mt-1" placeholder="300" value={maxTouched} disabled={!hasAdminRole} onChange={(e) => setMaxTouched(e.target.value)} />
+                <span className="text-[10px] text-brand-gray font-semibold">Open leads the person already worked on (any call, WhatsApp, e-mail, meeting or comment). Never taken away.</span>
+              </label>
+              <label className="block text-xs">
+                <span className="font-bold text-brand-black">Max untouched leads per salesperson</span>
+                <input type="number" min={0} className="input-field mt-1" placeholder="300" value={maxUntouched} disabled={!hasAdminRole} onChange={(e) => setMaxUntouched(e.target.value)} />
+                <span className="text-[10px] text-brand-gray font-semibold">New leads nobody worked on yet. When one is touched or closed, the pool gives the person the next oldest lead. The total (touched + untouched) stays inside the two limits together. Call center leads ignore both and are shared fairly.</span>
+              </label>
+            </div>
 
             <label className="block text-xs">
               <span className="font-bold text-brand-black">Max new leads per person per day</span>

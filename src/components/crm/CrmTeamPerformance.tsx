@@ -1,5 +1,6 @@
 // Team Performance: one row per salesperson, leaderboard and a detail drawer. For sales managers / team leaders;
 // a salesperson only ever sees their own row (the server only sends them their own leads).
+import { LoadBar } from './LoadBar';
 import { crmNav } from './crmNav';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Trophy, X } from 'lucide-react';
@@ -131,6 +132,7 @@ export const CrmTeamPerformance: React.FC<Partial<CrmTeamPerformanceProps> & { l
           </div>
         </div>
       )}
+      {!filters && <LoadBar defaultOpen />}
       {!filters && <FilterBar f={f} set={setOwn} owners={manager ? owners : undefined} sources={sources} rangeLabel={`${range.label} · ${pool.length} leads`} />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">

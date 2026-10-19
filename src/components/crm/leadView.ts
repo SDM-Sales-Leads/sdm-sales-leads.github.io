@@ -1,9 +1,10 @@
+import { cairoDateISO, cairoParts } from '../../lib/cairoTime';
 // Display helpers of the leads screens (kept out of the big component so the memoised rows can use them).
 import type { Lead } from './types';
 import { isOpenStatus } from './leadConfig';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
-export const localISO = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+export const localISO = (d: Date) => cairoDateISO(d);
 export const fmtSize = (v: string | number | undefined) => (Number(v) > 0 ? `${Number(v).toLocaleString('en-US')} sqm` : '—');
 
 // SLA risk = still active and inside the last 25% of its window (registration/assignment -> deadline)
@@ -21,11 +22,12 @@ export function formatLeadDateTime(dateStr: string): string {
   try {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return dateStr;
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    const hh = String(d.getHours()).padStart(2, '0');
-    const min = String(d.getMinutes()).padStart(2, '0');
+    const c = cairoParts(d);
+    const yyyy = c.y;
+    const mm = String(c.mo).padStart(2, '0');
+    const dd = String(c.d).padStart(2, '0');
+    const hh = String(c.h).padStart(2, '0');
+    const min = String(c.mi).padStart(2, '0');
     
     // Check if the original string was just a YYYY-MM-DD string without time
     if (dateStr.length <= 10) {

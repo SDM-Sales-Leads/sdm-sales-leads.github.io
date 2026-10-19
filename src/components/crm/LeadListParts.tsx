@@ -3,7 +3,7 @@
 import React from 'react';
 import { AlertTriangle, CheckSquare, ChevronLeft, ChevronRight, Clock, Info, Square, UserCheck, UserPlus } from 'lucide-react';
 import type { Contact, Lead } from './types';
-import { NO_CHANNEL, channelOf, phoneIntl } from './leadConfig';
+import { NO_CHANNEL, channelOf, isTouchedLead, phoneIntl } from './leadConfig';
 import { ccState } from './leadMetrics';
 import { fmtSize, formatLeadDateTime, getSlaStatus } from './leadView';
 import { priorityClass, prioKey, statusClass } from './leadRules';
@@ -70,6 +70,11 @@ export const LeadRow = React.memo(({ lead: l, selected, cols, canAssign, winRate
       {has('priority') && (
         <td className="py-3.5 px-3">
           <span className={`whitespace-nowrap px-2.5 py-1 rounded-full text-[10px] font-semibold ${priorityClass(l.priority)}`}>{prioKey(l.priority) || '—'}</span>
+        </td>
+      )}
+      {has('touch') && (
+        <td className="py-3.5 px-3">
+          <span className={`whitespace-nowrap px-2.5 py-1 rounded-full text-[10px] font-bold ${isTouchedLead(l) ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{isTouchedLead(l) ? 'Touched' : 'Untouched'}</span>
         </td>
       )}
       {has('score') && <td className="py-3.5 px-3"><LeadScoreChip lead={l} winRate={winRate} /></td>}

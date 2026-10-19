@@ -24,9 +24,9 @@ route("POST", "/cron/ingest", async ({ req }) => {
   if (!want || !safeEqual(given, want)) throw new HttpError(401, "Not allowed");
   const { data } = await admin.from("system_config").select("value").eq("key", "ingest_auto").maybeSingle();
   if (data?.value !== true) return { skipped: true, reason: "automatic ingestion is off" };
-  // the schedule calls this every hour; it only works at 09:00, 11:00, 13:00, 15:00 and 17:00 Cairo time, Sunday to Thursday
+  // the schedule calls this every hour; it only works at 09:00, 12:00 and 15:00 Cairo time, Sunday to Thursday
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).map((p) => [p.type, p.value]));
-  if (["Fri", "Sat"].includes(parts.weekday) || ![9, 11, 13, 15, 17].includes(Number(parts.hour))) return { skipped: true, reason: "outside the sync hours" };
+  if (["Fri", "Sat"].includes(parts.weekday) || ![9, 12, 15].includes(Number(parts.hour))) return { skipped: true, reason: "outside the sync hours" };
   const m: any = await ingestInbox(25, "Scheduled run").catch((e: any) => ({ mailError: String(e?.message || e).slice(0, 200) }));
   const fb = await syncFacebook({ byUser: "Scheduled run" }).catch(() => ({ fbNew: 0 }));
   return { ...m, ...fb };

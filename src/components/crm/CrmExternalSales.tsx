@@ -6,6 +6,7 @@ import { useAuth } from '../../services/AuthContext';
 import { adminService } from '../../services/adminService';
 import { PROJECTS } from './leadConfig';
 import { externalSalesService, ExternalSaleRow } from './externalSalesService';
+import { cairoDateISO } from '../../lib/cairoTime';
 
 export interface CrmExternalSalesProps {
   leads: Lead[];
@@ -16,7 +17,7 @@ export interface CrmExternalSalesProps {
 
 const SALES_ROLES = ['Sales Team', 'Sales Rep', 'Sales Team Leader'];
 const egp = (n: number) => `${Math.round(n).toLocaleString('en-US')} EGP`;
-const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const todayISO = () => cairoDateISO(new Date());
 const PAGES = [25, 50, 100, 0];
 const STATUS_STYLE: Record<string, string> = {
   pending: 'bg-amber-100 text-amber-700', confirmed: 'bg-emerald-100 text-emerald-700', rejected: 'bg-red-100 text-red-700',

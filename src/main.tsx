@@ -2,10 +2,12 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import { installStorageGuard } from './lib/storageGuard';
 import { installApiFetch } from './lib/api';
+import { installCairoTime } from './lib/cairoTime';
 
 // must run before any component reads storage or calls /api
 installStorageGuard();
 installApiFetch();
+installCairoTime();
 
 // A new version replaces the page files on the server. A tab that was opened before still points at the old file names:
 // opening a page that was not loaded yet then fails. Reload once (the new version) instead of showing a blank screen.

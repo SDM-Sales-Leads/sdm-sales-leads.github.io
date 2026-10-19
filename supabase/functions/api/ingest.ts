@@ -16,6 +16,8 @@ export const DEFAULT_QUEUE = {
   enableSizeRouting: false,
   enablePriorityRouting: false,
   maxLeadsPerSalesperson: 20,
+  maxTouchedPerSalesperson: 300,    // open leads a person already worked on (touched)
+  maxUntouchedPerSalesperson: 300,  // open leads nobody worked on yet (untouched); the pool refills this one
   maxDailyAssignment: 5,
   sqmWeight: 50,              // "Balanced" method: % of the decision that follows sqm (the rest follows number of leads)
   maxSqmPerSalesperson: 0,    // 0 = no limit on the open sqm one person can hold
@@ -282,7 +284,7 @@ export async function loadQueue() {
   return { ...DEFAULT_QUEUE, ...(await getConfig<any>("queue_settings", {})) };
 }
 
-type RStats = { at: number; open: Record<string, number>; total: Record<string, number>; today: Record<string, number>; sqm: Record<string, number> };
+type RStats = { at: number; open: Record<string, number>; total: Record<string, number>; today: Record<string, number>; sqm: Record<string, number>; openT: Record<string, number>; openU: Record<string, number>; cc: Record<string, number>; ccSqm: Record<string, number> };
 const ROUTE_STATS = new Map<string, RStats>();
 /** opts.sim: a dry run. Nothing is saved or cached; the same object carries the pretend state from one lead to the next. */
 export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?: any[]; ignoreDaily?: boolean; noBackup?: boolean }): Promise<{ id: string; name: string } | null> {
@@ -298,32 +300,42 @@ export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?:
   const statsKey = [...ids].sort().join(",");
   let st = opts?.sim?.st as RStats | undefined || ROUTE_STATS.get(statsKey);
   if (!st || (!opts?.sim?.st && Date.now() - st.at > 90_000)) {
-    const rows = await pageAll((a, b) => admin.from("crm_leads").select("assigned_to,status,created_at,data->assignedDate,data->requiredSize").in("assigned_to", ids).is("deleted_at", null).order("id").range(a, b));
+    const rows = await pageAll((a, b) => admin.from("crm_leads").select("assigned_to,status,created_at,data->assignedDate,data->requiredSize,data->touched,data->channel,data->legacyId").in("assigned_to", ids).is("deleted_at", null).order("id").range(a, b));
     const open: Record<string, number> = {};
     const total: Record<string, number> = {};
     const today: Record<string, number> = {};
     const sqm: Record<string, number> = {};
+    const openT: Record<string, number> = {}, openU: Record<string, number> = {}, cc: Record<string, number> = {}, ccSqm: Record<string, number> = {};
     const day0 = new Date(); day0.setUTCHours(0, 0, 0, 0);
     for (const r of rows || []) {
       const k = r.assigned_to as string;
       total[k] = (total[k] || 0) + 1;
-      if (!CLOSED.has(r.status || "")) { open[k] = (open[k] || 0) + 1; sqm[k] = (sqm[k] || 0) + effectiveSqm((r as any).requiredSize, q); }
+      if (!CLOSED.has(r.status || "")) {
+        open[k] = (open[k] || 0) + 1; sqm[k] = (sqm[k] || 0) + effectiveSqm((r as any).requiredSize, q);
+        // touched = the person worked on it (marked on the lead; any status other than New also counts)
+        if ((r as any).touched === true || (r.status || "New") !== "New") openT[k] = (openT[k] || 0) + 1; else openU[k] = (openU[k] || 0) + 1;
+      }
       const ad = (r as any).assignedDate ? new Date((r as any).assignedDate) : new Date(r.created_at);
+      // call center leads handed out by this system in the last 30 days: the base of the fair share
+      if (/call center/i.test(String((r as any).channel || "")) && !(r as any).legacyId && Date.now() - ad.getTime() < 30 * 86400_000) { cc[k] = (cc[k] || 0) + 1; ccSqm[k] = (ccSqm[k] || 0) + effectiveSqm((r as any).requiredSize, q); }
       if (ad >= day0) today[k] = (today[k] || 0) + 1;
     }
-    st = { at: Date.now(), open, total, today, sqm };
-    if (opts?.sim) { st = { ...st, open: { ...open }, total: { ...total }, today: { ...today }, sqm: { ...sqm } }; opts.sim.st = st; }
+    st = { at: Date.now(), open, total, today, sqm, openT, openU, cc, ccSqm };
+    if (opts?.sim) { st = { ...st, open: { ...open }, total: { ...total }, today: { ...today }, sqm: { ...sqm }, openT: { ...openT }, openU: { ...openU }, cc: { ...cc }, ccSqm: { ...ccSqm } }; opts.sim.st = st; }
     else { ROUTE_STATS.set(statsKey, st); if (ROUTE_STATS.size > 5) ROUTE_STATS.delete(ROUTE_STATS.keys().next().value as string); }
   }
-  const { open, total, today, sqm } = st;
+  const { open, total, today, sqm, openT, openU, cc, ccSqm } = st;
   const leadSize = effectiveSqm(lead?.requiredSize, q);
   const maxSqm = /call center/i.test(String(lead?.channel || "")) ? 0 : Number(q.maxSqmPerSalesperson) || 0;
   // call center leads are the most urgent: they ignore every limit (open leads, daily, sqm)
   const isCC = /call center/i.test(String(lead?.channel || ""));
-  const maxOpen = isCC ? 0 : Number(q.maxLeadsPerSalesperson) || 0;
+  // two pools per person: untouched (new, nobody worked on it) and touched. A pool lead is always untouched, so it needs a free untouched
+  // place, and the total (touched + untouched) must stay inside the sum of the two limits.
+  const maxU = isCC ? 0 : Number(q.maxUntouchedPerSalesperson) || 0;
+  const maxTot = isCC ? 0 : (Number(q.maxTouchedPerSalesperson) || 0) + (Number(q.maxUntouchedPerSalesperson) || 0);
   const maxDay = isCC || opts?.ignoreDaily ? 0 : Number(q.maxDailyAssignment) || 0;
-  let elig = pool.filter((u: any) => (!maxOpen || (open[u.id] || 0) < maxOpen) && (!maxDay || (today[u.id] || 0) < maxDay) && (!maxSqm || (sqm[u.id] || 0) + leadSize <= maxSqm || (sqm[u.id] || 0) === 0));
-  if (opts?.trace) for (const u of pool) opts.trace.push({ id: u.id, name: u.name, open: open[u.id] || 0, sqm: sqm[u.id] || 0, eligible: elig.some((e: any) => e.id === u.id) });
+  let elig = pool.filter((u: any) => (!maxU || (openU[u.id] || 0) < maxU) && (!maxTot || (openT[u.id] || 0) + (openU[u.id] || 0) < maxTot) && (!maxDay || (today[u.id] || 0) < maxDay) && (!maxSqm || (sqm[u.id] || 0) + leadSize <= maxSqm || (sqm[u.id] || 0) === 0));
+  if (opts?.trace) for (const u of pool) opts.trace.push({ id: u.id, name: u.name, open: open[u.id] || 0, touched: openT[u.id] || 0, untouched: openU[u.id] || 0, ccLeads: cc[u.id] || 0, ccSqm: ccSqm[u.id] || 0, sqm: sqm[u.id] || 0, eligible: elig.some((e: any) => e.id === u.id) });
   if (!elig.length) {
     // overflow: back-up person, else leave unassigned in the queue for a manager
     if (opts?.noBackup) return null;
@@ -334,7 +346,12 @@ export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?:
 
   const method = q.assignmentMethod;
   let pick: any;
-  if (method === "Random") {
+  if (isCC) {
+    // call center leads are shared fairly: whoever holds the fewest (and the smallest total size) of them in the last 30 days gets the next one
+    const load: Record<string, Load> = {};
+    for (const u of elig) load[u.id] = { open: cc[u.id] || 0, sqm: ccSqm[u.id] || 0, total: cc[u.id] || 0 };
+    pick = pickBySize(elig, load, "Balanced Sqm and Leads", { ...q, sqmWeight: 50 });
+  } else if (method === "Random") {
     pick = elig[Math.floor(Math.random() * elig.length)];
   } else if (method === "Least Total Leads") {
     pick = [...elig].sort((a, b) => (total[a.id] || 0) - (total[b.id] || 0) || a.name.localeCompare(b.name))[0];
@@ -356,6 +373,8 @@ export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?:
   }
   sqm[pick.id] = (sqm[pick.id] || 0) + leadSize;
   open[pick.id] = (open[pick.id] || 0) + 1; total[pick.id] = (total[pick.id] || 0) + 1; today[pick.id] = (today[pick.id] || 0) + 1;
+  openU[pick.id] = (openU[pick.id] || 0) + 1;
+  if (isCC) { cc[pick.id] = (cc[pick.id] || 0) + 1; ccSqm[pick.id] = (ccSqm[pick.id] || 0) + leadSize; }
   return { id: pick.id, name: pick.name };
 }
 

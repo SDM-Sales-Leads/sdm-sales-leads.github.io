@@ -215,3 +215,6 @@ export async function loadLists(): Promise<boolean> {
     applyLists(j); return true;
   } catch { return false; }
 }
+
+/** automatic marker (not editable): somebody worked on the lead (any activity or any status other than New) */
+export const isTouchedLead = (l: { touched?: boolean; status?: string }) => l.touched === true || (l.status || 'New') !== 'New';

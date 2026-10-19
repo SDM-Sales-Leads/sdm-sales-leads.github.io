@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 // Notifications: stored per user on the server (bell in the app) + e-mail from the system mailbox (the same no-reply account
 // the mail ingestion uses). Used by: lead assignment, changes on an assigned lead, reminders (follow-up / meeting / task).
-import { admin, escHtml, getConfig, nowIso, str } from "./lib.ts";
+import { admin, escHtml, getConfig, nowIso, pageAll, setConfig, str } from "./lib.ts";
 import { loadEws, sendMail } from "./ews.ts";
 
 declare const EdgeRuntime: any;
@@ -65,19 +65,44 @@ export async function notifyAssigned(items: Assigned[]) {
   const by = new Map<string, Assigned[]>();
   for (const i of items) by.set(i.userId, [...(by.get(i.userId) || []), i]);
   await addNotifications(items.map((i) => ({ userId: i.userId, type: "assigned", leadId: i.leadId, title: `New lead assigned: ${i.leadName || "(no name)"}`, body: [i.company, i.project, i.byName ? `Assigned by ${i.byName}` : ""].filter(Boolean).join(" · ") })));
+  // no e-mail per lead: the bell is instant, the e-mail comes as one table at 09:30, 12:30 and 15:30 (see sendAssignDigest)
+  void by; void base;
+}
+
+const DIGEST_SLOTS = ["09:30", "12:30", "15:30"];
+/** One e-mail per person with every lead assigned since the previous digest. Runs from the 5-minute scheduler; sends Sunday to Thursday
+ *  at 09:30, 12:30 and 15:30 Cairo time (Friday and Saturday are off days: the leads wait for Sunday's first mail). Nothing is sent to a person
+ *  who got no new lead. Reminders, due dates and meeting alerts are separate and stay immediate. */
+export async function sendAssignDigest() {
+  const now = new Date();
+  const cur = await getConfig<any>("assign_digest", {});
+  if (!cur.at) { await setConfig("assign_digest", { at: now.toISOString(), slot: "" }); return { digest: "started" }; }
+  const p: any = CAIRO_PARTS(now);
+  const wd = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", weekday: "short" }).format(now);
+  if (wd === "Fri" || wd === "Sat") return { digest: "off day" };
+  const mins = +p.hour * 60 + +p.minute;
+  const due = DIGEST_SLOTS.filter((t) => mins >= +t.slice(0, 2) * 60 + +t.slice(3)).pop();
+  if (!due) return { digest: "not yet" };
+  const slot = `${p.year}-${p.month}-${p.day}@${due}`;
+  if (cur.slot === slot) return { digest: "already sent" };
+  await setConfig("assign_digest", { at: now.toISOString(), slot });       // first: a slow mail run must not send twice
+  const rows = await pageAll((a, b) => admin.from("crm_leads").select("id,assigned_to,status,data->customerName,data->companyName,data->project,data->source,data->channel,data->assignedDate,data->legacyId")
+    .is("deleted_at", null).not("assigned_to", "is", null).gte("data->>assignedDate", String(cur.at)).lte("data->>assignedDate", now.toISOString()).order("id").range(a, b), 5000);
+  const by = new Map<string, any[]>();
+  for (const r of rows || []) { if ((r as any).legacyId) continue; by.set(r.assigned_to as string, [...(by.get(r.assigned_to as string) || []), r]); }
+  const base = await appBase();
+  const when = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
+  let sent = 0;
   for (const [uid, list] of by) {
-    if (list.length <= 3) {
-      for (const i of list) {
-        await emailUser(uid, `New lead assigned to you: ${i.leadName || ""}`, shell("A new sales lead was assigned to you",
-          `<p>You have a new lead: <b>${escHtml(i.leadName || "—")}</b>${i.company ? ` (${escHtml(i.company)})` : ""}.</p>
-           <table>${row("Project", i.project)}${row("Source", i.source)}${row("Assigned by", i.byName)}</table>
-           ${btn(leadLink(base, i.leadId), `Open the lead: ${i.leadId}`)}`), "Lead Assigned");
-      }
-    } else {   // a bulk assignment: one mail, not twenty
-      await emailUser(uid, `${list.length} new leads assigned to you`, shell(`${list.length} new sales leads were assigned to you`,
-        `<ul style="padding-left:18px">${list.slice(0, 25).map((i) => `<li>${escHtml(i.leadName || "—")} — <a href="${escHtml(leadLink(base, i.leadId))}" style="color:#A6192E;font-weight:700">${escHtml(i.leadId)}</a></li>`).join("")}</ul>${list.length > 25 ? `<p>…and ${list.length - 25} more.</p>` : ""}`), "Lead Assigned");
-    }
+    list.sort((x, y) => String(x.assignedDate).localeCompare(String(y.assignedDate)));
+    const th = (t: string) => `<th style="text-align:left;padding:6px 8px;background:#f1f1f1;border-bottom:1px solid #ddd">${t}</th>`;
+    const td = (t: string) => `<td style="padding:6px 8px;border-bottom:1px solid #eee;vertical-align:top">${escHtml(t || "—")}</td>`;
+    const body = list.slice(0, 200).map((r) => `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee"><a href="${escHtml(leadLink(base, r.id))}" style="color:#A6192E;font-weight:700">${escHtml(r.id)}</a></td>${td(r.customerName || r.companyName)}${td(r.project)}${td(r.channel || r.source)}${td(r.assignedDate ? when(r.assignedDate) : "")}</tr>`).join("");
+    await emailUser(uid, `${list.length} new lead${list.length === 1 ? "" : "s"} assigned to you`, shell(`${list.length} new lead${list.length === 1 ? "" : "s"} assigned to you`,
+      `<p>These leads were assigned to you since the last update (times are Cairo time).</p><table style="border-collapse:collapse;width:100%;font-size:13px"><tr>${th("Lead")}${th("Customer")}${th("Project")}${th("Source")}${th("Assigned")}</tr>${body}</table>${list.length > 200 ? `<p>…and ${list.length - 200} more. Open the system to see all of them.</p>` : ""}${btn(base, "Open the sales system")}`), "Lead Digest");
+    sent++;
   }
+  return { digest: "sent", people: sent, leads: (rows || []).length };
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { CallCenterFairness } from './CallCenterFairness';
 import { EmailImportLog, Lead } from './types';
 import { crmService } from './crmService';
 import DOMPurify from 'dompurify';
@@ -315,8 +316,7 @@ export const CrmLeadQueue: React.FC<CrmLeadQueueProps> = ({ logs, leads, onLogsU
 
   return (
     <div className="space-y-6" id="crm-lead-queue-root">
-      
-      
+      <CallCenterFairness />
       {/* Webmail Mini Client */}
       <div className="bg-white rounded-2xl border border-brand-gray/20 shadow-sm p-5 space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-brand-gray/10 pb-4 gap-4">

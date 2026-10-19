@@ -1,3 +1,4 @@
+import { cairoDateISO } from '../../lib/cairoTime';
 // Pure calculations for My Day, the dashboard and the reports. No React, no network.
 // Every number is derived from the lead rows only; when data is missing the result is null (shown as "—"), never a made-up value.
 // Formulas follow the sales team's previous CRM (migration/oldcrm/spec_A.md sections 4.8 and 5, spec_D.md sections 1-3).
@@ -10,7 +11,7 @@ import {
 // dates (local calendar: toISOString() is UTC and shifts the day in Egypt)
 // ---------------------------------------------------------------------------------------------
 const pad2 = (n: number) => String(n).padStart(2, '0');
-export const localISO = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+export const localISO = (d: Date) => cairoDateISO(d);
 export const todayISO = () => localISO(new Date());
 /** 'YYYY-MM-DD' stays; a timestamp becomes its local calendar day; '' when missing or invalid */
 export const dayOf = (v?: string | null): string => {

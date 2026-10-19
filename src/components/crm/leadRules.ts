@@ -1,14 +1,12 @@
 // Browser-side lead rules of the sales team's CRM (spec_A 2.4, 4.2, 4.7, 4.8). They are a convenience: they tell the
 // user what is missing before the save. The server (supabase/functions/api/leadrules.ts) is the authority.
 import type { Lead } from './types';
+import { cairoDateISO } from '../../lib/cairoTime';
 import {
   ACTIVE_EXCLUDE, LEGACY_STATUSES, REQ_DATETIME, REQ_FOLLOWUP, STATUS_GROUPS, closingDate, isOpenStatus, statusStage,
 } from './leadConfig';
 
-export const todayISO = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+export const todayISO = () => cairoDateISO(new Date());
 export const addDaysISO = (days: number) => {
   const d = new Date(); d.setDate(d.getDate() + days);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

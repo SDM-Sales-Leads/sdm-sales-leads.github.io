@@ -1,3 +1,4 @@
+import { cairoTimeHM } from '../../lib/cairoTime';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Lead, Contact, Company, LeadStatus, LeadPriority, LostReason, CommentNote, Attachment, TimelineEvent } from './types';
 import { toast } from 'sonner';
@@ -7,7 +8,8 @@ import { crmService, normalizePhone } from './crmService';
 import {
   INDUSTRIES, NO_CHANNEL, channelOf, LOST_CATEGORIES, LOST_REASONS_TEAM, PRIORITIES, SOURCES, STATUS_GROUPS, LEGACY_STATUSES, isOpenStatus, leadScore, normSource, phoneIntl, statusStage,
 } from './leadConfig';
-import { statusAfterAction, REQ_FOLLOWUP } from './leadConfig';
+import { statusAfterAction, REQ_FOLLOWUP, isTouchedLead } from './leadConfig';
+import { LoadBar } from './LoadBar';
 import { CrmCallCenter } from './CrmCallCenter';
 import { Collapse } from './Collapse';
 import { CrmBulkMessage } from './CrmBulkMessage';
@@ -235,6 +237,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   }, [leads]);
   const [filterProject, setFilterProject] = useState<string>('All');
   const [filterPriority, setFilterPriority] = useState<string>('All');
+  const [filterTouch, setFilterTouch] = useState<string>('All');
   const [filterSource, setFilterSource] = useState<string>('All');
   const [filterSalesperson, setFilterSalesperson] = useState<string>('All');
   const [showFilters, setShowFilters] = useState(false);
@@ -248,7 +251,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   const [idPreset, setIdPreset] = useState<{ ids: Set<string>; title: string } | null>(null);
 
   // Column management
-  const [visibleColumns, setVisibleColumns] = useState<string[]>(['id', 'date', 'customer', 'project', 'size', 'slaStatus', 'priority', 'score', 'status', 'assigned', 'channel', 'leadSource']);
+  const [visibleColumns, setVisibleColumns] = useState<string[]>(['id', 'date', 'customer', 'project', 'size', 'slaStatus', 'priority', 'score', 'status', 'touch', 'assigned', 'channel', 'leadSource']);
   
   const columns = {
     id: visibleColumns.includes('id'),
@@ -259,6 +262,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
     slaStatus: visibleColumns.includes('slaStatus'),
     priority: visibleColumns.includes('priority'),
     score: visibleColumns.includes('score'),
+    touch: visibleColumns.includes('touch'),
     status: visibleColumns.includes('status'),
     assigned: visibleColumns.includes('assigned'),
     channel: visibleColumns.includes('channel'),
@@ -275,6 +279,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
     { key: 'slaStatus', label: 'SLA Status' },
     { key: 'priority', label: 'Priority' },
     { key: 'score', label: 'Lead score' },
+    { key: 'touch', label: 'Touched / Untouched' },
     { key: 'status', label: 'Status' },
     { key: 'assigned', label: 'Assigned' },
     { key: 'channel', label: 'Channel' },
@@ -337,7 +342,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   const [interactionDate, setInteractionDate] = useState(localISO(new Date()));
   const [interactionTime, setInteractionTime] = useState('10:00');
   // a logged call / WhatsApp / e-mail happened just now; meetings and visits keep their 10:00 starting point
-  useEffect(() => { if (showInteractionModal === 'call' || showInteractionModal === 'whatsapp' || showInteractionModal === 'email') { const n = new Date(); setInteractionDate(localISO(n)); setInteractionTime(`${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`); } }, [showInteractionModal]);
+  useEffect(() => { if (showInteractionModal === 'call' || showInteractionModal === 'whatsapp' || showInteractionModal === 'email') { const n = new Date(); setInteractionDate(localISO(n)); setInteractionTime(cairoTimeHM(n)); } }, [showInteractionModal]);
   const [interactionLocation, setInteractionLocation] = useState('');
   const [interactionProjectName, setInteractionProjectName] = useState('');
   const [interactionSiteEmail, setInteractionSiteEmail] = useState('');
@@ -514,6 +519,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
       else if (filterStatus !== 'All' && l.status !== filterStatus) return false;
       if (filterProject !== 'All' && l.project !== filterProject) return false;
       if (filterPriority !== 'All' && prioKey(l.priority) !== filterPriority) return false;
+      if (filterTouch !== 'All' && (filterTouch === 'Touched') !== isTouchedLead(l)) return false;
       if (filterSource !== 'All' && l.source !== filterSource) return false;
       if (filterSalesperson === 'Unassigned') { if (l.assignedSalespersonId) return false; }
       else if (filterSalesperson !== 'All' && l.assignedSalespersonName !== filterSalesperson) return false;
@@ -560,10 +566,10 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
     }
     return sorted;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, salespeople, leads, searchTerm, filterStatus, filterProject, filterPriority, filterSource, filterSalesperson, savedView, xf, winRates, sortField, sortDirection, idPreset]);
+  }, [user, salespeople, leads, searchTerm, filterStatus, filterProject, filterPriority, filterTouch, filterSource, filterSalesperson, savedView, xf, winRates, sortField, sortDirection, idPreset]);
 
   // back to the first page whenever the result set changes shape
-  useEffect(() => { setPage(0); setKanbanCap({}); setCalDay(null); }, [searchTerm, filterStatus, filterProject, filterPriority, filterSource, filterSalesperson, savedView, xf, sortField, sortDirection, idPreset]);
+  useEffect(() => { setPage(0); setKanbanCap({}); setCalDay(null); }, [searchTerm, filterStatus, filterProject, filterPriority, filterTouch, filterSource, filterSalesperson, savedView, xf, sortField, sortDirection, idPreset]);
 
   // Project List
   const projects = useMemo(() => {
@@ -595,12 +601,13 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
     if (filterStatus !== 'All') out.push({ key: 'status', label: `Status: ${filterStatus === 'OpenLeads' ? 'Open leads' : filterStatus}`, onClear: () => setFilterStatus('All') });
     if (filterProject !== 'All') out.push({ key: 'project', label: `Project: ${filterProject}`, onClear: () => setFilterProject('All') });
     if (filterPriority !== 'All') out.push({ key: 'priority', label: `Priority: ${filterPriority}`, onClear: () => setFilterPriority('All') });
+    if (filterTouch !== 'All') out.push({ key: 'touch', label: filterTouch, onClear: () => setFilterTouch('All') });
     if (filterSource !== 'All') out.push({ key: 'source', label: `Source: ${filterSource}`, onClear: () => setFilterSource('All') });
     if (filterSalesperson !== 'All') out.push({ key: 'owner', label: `Owner: ${filterSalesperson === 'Unassigned' ? 'Unassigned' : filterSalesperson}`, onClear: () => setFilterSalesperson('All') });
     for (const c of xfChips(xf)) out.push({ key: c.key, label: c.label, onClear: () => setXf((x) => c.clear(x)) });
     if (idPreset) out.push({ key: 'ids', label: `${idPreset.title} · ${idPreset.ids.size} leads`, onClear: () => setIdPreset(null) });
     return out;
-  }, [filterStatus, filterProject, filterPriority, filterSource, filterSalesperson, xf, idPreset]);
+  }, [filterStatus, filterProject, filterPriority, filterTouch, filterSource, filterSalesperson, xf, idPreset]);
 
   // Sources list
   const sources = useMemo(() => {
@@ -1668,6 +1675,7 @@ ${user.name || ''}`);
         </div>
       </div>
 
+      <LoadBar />
       {pinned.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 bg-white border border-brand-gray/15 rounded-2xl px-3 py-2 shadow-sm" aria-label="Quick filters">
           <span className="text-[10px] uppercase font-extrabold text-brand-gray">Quick filters</span>
@@ -1683,6 +1691,13 @@ ${user.name || ''}`);
             <select value={filterProject} onChange={(e) => setFilterProject(e.target.value)} className="bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none max-w-[190px]" aria-label="Project">
               <option value="All">All projects</option>
               {projects.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          )}
+          {pinned.includes('touch') && (
+            <select value={filterTouch} onChange={(e) => setFilterTouch(e.target.value)} className="bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none" aria-label="Touched or untouched">
+              <option value="All">Touched + untouched</option>
+              <option value="Touched">Touched</option>
+              <option value="Untouched">Untouched</option>
             </select>
           )}
           {pinned.includes('priority') && (
@@ -1753,6 +1768,15 @@ ${user.name || ''}`);
                   {projects.map(p => (
                     <option key={p} value={p}>{p}</option>
                   ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('touch')} onChange={() => togglePin('touch')} className="accent-brand-red" /> Touched / Untouched</label>
+                <select value={filterTouch} onChange={(e) => setFilterTouch(e.target.value)} className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none">
+                  <option value="All">Touched + untouched</option>
+                  <option value="Touched">Touched (worked on)</option>
+                  <option value="Untouched">Untouched (new, nobody worked on)</option>
                 </select>
               </div>
 
@@ -1934,6 +1958,7 @@ ${user.name || ''}`);
                   {columns.slaStatus && <SortTh field="slaDeadline" label="SLA Status" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('slaDeadline' as any)} onSet={(d) => setSort('slaDeadline' as any, d)} />}
                   {columns.priority && <SortTh field="priority" label="Priority" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('priority' as any)} onSet={(d) => setSort('priority' as any, d)} />}
                   {columns.score && <th className="py-4 px-3">Score</th>}
+                  {columns.touch && <th className="py-4 px-3">Touch</th>}
                   {columns.status && <SortTh field="status" label="Funnel Status" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('status' as any)} onSet={(d) => setSort('status' as any, d)} />}
                   {columns.assigned && <SortTh field="assignedSalespersonName" label="Assigned Agent" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('assignedSalespersonName' as any)} onSet={(d) => setSort('assignedSalespersonName' as any, d)} />}
                   {columns.channel && <SortTh field="channel" label="Channel" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('channel' as any)} onSet={(d) => setSort('channel' as any, d)} />}

@@ -1,3 +1,4 @@
+import { cairoTimeHM } from '../../lib/cairoTime';
 import { StatusPicker } from './StatusPicker';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../services/AuthContext';
@@ -217,7 +218,7 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
     setTarget(l); setNotes(''); setModal(kind);
     const now = new Date();
     if (kind === 'outcome') { setOutcome('theirs'); setComeBack(3); setOutTime('09:00'); }
-    if (kind === 'log') { setIType('call'); setIDate(todayISO()); setITime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`); setIPlace(''); setISchedule(true); }
+    if (kind === 'log') { setIType('call'); setIDate(todayISO()); setITime(cairoTimeHM(now)); setIPlace(''); setISchedule(true); }
     if (kind === 'status') { setStStatus(''); setStDate(l.meetingDate || addDays(todayISO(), 1)); setStTime(l.meetingTime || '10:00'); setStNext(l.nextFollowUpDate || addDays(todayISO(), 3)); setStReason(''); setStCat(''); }
     if (kind === 'resched') { setFuDate(dayOf(l.nextFollowUpDate) || addDays(todayISO(), 1)); setFuTime(l.nextFollowUpTime || ''); }
   };

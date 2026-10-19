@@ -41,6 +41,22 @@ export function cleanAssignedPlots(v: any): any[] {
   return out;
 }
 
+const SYSTEM_TEXT = /^(\[merged\]\s*)*(imported from excel|imported via smart paste|auto-assigned|requested area|sole owner set|transferred to|project changed|merged |assigned to |status changed)/i;
+const NOT_A_TOUCH = new Set(["Assignment", "Import", "Creation"]);
+
+/** "touched" = a salesperson did anything on the lead (call, WhatsApp, e-mail, meeting, comment, status change ...).
+ *  It is stamped once (data.touched = true) and never goes back, so two people never call the same customer. */
+export function isTouched(d: any): boolean {
+  if (!d) return false;
+  if (d.touched === true) return true;
+  if (d.mergedInto) return false;
+  if ((d.status || "New") !== "New") return true;
+  if (d.firstContactAt || d.lastContactDate || d.meetingDate || d.offerSent || d.qualNotes) return true;
+  if ((d.comments || []).some((c: any) => !SYSTEM_TEXT.test(String(c?.comment || "").trim()))) return true;
+  if ((d.timeline || []).some((e: any) => e && !NOT_A_TOUCH.has(e.type) && String(e.user || "") !== "System")) return true;
+  return false;
+}
+
 export interface Sanitized { data: any; error?: string; audits: { action: string; from?: string; to?: string; note?: string }[] }
 
 /**
@@ -103,5 +119,7 @@ export function sanitizeLead(d: any, ex: any | null, c: Caller, scope: CrmScope,
     if (!canCash) for (const k of CASH_FIELDS) delete d[k];
     audits.push({ action: "create", to: d.status || "New", note: d.source || "" });
   }
+  if (d.touched !== true && isTouched(d)) d.touched = true;
+  if (ex?.data?.touched === true) d.touched = true;            // the mark cannot be removed from the browser
   return { data: d, audits };
 }

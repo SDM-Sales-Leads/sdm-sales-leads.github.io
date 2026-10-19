@@ -6,6 +6,7 @@ import { Lead, TimelineEvent } from './types';
 import { useAuth } from '../../services/AuthContext';
 import { crmService } from './crmService';
 import { OfferPrintsList } from './OfferPrintsList';
+import { cairoDateISO } from '../../lib/cairoTime';
 
 export interface CrmOffersProps {
   leads: Lead[];
@@ -17,7 +18,7 @@ export interface CrmOffersProps {
 const OFFER_FOLLOWUP_DAYS = 2; // calendar days (not working days)
 const OFFER_STATUS = 'Offer Sent – Following Up';
 const pad2 = (n: number) => String(n).padStart(2, '0');
-const localISO = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const localISO = (d: Date) => cairoDateISO(d);
 const addDays = (days: number) => { const d = new Date(); d.setDate(d.getDate() + days); return localISO(d); };
 const dayOf = (v?: string) => { if (!v) return ''; if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10); const d = new Date(v); return isNaN(d.getTime()) ? '' : localISO(d); };
 const isOpenOffer = (l: Lead) => !!l.offerSent && l.status !== 'Won' && l.status !== 'Lost' && !l.mergedInto;

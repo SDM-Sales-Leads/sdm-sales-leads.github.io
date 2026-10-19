@@ -113,6 +113,7 @@ export interface Lead {
   meetingTime?: string;            // HH:MM
   nextFollowUpTime?: string;       // HH:MM
   lastContactDate?: string;        // YYYY-MM-DD
+  touched?: boolean;               // set by the server once a salesperson did anything on the lead; never removed
   firstContactAt?: string;         // ISO, first contact by the current owner (SLA)
   reassignCount?: number;
   eoiApplicable?: boolean | null;  // true = EOI -> Reservation -> Contract; false = Reservation -> Contract
@@ -224,6 +225,8 @@ export interface QueueSettings {
   enableSizeRouting: boolean;
   enablePriorityRouting: boolean;
   maxLeadsPerSalesperson: number;
+  maxTouchedPerSalesperson?: number;    // open leads already worked on
+  maxUntouchedPerSalesperson?: number;  // open leads nobody worked on yet
   maxDailyAssignment: number;
   sqmWeight?: number;              // Balanced method: % of the decision that follows sqm
   maxSqmPerSalesperson?: number;   // 0 = no limit

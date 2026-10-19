@@ -6,7 +6,7 @@ import { loadEws, sendMail } from "./ews.ts";
 import { crmScope, needCrm as _nc } from "./lib.ts";
 import { SPECS, teamIds } from "./routes_crm.ts";
 import { fillPool } from "./pool.ts";
-import { appBase, escalateCallCenter, notifyOnHold, resetHoldCache, runReminders } from "./notify.ts";
+import { appBase, escalateCallCenter, notifyOnHold, resetHoldCache, runReminders, sendAssignDigest } from "./notify.ts";
 
 // ---------------------------------------------------------------------------------------------
 // the bell
@@ -148,7 +148,8 @@ route("POST", "/cron/reminders", async ({ req }) => {
   const r = await runReminders();
   let cc: any = {}; try { cc = await escalateCallCenter(); } catch (e: any) { cc = { ccError: String(e?.message || e).slice(0, 120) }; }
   let pool: any = {}; try { pool = await fillPool(300); } catch (e: any) { pool = { poolError: String(e?.message || e).slice(0, 120) }; }
-  return { ...r, ...cc, pool };
+  let dg: any = {}; try { dg = await sendAssignDigest(); } catch (e: any) { dg = { digestError: String(e?.message || e).slice(0, 120) }; }
+  return { ...r, ...cc, pool, ...dg };
 }, { public: true });
 
 void isObj;

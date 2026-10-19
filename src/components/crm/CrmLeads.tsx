@@ -238,6 +238,10 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   const [filterSource, setFilterSource] = useState<string>('All');
   const [filterSalesperson, setFilterSalesperson] = useState<string>('All');
   const [showFilters, setShowFilters] = useState(false);
+  // filters the person pinned to the quick bar above the list: remembered for this person on this browser
+  const pinKey = `crm_pinned_filters_${user?.id ?? 'anon'}`;
+  const [pinned, setPinned] = useState<string[]>(() => { try { const v = JSON.parse(localStorage.getItem(pinKey) || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; } });
+  const togglePin = (k: string) => setPinned((cur) => { const next = cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]; try { localStorage.setItem(pinKey, JSON.stringify(next)); } catch { /* ignore */ } return next; });
   const [xf, setXf] = useState<XF>(EMPTY_XF);
   const [savedView, setSavedView] = useState<string>('All');
   // a clicked number elsewhere (dashboard tile, chart bar...) opens this list with exactly the leads that number counted
@@ -1664,6 +1668,46 @@ ${user.name || ''}`);
         </div>
       </div>
 
+      {pinned.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 bg-white border border-brand-gray/15 rounded-2xl px-3 py-2 shadow-sm" aria-label="Quick filters">
+          <span className="text-[10px] uppercase font-extrabold text-brand-gray">Quick filters</span>
+          {pinned.includes('status') && (
+            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none max-w-[190px]" aria-label="Status">
+              <option value="All">All statuses</option>
+              <option value="OpenLeads">Open leads (not closed)</option>
+              {STATUS_GROUPS.map((g) => (<optgroup key={g.group} label={g.group}>{g.statuses.map((st) => <option key={st} value={st}>{st}</option>)}</optgroup>))}
+              <optgroup label="Legacy">{LEGACY_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}</optgroup>
+            </select>
+          )}
+          {pinned.includes('project') && (
+            <select value={filterProject} onChange={(e) => setFilterProject(e.target.value)} className="bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none max-w-[190px]" aria-label="Project">
+              <option value="All">All projects</option>
+              {projects.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          )}
+          {pinned.includes('priority') && (
+            <select value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)} className="bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none" aria-label="Priority">
+              <option value="All">All priorities</option>
+              {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          )}
+          {pinned.includes('source') && (
+            <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)} className="bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none max-w-[190px]" aria-label="Source">
+              <option value="All">All sources</option>
+              {sources.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
+          {pinned.includes('owner') && (
+            <select value={filterSalesperson} onChange={(e) => setFilterSalesperson(e.target.value)} className="bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none max-w-[190px]" aria-label="Account manager">
+              <option value="All">All agents</option>
+              <option value="Unassigned">Unassigned leads</option>
+              {salespeople.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
+            </select>
+          )}
+          <button type="button" onClick={() => setShowFilters(true)} className="text-[11px] font-bold text-brand-red hover:underline ml-auto">Choose filters</button>
+        </div>
+      )}
+
       {activeChips.length > 0 && <ChipBar chips={activeChips} onClearAll={resetFilters} />}
 
       {/* Advanced Filters Panel */}
@@ -1675,9 +1719,10 @@ ${user.name || ''}`);
             exit={{ opacity: 0, height: 0 }}
             className="bg-white border border-brand-gray/15 p-5 rounded-2xl shadow-sm overflow-hidden"
           >
+            <p className="text-[11px] text-brand-gray font-semibold mb-3">Tick the box above a filter to keep it in the quick bar above the list. Your choice is remembered for you.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
               <div>
-                <label className="block text-[10px] uppercase font-bold text-brand-gray mb-1.5">Funnel Status</label>
+                <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('status')} onChange={() => togglePin('status')} className="accent-brand-red" /> Funnel Status</label>
                 <select
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
@@ -1697,7 +1742,7 @@ ${user.name || ''}`);
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase font-bold text-brand-gray mb-1.5">Industrial Project</label>
+                <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('project')} onChange={() => togglePin('project')} className="accent-brand-red" /> Industrial Project</label>
                 <select
                   value={filterProject}
                   onChange={(e) => setFilterProject(e.target.value)}
@@ -1711,7 +1756,7 @@ ${user.name || ''}`);
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase font-bold text-brand-gray mb-1.5">Lead Priority</label>
+                <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('priority')} onChange={() => togglePin('priority')} className="accent-brand-red" /> Lead Priority</label>
                 <select
                   value={filterPriority}
                   onChange={(e) => setFilterPriority(e.target.value)}
@@ -1723,7 +1768,7 @@ ${user.name || ''}`);
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase font-bold text-brand-gray mb-1.5">Lead Source</label>
+                <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('source')} onChange={() => togglePin('source')} className="accent-brand-red" /> Lead Source</label>
                 <select
                   value={filterSource}
                   onChange={(e) => setFilterSource(e.target.value)}
@@ -1737,7 +1782,7 @@ ${user.name || ''}`);
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase font-bold text-brand-gray mb-1.5">Account Manager</label>
+                <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('owner')} onChange={() => togglePin('owner')} className="accent-brand-red" /> Account Manager</label>
                 <select
                   value={filterSalesperson}
                   onChange={(e) => setFilterSalesperson(e.target.value)}

@@ -1370,42 +1370,31 @@ ${user.name || ''}`);
   };
 
   // Email Action Triggers
+  // E-mail to the customer: English or Arabic body, one recognisable subject (first name | phone | company | Land Inquiry)
+  const [emailLang, setEmailLang] = useState<'en' | 'ar'>('en');
+  const [emailSubject, setEmailSubject] = useState('');
+  const emailSubjectFor = (l: Lead) => {
+    const first = String(l.customerName || '').trim().split(/\s+/).filter((w) => !/^(mr|mrs|ms|eng|dr|م|مهندس|دكتور)\.?$/i.test(w))[0] || String(l.customerName || '').trim();
+    return [first, phoneIntl(l.phoneNumber) || String(l.phoneNumber || '').trim(), 'Elsewedy Industrial Development', 'Land Inquiry'].filter(Boolean).join(' | ');
+  };
+  const emailBodyFor = (l: Lead, lang: 'en' | 'ar') => lang === 'ar'
+    ? `السيد/السيدة ${l.customerName} المحترم/ة،\n\nتحية طيبة وبعد،\n\nنشكركم على اهتمامكم بشركة السويدي للتنمية الصناعية.\n\nوصلنا استفساركم بخصوص مشروعاتنا الصناعية، ويسعدنا مساعدتكم في اختيار مساحة الأرض والموقع الأنسب لنشاطكم.\n\nبرجاء إفادتنا بالوقت المناسب لمكالمة قصيرة لمناقشة احتياجاتكم بالتفصيل، أو يمكنكم التواصل معي مباشرة على رقم هاتفي.\n\nمع خالص التقدير،\nالسويدي للتنمية الصناعية\n${myName}`
+    : `Dear Mr./Ms. ${l.customerName},\n\nThank you for your interest in Elsewedy Industrial Development.\n\nWe have received your inquiry regarding our industrial projects, and we are pleased to assist you in finding the perfect land size and location for your business operations.\n\nCould you please let us know when would be a suitable time for a brief call to discuss your specifications in more detail? Alternatively, you can reach me directly on my contact number.\n\nYours sincerely,\nElsewedy Industrial Development\n${myName}`;
   const handleEmailActionClick = () => {
     if (!selectedLead) return;
-    const salesPerson = myName;
-    const initialText = `Dear Mr./Ms. ${selectedLead.customerName},\n\nThank you for your interest in Elsewedy Industrial Development.\n\nWe have received your inquiry regarding our industrial projects, and we are pleased to assist you in finding the perfect land size and location for your business operations.\n\nCould you please let us know when would be a suitable time for a brief call to discuss your specifications in more detail? Alternatively, you can reach me directly on my contact number.\n\nYours sincerely,\n\n${salesPerson}\nElsewedy Industrial Development`;
-    setEmailTemplateText(signOff(initialText, myName));
+    setEmailTemplateText(signOff(emailBodyFor(selectedLead, emailLang), myName));
+    setEmailSubject(emailSubjectFor(selectedLead));
     setShowEmailTemplateModal(true);
   };
+  const pickEmailLang = (lang: 'en' | 'ar') => { setEmailLang(lang); if (selectedLead) setEmailTemplateText(signOff(emailBodyFor(selectedLead, lang), myName)); };
 
   const handleEmailSend = () => {
     if (!selectedLead) return;
 
     const onPhone = isPhoneDevice();
-    const subject = 'Inquiry - Elsewedy Industrial Development';
-    // phone: open the mail app (Outlook) with the recipient, subject and body ready; computer: download an .eml
-    if (onPhone) window.location.href = `mailto:${encodeURIComponent(String(selectedLead.email || '').replace(/[\r\n]+/g, ' ').trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailTemplateText)}`;
-    // Generate .eml file content and download
-    // Header values must be single-line (blocks CRLF header injection from stored data)
-    const toAddr = String(selectedLead.email || '').replace(/[\r\n]+/g, ' ').trim();
-    const emlContent = [
-      `To: ${toAddr}`,
-      `Subject: Inquiry - Elsewedy Industrial Development`,
-      `MIME-Version: 1.0`,
-      `Content-Type: text/plain; charset=utf-8`,
-      ``,
-      emailTemplateText
-    ].join('\r\n');
-
-    const blob = new Blob([emlContent], { type: 'message/rfc822' });
-    if (!onPhone) {
-      const link = document.createElement('a');
-      const emlUrl = URL.createObjectURL(blob);
-      link.href = emlUrl;
-      link.download = `Email_To_${String(selectedLead.customerName || 'lead').replace(/[^\w\u0600-\u06FF-]+/g, '_')}.eml`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(emlUrl), 10000);
-    }
+    const subject = (emailSubject || emailSubjectFor(selectedLead)).replace(/[\r\n]+/g, ' ').trim();
+    // opens a NEW message in the mail program (Outlook) with the recipient, subject and body ready to send
+    window.location.href = `mailto:${encodeURIComponent(String(selectedLead.email || '').replace(/[\r\n]+/g, ' ').trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailTemplateText)}`;
 
     // Create timeline log event
     const timelineEvent: TimelineEvent = {
@@ -1413,8 +1402,8 @@ ${user.name || ''}`);
       timestamp: new Date().toISOString(),
       type: 'Email' as const,
       user: user?.name || 'Agent',
-      title: onPhone ? 'Tried to send e-mail from phone' : 'Email Sent',
-      description: emailTemplateText
+      title: onPhone ? 'Tried to send e-mail from phone' : 'E-mail opened in the mail program',
+      description: `Subject: ${subject}\n\n${emailTemplateText}`
     };
 
     // New / Assigned -> "Mail Sent" with a follow-up in 2 days
@@ -1443,7 +1432,7 @@ ${user.name || ''}`);
       leadId: selectedLead.id,
       leadName: selectedLead.customerName,
       timestamp: new Date().toISOString(),
-      notes: (onPhone ? '[Tried to send e-mail from phone] ' : '') + emailTemplateText
+      notes: (onPhone ? '[Tried to send e-mail from phone] ' : '[E-mail opened in the mail program] ') + emailTemplateText
     });
     crmService.saveActivities(acts);
 
@@ -3203,6 +3192,7 @@ ${user.name || ''}`);
                   value={whatsappTemplateText}
                   onChange={(e) => setWhatsappTemplateText(e.target.value)}
                   rows={8}
+                  dir={emailLang === 'ar' ? 'rtl' : 'ltr'}
                   className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl p-3.5 focus:outline-none font-sans text-brand-black leading-relaxed"
                 />
               </div>
@@ -3251,8 +3241,19 @@ ${user.name || ''}`);
               <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl flex gap-2 text-blue-800">
                 <Info size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
                 <p className="text-[10px] leading-relaxed">
-                  Review and customize this professional email template. Clicking "Download" will download an offline-ready standard <strong>.eml</strong> message file containing headers and body, which automatically opens in corporate email software like Outlook or Mail, pre-addressed.
+                  Review and edit the e-mail, then press "Open in my mail program". A new message opens in Outlook (or your phone's mail app) with the customer's address, the subject and the text ready: just press Send there. The action is written to the lead timeline.
                 </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase font-bold text-brand-gray">Language</span>
+                {(['en', 'ar'] as const).map((lg) => (
+                  <button key={lg} type="button" onClick={() => pickEmailLang(lg)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${emailLang === lg ? 'bg-brand-black text-white border-brand-black' : 'bg-white text-brand-gray border-brand-gray/30'}`}>{lg === 'en' ? 'English' : 'العربية'}</button>
+                ))}
+              </div>
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-brand-gray mb-1.5">Subject</label>
+                <input type="text" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-3 py-2 text-xs focus:outline-none font-semibold" />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -3294,7 +3295,7 @@ ${user.name || ''}`);
                   disabled={!emailTemplateText.trim()}
                   className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2 rounded-xl font-bold shadow flex items-center gap-1.5"
                 >
-                  <span>{isPhoneDevice() ? 'Open in my mail app' : 'Download .EML File'}</span>
+                  <span>Open in my mail program</span>
                 </button>
               </div>
             </div>

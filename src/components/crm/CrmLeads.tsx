@@ -1221,7 +1221,9 @@ ${user.name || ''}`);
     fileInputRef.current?.click();
   };
 
-  const MAX_ATTACHMENT_BYTES = 1.5 * 1024 * 1024; // stored as base64 in the lead record: keep records small
+  // an attachment is stored INSIDE the lead and travels in every list download of everybody who sees that lead (the free plan counts that data):
+  // keep it tiny. Larger files belong in a shared folder / mail, with the link in a comment.
+  const MAX_ATTACHMENT_BYTES = 120 * 1024;
 
   const handleAttachmentSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
@@ -1230,7 +1232,7 @@ ${user.name || ''}`);
     const file = input.files[0];
     input.value = ''; // allow choosing the same file again
     if (file.size > MAX_ATTACHMENT_BYTES) {
-      alert(`"${file.name}" is too large (${Math.round(file.size / 1024)} KB). The maximum attachment size is ${Math.round(MAX_ATTACHMENT_BYTES / 1024)} KB.`);
+      alert(`"${file.name}" is too large (${Math.round(file.size / 1024)} KB). The maximum attachment size is ${Math.round(MAX_ATTACHMENT_BYTES / 1024)} KB (it is stored inside the lead). For larger files, share a link in a comment.`);
       return;
     }
     const leadId = selectedLead.id;

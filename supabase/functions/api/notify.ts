@@ -176,15 +176,31 @@ export async function runReminders() {
     const { data } = await admin.from("crm_reminders_sent").select("key").in("key", ready.slice(i, i + 100).map((r) => r.key));
     (data || []).forEach((r: any) => sentKeys.add(r.key));
   }
-  const fresh = ready.filter((r) => !sentKeys.has(r.key)).slice(0, 60);       // a burst is spread over the next runs
+  const fresh = ready.filter((r) => !sentKeys.has(r.key)).slice(0, 400);
   if (!fresh.length) return { checked: due.length, sent: 0 };
   const baseUrl = await appBase();
   await admin.from("crm_reminders_sent").upsert(fresh.map((r) => ({ key: r.key })));
-  await addNotifications(fresh.map((r) => ({ userId: r.userId, type: "reminder", leadId: r.leadId, title: `${r.kind}: ${r.title}`, body: whenText(r.when) })));
-  for (const r of fresh) {
-    await emailUser(r.userId, `Reminder: ${r.title}`, shell(`Reminder: ${r.kind}`,
-      `<p><b>${escHtml(r.title)}</b></p><table>${row("When", whenText(r.when))}${r.details.map(([k, v]) => row(k, v)).join("")}</table>${r.leadId ? btn(leadLink(baseUrl, r.leadId), `Open the lead: ${r.leadId}`) : ""}`), "Reminder");
+  // one person with several reminders due at the same time (every follow-up of a day falls at 09:00) gets ONE bell entry and ONE e-mail
+  // with a table of links, not one of each per lead
+  const byUser = new Map<string, Due[]>();
+  for (const r of fresh) byUser.set(r.userId, [...(byUser.get(r.userId) || []), r]);
+  const bells: { userId: string; type: string; leadId?: string; title: string; body?: string }[] = [];
+  for (const [uid, list] of byUser) {
+    if (list.length <= 2) {
+      for (const r of list) {
+        bells.push({ userId: uid, type: "reminder", leadId: r.leadId, title: `${r.kind}: ${r.title}`, body: whenText(r.when) });
+        await emailUser(uid, `Reminder: ${r.title}`, shell(`Reminder: ${r.kind}`,
+          `<p><b>${escHtml(r.title)}</b></p><table>${row("When", whenText(r.when))}${r.details.map(([k, v]) => row(k, v)).join("")}</table>${r.leadId ? btn(leadLink(baseUrl, r.leadId), `Open the lead: ${r.leadId}`) : ""}`), "Reminder");
+      }
+      continue;
+    }
+    bells.push({ userId: uid, type: "reminder", title: `${list.length} reminders due now`, body: list.slice(0, 3).map((r) => r.title).join(" · ") + (list.length > 3 ? " …" : "") });
+    const td = (t: string) => `<td style="padding:6px 8px;border-bottom:1px solid #eee;vertical-align:top">${escHtml(t || "—")}</td>`;
+    const rowsHtml = list.slice(0, 100).map((r) => `<tr>${td(r.kind)}<td style="padding:6px 8px;border-bottom:1px solid #eee">${r.leadId ? `<a href="${escHtml(leadLink(baseUrl, r.leadId))}" style="color:#A6192E;font-weight:700">${escHtml(r.leadId)}</a>` : "—"}</td>${td(r.title.replace(/^(Follow up with|Meeting or site visit with)\s*/i, ""))}${td(whenText(r.when))}</tr>`).join("");
+    await emailUser(uid, `${list.length} reminders due now`, shell(`${list.length} reminders due now`,
+      `<table style="border-collapse:collapse;width:100%;font-size:13px"><tr><th style="text-align:left;padding:6px 8px;background:#f1f1f1">Type</th><th style="text-align:left;padding:6px 8px;background:#f1f1f1">Lead</th><th style="text-align:left;padding:6px 8px;background:#f1f1f1">Customer</th><th style="text-align:left;padding:6px 8px;background:#f1f1f1">When</th></tr>${rowsHtml}</table>${list.length > 100 ? `<p>…and ${list.length - 100} more. Open the system to see all of them.</p>` : ""}${btn(baseUrl, "Open the sales system")}`), "Reminder");
   }
+  await addNotifications(bells);
   return { checked: due.length, sent: fresh.length };
 }
 

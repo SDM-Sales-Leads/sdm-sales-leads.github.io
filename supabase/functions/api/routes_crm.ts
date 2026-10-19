@@ -101,7 +101,7 @@ export const SPECS: Record<string, Spec> = {
   "email-logs": {
     table: "crm_email_logs", soft: false,
     cols: (d) => ({ received_at: d.receivedTime && !isNaN(Date.parse(d.receivedTime)) ? new Date(d.receivedTime).toISOString() : null }),
-    owns: (_c, scope) => scope === "all",
+    owns: (c, scope) => scope === "all" || can(c, "canViewSalesMail"),      // the intake history is for everyone who may open the Intake page (Marketing too)
     canDelete: (_c, scope) => scope === "all",
   },
 };

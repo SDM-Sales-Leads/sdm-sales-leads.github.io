@@ -130,8 +130,9 @@ export async function syncFacebook(opts: { since?: string; byUser?: string } = {
     let rows: FbRow[] = [];
     for (const t of tabs) rows = rows.concat(rowsOf(await tabRows(t).catch(() => [])));
     const seenIds = new Set<string>(); rows = rows.filter((r) => !seenIds.has(r.fbId) && seenIds.add(r.fbId));
-    // only leads newer than the last one handled (2 hours of overlap: the sheet can receive a lead a little late); the lead id still prevents doubles
-    const from = Math.max(Date.parse(since), cfg.cursor && !isNaN(Date.parse(cfg.cursor)) ? Date.parse(cfg.cursor) - 2 * 3600_000 : 0);
+    // only leads newer than the last one handled. The sheet can receive a lead many hours after it was created (the Facebook connector is slow,
+    // and created_time mixes time zones), so look back 3 days from the newest lead seen: the lead id and the phone/e-mail check prevent doubles
+    const from = Math.max(Date.parse(since), cfg.cursor && !isNaN(Date.parse(cfg.cursor)) ? Date.parse(cfg.cursor) - 72 * 3600_000 : 0);
     rows = rows.filter((r) => Date.parse(r.time) > from).sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
     if (!rows.length) { await setConfig("fb_sheet", { ...(await getConfig<any>("fb_sheet", {})), lastTab: names[names.length - 1], lastRun: nowIso() }); return { fbNew: 0, fbTab: names[names.length - 1] }; }
 

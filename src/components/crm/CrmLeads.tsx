@@ -10,6 +10,7 @@ import {
 } from './leadConfig';
 import { statusAfterAction, REQ_FOLLOWUP, isTouchedLead } from './leadConfig';
 import { LoadBar } from './LoadBar';
+import { isPhoneDevice, repNameFromEmail, signOff } from '../../lib/repName';
 import { CrmCallCenter } from './CrmCallCenter';
 import { Collapse } from './Collapse';
 import { CrmBulkMessage } from './CrmBulkMessage';
@@ -1268,7 +1269,8 @@ ${user.name || ''}`);
   const [waTemplate, setWaTemplate] = useState('');
   const [waLang, setWaLangState] = useState<WaLang>(getWaLang());
   const waWhen = (l: Lead) => ({ date: l.meetingDate || l.nextFollowUpDate || '', time: l.meetingTime || l.nextFollowUpTime || '' });
-  const buildWa = (l: Lead, key: string, lang: WaLang) => waFill(waCompose(key, lang), l, l.assignedSalespersonName || user?.name || 'Sales Person', waWhen(l));
+  const myName = repNameFromEmail(user?.email, user?.name || 'Sales Person');
+  const buildWa = (l: Lead, key: string, lang: WaLang) => signOff(waFill(waCompose(key, lang), l, myName, waWhen(l)), myName);
   const handleWhatsappActionClick = () => {
     if (!selectedLead) return;
     const key = suggestTemplate(selectedLead);
@@ -1290,7 +1292,8 @@ ${user.name || ''}`);
 
     // Open WhatsApp Web (digits only in the path; the text is URL-encoded)
     const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(whatsappTemplateText)}`;
-    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    const onPhone = isPhoneDevice();
+    if (onPhone) window.location.href = whatsappUrl; else window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
 
     // Create timeline log event
     const timelineEvent: TimelineEvent = {
@@ -1298,7 +1301,7 @@ ${user.name || ''}`);
       timestamp: new Date().toISOString(),
       type: 'WhatsApp' as const,
       user: user?.name || 'Agent',
-      title: 'WhatsApp Contact',
+      title: onPhone ? 'Tried to send WhatsApp from phone' : 'WhatsApp Contact',
       description: whatsappTemplateText
     };
 
@@ -1328,7 +1331,7 @@ ${user.name || ''}`);
       leadId: selectedLead.id,
       leadName: selectedLead.customerName,
       timestamp: new Date().toISOString(),
-      notes: whatsappTemplateText
+      notes: (onPhone ? '[Tried to send WhatsApp from phone] ' : '') + whatsappTemplateText
     });
     crmService.saveActivities(acts);
 
@@ -1340,18 +1343,40 @@ ${user.name || ''}`);
     onLeadsUpdated();
   };
 
+  // Phone: "Call now" opens the phone's dialer with the customer's number; the attempt is written to the timeline and the activity list
+  // (no status change: the outcome is logged afterwards with the form below)
+  const handleDialNow = () => {
+    if (!selectedLead) return;
+    const num = phoneIntl(selectedLead.phoneNumber) || String(selectedLead.phoneNumber || '').replace(/[^\d+]/g, '');
+    if (!num) { alert('This lead has no valid phone number.'); return; }
+    const now = new Date().toISOString();
+    const ev: TimelineEvent = { id: Math.random().toString(36).substr(2, 9), timestamp: now, type: 'Call' as const, user: user?.name || 'Agent', title: 'Tried to call from phone', description: `Opened the dialer for ${num}.` };
+    const updatedLeads = crmService.getLeads().map(l => l.id === selectedLead.id ? withSideEffects(l, { ...l, lastUpdated: now, timeline: [...(l.timeline || []), ev] }, { id: user ? String(user.id) : undefined }) : l);
+    const acts = crmService.getActivities();
+    acts.unshift({ id: 'act_' + Math.random().toString(36).substr(2, 9), salespersonId: String(user?.id || selectedLead.assignedSalespersonId || ''), salespersonName: user?.name || selectedLead.assignedSalespersonName || '—', type: 'Call' as any, leadId: selectedLead.id, leadName: selectedLead.customerName, timestamp: now, notes: `[Tried to call from phone] ${num}` });
+    crmService.saveActivities(acts);
+    crmService.saveLeads(updatedLeads);
+    setSelectedLead(updatedLeads.find(l => l.id === selectedLead.id) || null);
+    onLeadsUpdated();
+    window.location.href = `tel:${num}`;
+  };
+
   // Email Action Triggers
   const handleEmailActionClick = () => {
     if (!selectedLead) return;
-    const salesPerson = selectedLead.assignedSalespersonName || user?.name || 'Sales Person';
+    const salesPerson = myName;
     const initialText = `Dear Mr./Ms. ${selectedLead.customerName},\n\nThank you for your interest in Elsewedy Industrial Development.\n\nWe have received your inquiry regarding our industrial projects, and we are pleased to assist you in finding the perfect land size and location for your business operations.\n\nCould you please let us know when would be a suitable time for a brief call to discuss your specifications in more detail? Alternatively, you can reach me directly on my contact number.\n\nYours sincerely,\n\n${salesPerson}\nElsewedy Industrial Development`;
-    setEmailTemplateText(initialText);
+    setEmailTemplateText(signOff(initialText, myName));
     setShowEmailTemplateModal(true);
   };
 
   const handleEmailSend = () => {
     if (!selectedLead) return;
 
+    const onPhone = isPhoneDevice();
+    const subject = 'Inquiry - Elsewedy Industrial Development';
+    // phone: open the mail app (Outlook) with the recipient, subject and body ready; computer: download an .eml
+    if (onPhone) window.location.href = `mailto:${encodeURIComponent(String(selectedLead.email || '').replace(/[\r\n]+/g, ' ').trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailTemplateText)}`;
     // Generate .eml file content and download
     // Header values must be single-line (blocks CRLF header injection from stored data)
     const toAddr = String(selectedLead.email || '').replace(/[\r\n]+/g, ' ').trim();
@@ -1365,12 +1390,14 @@ ${user.name || ''}`);
     ].join('\r\n');
 
     const blob = new Blob([emlContent], { type: 'message/rfc822' });
-    const link = document.createElement('a');
-    const emlUrl = URL.createObjectURL(blob);
-    link.href = emlUrl;
-    link.download = `Email_To_${String(selectedLead.customerName || 'lead').replace(/[^\w\u0600-\u06FF-]+/g, '_')}.eml`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(emlUrl), 10000);
+    if (!onPhone) {
+      const link = document.createElement('a');
+      const emlUrl = URL.createObjectURL(blob);
+      link.href = emlUrl;
+      link.download = `Email_To_${String(selectedLead.customerName || 'lead').replace(/[^\w\u0600-\u06FF-]+/g, '_')}.eml`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(emlUrl), 10000);
+    }
 
     // Create timeline log event
     const timelineEvent: TimelineEvent = {
@@ -1378,7 +1405,7 @@ ${user.name || ''}`);
       timestamp: new Date().toISOString(),
       type: 'Email' as const,
       user: user?.name || 'Agent',
-      title: 'Email Sent',
+      title: onPhone ? 'Tried to send e-mail from phone' : 'Email Sent',
       description: emailTemplateText
     };
 
@@ -1408,7 +1435,7 @@ ${user.name || ''}`);
       leadId: selectedLead.id,
       leadName: selectedLead.customerName,
       timestamp: new Date().toISOString(),
-      notes: emailTemplateText
+      notes: (onPhone ? '[Tried to send e-mail from phone] ' : '') + emailTemplateText
     });
     crmService.saveActivities(acts);
 
@@ -2898,6 +2925,12 @@ ${user.name || ''}`);
                 </div>
               </div>
 
+              {showInteractionModal === 'call' && isPhoneDevice() && (
+                <button type="button" onClick={handleDialNow} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-3 text-sm font-extrabold flex items-center justify-center gap-2 shadow">
+                  <Phone size={18} /> Call {phoneIntl(selectedLead.phoneNumber) || selectedLead.phoneNumber} now
+                </button>
+              )}
+
               {showInteractionModal === 'call' && (
                 <div>
                   <label className="block text-[10px] uppercase font-bold text-brand-gray mb-1.5">Call Outcome / Status</label>
@@ -3253,7 +3286,7 @@ ${user.name || ''}`);
                   disabled={!emailTemplateText.trim()}
                   className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2 rounded-xl font-bold shadow flex items-center gap-1.5"
                 >
-                  <span>Download .EML File</span>
+                  <span>{isPhoneDevice() ? 'Open in my mail app' : 'Download .EML File'}</span>
                 </button>
               </div>
             </div>

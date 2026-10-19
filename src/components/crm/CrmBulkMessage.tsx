@@ -6,6 +6,8 @@ import { crmService } from './crmService';
 import { statusAfterAction, phoneIntl } from './leadConfig';
 import { addDaysISO } from './leadRules';
 import { todayISO } from './leadMetrics';
+import { useAuth } from '../../services/AuthContext';
+import { repNameFromEmail, signOff } from '../../lib/repName';
 import { WA_TEMPLATES, WA_LANGS, WaLang, getWaLang, setWaLang, suggestTemplate, waCompose, waFill } from './waTemplates';
 
 const EMAIL_RE = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
@@ -16,6 +18,8 @@ const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length
 
 /** Bulk WhatsApp (one personal chat per customer, one tap each) and bulk e-mail (system mail or your own mailbox in BCC batches). */
 export const CrmBulkMessage: React.FC<{ leads: Lead[]; mode: 'whatsapp' | 'email'; userName: string; userId?: string; onClose: () => void }> = ({ leads, mode, userName, userId, onClose }) => {
+  const { user: authUser } = useAuth();
+  const myName = repNameFromEmail(authUser?.email, userName);
   const [done, setDone] = useState<Set<string>>(new Set());
   const mark = (l: Lead, kind: 'whatsapp' | 'email', text: string) => {
     try {
@@ -30,7 +34,7 @@ export const CrmBulkMessage: React.FC<{ leads: Lead[]; mode: 'whatsapp' | 'email
   // ---------------- WhatsApp ----------------
   const [tpl, setTpl] = useState('auto');
   const [lang, setLang] = useState<WaLang>(getWaLang());
-  const msgFor = (l: Lead) => waFill(waCompose(tpl === 'auto' ? suggestTemplate(l) : tpl, lang), l, l.assignedSalespersonName || userName, { date: l.meetingDate || l.nextFollowUpDate || '', time: l.meetingTime || l.nextFollowUpTime || '' });
+  const msgFor = (l: Lead) => signOff(waFill(waCompose(tpl === 'auto' ? suggestTemplate(l) : tpl, lang), l, myName, { date: l.meetingDate || l.nextFollowUpDate || '', time: l.meetingTime || l.nextFollowUpTime || '' }), myName);
   const openWa = (l: Lead) => {
     const m = msgFor(l);
     window.open(`https://wa.me/${digits(l.phoneNumber)}?text=${encodeURIComponent(m)}`, '_blank', 'noopener,noreferrer');
@@ -43,7 +47,7 @@ export const CrmBulkMessage: React.FC<{ leads: Lead[]; mode: 'whatsapp' | 'email
   const [text, setText] = useState('Dear {name},\n\nThank you for your interest in {project}.\n\n\n\nBest regards,\n{rep}');
   const withMail = useMemo(() => leads.filter(validMail), [leads]);
   const addresses = useMemo(() => [...new Set(withMail.map((l) => l.email!.trim().toLowerCase()))], [withMail]);
-  const generic = (t: string) => t.replace(/\{name\}/g, 'Sir / Madam').replace(/\{company\}/g, 'your company').replace(/\{project\}/g, 'our industrial cities').replace(/\{rep\}/g, userName);
+  const generic = (t: string) => t.replace(/\{name\}/g, 'Sir / Madam').replace(/\{company\}/g, 'your company').replace(/\{project\}/g, 'our industrial cities').replace(/\{rep\}/g, myName);
 
   const openBcc = (part: Lead[]) => {
     const href = `mailto:?bcc=${encodeURIComponent(part.map((l) => l.email!.trim()).join(','))}&subject=${encodeURIComponent(generic(subject))}&body=${encodeURIComponent(generic(text))}`;

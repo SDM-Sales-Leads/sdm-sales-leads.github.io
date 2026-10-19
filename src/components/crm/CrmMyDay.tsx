@@ -1,4 +1,6 @@
 import { cairoTimeHM } from '../../lib/cairoTime';
+import { repNameFromEmail, signOff } from '../../lib/repName';
+import { logAttempt } from './attemptLog';
 import { StatusPicker } from './StatusPicker';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../services/AuthContext';
@@ -289,7 +291,8 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
   const waHref = (l: Lead) => {
     const num = phoneIntl(l.phoneNumber).replace('+', '');
     if (!num) return '';
-    const text = waFill(waCompose(suggestTemplate(l)), l, user?.name || '', { date: dayOf(l.meetingDate) ? fmtDay(dayOf(l.meetingDate)) : undefined, time: l.meetingTime || undefined });
+    const me = repNameFromEmail(user?.email, user?.name || '');
+    const text = signOff(waFill(waCompose(suggestTemplate(l)), l, me, { date: dayOf(l.meetingDate) ? fmtDay(dayOf(l.meetingDate)) : undefined, time: l.meetingTime || undefined }), me);
     return `https://wa.me/${num}?text=${encodeURIComponent(text)}`;
   };
   const telHref = (l: Lead) => { const n = phoneIntl(l.phoneNumber); return n ? `tel:${n}` : ''; };
@@ -447,8 +450,8 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
                   </div>
                   <div className="flex flex-col gap-2 md:w-56">
                     <div className="flex gap-1.5">
-                      {telHref(hero.lead) ? <a href={telHref(hero.lead)} className="flex-1 bg-emerald-600 text-white rounded-xl py-2 text-xs font-extrabold flex items-center justify-center gap-1 hover:opacity-90"><Phone size={13} />Call</a> : <span className="flex-1 bg-brand-gray/10 text-brand-gray rounded-xl py-2 text-xs font-bold text-center">No phone</span>}
-                      {waHref(hero.lead) && <a href={waHref(hero.lead)} target="_blank" rel="noopener noreferrer" className="flex-1 bg-green-500 text-white rounded-xl py-2 text-xs font-extrabold flex items-center justify-center gap-1 hover:opacity-90"><MessageSquare size={13} />WhatsApp</a>}
+                      {telHref(hero.lead) ? <a href={telHref(hero.lead)} onClick={() => logAttempt(hero.lead, 'call', user, telHref(hero.lead).slice(4))} className="flex-1 bg-emerald-600 text-white rounded-xl py-2 text-xs font-extrabold flex items-center justify-center gap-1 hover:opacity-90"><Phone size={13} />Call</a> : <span className="flex-1 bg-brand-gray/10 text-brand-gray rounded-xl py-2 text-xs font-bold text-center">No phone</span>}
+                      {waHref(hero.lead) && <a href={waHref(hero.lead)} target="_blank" rel="noopener noreferrer" onClick={() => logAttempt(hero.lead, 'whatsapp', user, decodeURIComponent(waHref(hero.lead).split('text=')[1] || ''))} className="flex-1 bg-green-500 text-white rounded-xl py-2 text-xs font-extrabold flex items-center justify-center gap-1 hover:opacity-90"><MessageSquare size={13} />WhatsApp</a>}
                     </div>
                     <button onClick={() => openModal('outcome', hero.lead)} className="bg-brand-red text-white rounded-xl py-2 text-xs font-extrabold flex items-center justify-center gap-1 hover:opacity-90"><CheckCircle size={13} />Done — log it</button>
                     <div className="grid grid-cols-3 gap-1.5">

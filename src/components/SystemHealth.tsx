@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { ClientIssues } from './ClientIssues';
 import { motion } from 'motion/react';
 import { Activity, Database, Key, RefreshCw, CheckCircle2, AlertCircle, Clock, History, Mail, Users, Gauge } from 'lucide-react';
 
@@ -44,7 +45,7 @@ export const SystemHealth: React.FC = () => {
   const [diagFailed, setDiagFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'activity'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'issues'>('overview');
   const [logs, setLogs] = useState<any[] | null>(null);
   const [logTotal, setLogTotal] = useState(0);
   const [logPage, setLogPage] = useState(1);
@@ -193,7 +194,7 @@ export const SystemHealth: React.FC = () => {
         </div>
         <div className="flex gap-3 w-full sm:w-auto">
           <div className="flex bg-black/5 p-1 rounded-xl mr-2">
-            {([['overview', 'Overview'], ['activity', 'User Activity']] as const).map(([k, label]) => (
+            {([['overview', 'Overview'], ['activity', 'User Activity'], ['issues', 'App issues']] as const).map(([k, label]) => (
               <button
                 key={k}
                 onClick={() => setActiveTab(k)}
@@ -229,7 +230,7 @@ export const SystemHealth: React.FC = () => {
         </div>
       )}
 
-      {activeTab === 'overview' ? (
+      {activeTab === 'issues' ? <ClientIssues /> : activeTab === 'overview' ? (
         <>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl">

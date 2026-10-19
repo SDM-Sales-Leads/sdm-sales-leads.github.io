@@ -30,6 +30,7 @@ import { MobileTabBar } from './components/MobileTabBar';
 import { ViewAsBar } from './components/ViewAsBar';
 import { GroupTabs } from './components/GroupTabs';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { usePageHistory, useBackClose } from './lib/backNav';
 
 const AppContent: React.FC = () => {
   const { user, permissions, isLoading, mustChangePassword } = useAuth();
@@ -42,6 +43,10 @@ const AppContent: React.FC = () => {
   const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const viewMode = useViewMode(user?.id);
+  // Back goes to the page the user came from (and closes an open ticket first)
+  usePageHistory({ tab: activeTab, sub: crmSubTab }, !!user, (p) => { setSelectedTicket(null); setActiveTab(p.tab); setCrmSubTab(p.sub); });
+  useBackClose(!!selectedTicket, () => setSelectedTicket(null));
+  useEffect(() => { (window as any).__sdmPage = `${activeTab}/${crmSubTab}`; }, [activeTab, crmSubTab]);
 
   // the first page for everybody who works with leads is Home (the day at a glance), in every look
   useEffect(() => {

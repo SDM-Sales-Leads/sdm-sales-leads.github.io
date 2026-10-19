@@ -1,4 +1,5 @@
 import { crmNav } from './crmNav';
+import { useBackClose } from '../../lib/backNav';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Contact, Lead, ContactEditLog } from './types';
 import { crmService, normalizePhone } from './crmService';
@@ -482,6 +483,7 @@ export const CrmContacts: React.FC<CrmContactsProps> = ({
   const isAdmin = (currentRole?.toLowerCase() || '').includes('admin') || (user?.role?.toLowerCase() || '').includes('admin');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  useBackClose(!!selectedContact, () => setSelectedContact(null));
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [deleteConfirmContactId, setDeleteConfirmContactId] = useState<string | null>(null);

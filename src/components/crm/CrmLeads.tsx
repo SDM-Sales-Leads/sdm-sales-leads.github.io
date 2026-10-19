@@ -11,6 +11,7 @@ import {
 import { statusAfterAction, REQ_FOLLOWUP, isTouchedLead } from './leadConfig';
 import { LoadBar } from './LoadBar';
 import { isPhoneDevice, repNameFromEmail, signOff } from '../../lib/repName';
+import { useBackClose } from '../../lib/backNav';
 import { CrmCallCenter } from './CrmCallCenter';
 import { Collapse } from './Collapse';
 import { CrmBulkMessage } from './CrmBulkMessage';
@@ -353,6 +354,11 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   const [showWhatsappTemplateModal, setShowWhatsappTemplateModal] = useState(false);
   const [whatsappTemplateText, setWhatsappTemplateText] = useState('');
   const [showEmailTemplateModal, setShowEmailTemplateModal] = useState(false);
+  // the phone's Back button closes the open window or the lead card first
+  useBackClose(!!showEmailTemplateModal, () => setShowEmailTemplateModal(false));
+  useBackClose(!!showWhatsappTemplateModal, () => setShowWhatsappTemplateModal(false));
+  useBackClose(!!showInteractionModal, () => setShowInteractionModal(null));
+  useBackClose(!!selectedLead, () => setSelectedLead(null));
   const [emailTemplateText, setEmailTemplateText] = useState('');
 
   // New comments

@@ -11,6 +11,7 @@ import "./integration.ts";
 import "./routes_notify.ts";
 import "./pool.ts";
 import "./targets.ts";
+import "./clientissues.ts";
 import { route } from "./router.ts";
 import { ingestInbox } from "./ingest.ts";
 import { syncFacebook } from "./fbsheet.ts";

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { markReload } from '../lib/telemetry';
 import { User, RolePermissions } from '../types';
 import { supabase } from '../lib/supabase';
 import { wipeCrmCache } from '../lib/storageGuard';
@@ -93,7 +94,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (event === 'SIGNED_OUT') clear();
       // another tab signed in as a DIFFERENT person: the login is shared by every tab of this browser, so this tab would keep
       // showing the old person's screens while loading the new person's data. Reload so the screens match the login.
-      else if (session?.user?.id && shownId.current && session.user.id !== shownId.current && !sessionStorage.getItem('sdm_view_as')) window.location.reload();   // (an admin viewing as someone is shown a different person on purpose)
+      else if (session?.user?.id && shownId.current && session.user.id !== shownId.current && !sessionStorage.getItem('sdm_view_as')) { markReload('another tab signed in as a different person'); window.location.reload(); }   // (an admin viewing as someone is shown a different person on purpose)
     });
     return () => { alive = false; window.removeEventListener('sdm-session-expired', onExpired); sub.subscription.unsubscribe(); };
   }, [loadMe, clear]);

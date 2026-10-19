@@ -6,6 +6,7 @@ import { loadEws, sendMail } from "./ews.ts";
 import { crmScope, needCrm as _nc } from "./lib.ts";
 import { SPECS, teamIds } from "./routes_crm.ts";
 import { fillPool } from "./pool.ts";
+import { usageGuard } from "./usage.ts";
 import { appBase, escalateCallCenter, notifyOnHold, resetHoldCache, runReminders, sendAssignDigest } from "./notify.ts";
 
 // ---------------------------------------------------------------------------------------------
@@ -149,7 +150,8 @@ route("POST", "/cron/reminders", async ({ req }) => {
   let cc: any = {}; try { cc = await escalateCallCenter(); } catch (e: any) { cc = { ccError: String(e?.message || e).slice(0, 120) }; }
   let pool: any = {}; try { pool = await fillPool(300); } catch (e: any) { pool = { poolError: String(e?.message || e).slice(0, 120) }; }
   let dg: any = {}; try { dg = await sendAssignDigest(); } catch (e: any) { dg = { digestError: String(e?.message || e).slice(0, 120) }; }
-  return { ...r, ...cc, pool, ...dg };
+  let ug: any = {}; try { if (+new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", hourCycle: "h23" }).format(new Date()) >= 8) ug = await usageGuard(); } catch { /* ignore */ }
+  return { ...r, ...cc, pool, ...dg, ...ug };
 }, { public: true });
 
 void isObj;

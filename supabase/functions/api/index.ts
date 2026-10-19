@@ -12,6 +12,8 @@ import "./routes_notify.ts";
 import "./pool.ts";
 import "./targets.ts";
 import "./clientissues.ts";
+import { recordUsage } from "./usage.ts";
+import "./usage.ts";
 import { route } from "./router.ts";
 import { ingestInbox } from "./ingest.ts";
 import { syncFacebook } from "./fbsheet.ts";
@@ -41,14 +43,18 @@ async function gzipIfBig(req: Request, res: Response): Promise<Response> {
     if (req.method === "OPTIONS" || !/\bgzip\b/i.test(req.headers.get("accept-encoding") || "") || res.headers.get("content-encoding") || !res.body) return res;
     if (!/json|text/i.test(res.headers.get("content-type") || "")) return res;
     const buf = await res.arrayBuffer();
-    if (buf.byteLength < 8192) return new Response(buf, { status: res.status, headers: res.headers });
+    if (buf.byteLength < 8192) { const small: any = new Response(buf, { status: res.status, headers: res.headers }); small._bytes = buf.byteLength; return small; }
     const gz = await new Response(new Blob([buf]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
     const h = new Headers(res.headers); h.set("Content-Encoding", "gzip"); h.append("Vary", "Accept-Encoding"); h.delete("Content-Length");
-    return new Response(gz, { status: res.status, headers: h });
+    const big: any = new Response(gz, { status: res.status, headers: h }); big._bytes = gz.byteLength; return big;
   } catch { return res; }
 }
 
-Deno.serve(async (req: Request) => gzipIfBig(req, await handle(req)));
+Deno.serve(async (req: Request) => {
+  const res = await gzipIfBig(req, await handle(req));
+  try { recordUsage(new URL(req.url).pathname.replace(/^\/(functions\/v1\/)?api/, "") || "/", Number((res as any)._bytes) || 0); } catch { /* the meter never breaks an answer */ }
+  return res;
+});
 
 async function handle(req: Request): Promise<Response> {
   const origin = req.headers.get("origin");

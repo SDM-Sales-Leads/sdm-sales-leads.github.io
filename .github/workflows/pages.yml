@@ -13,6 +13,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,6 +23,28 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # People who have the system open keep the OLD version in their browser and ask for its page files. Every publish replaces the files,
+      # so they got "Could not load ... .js" errors. Keep the files of the last two versions next to the new ones (branch asset-cache).
+      - name: Keep the page files of the last two versions
+        run: |
+          set -e
+          mkdir -p /tmp/cache /tmp/new
+          cp dist/assets/* /tmp/new/
+          if git ls-remote --exit-code --heads origin asset-cache >/dev/null 2>&1; then
+            git fetch --depth=1 origin asset-cache
+            git --work-tree=/tmp/cache checkout FETCH_HEAD -- . || true
+            git reset -q
+          fi
+          cp -n /tmp/cache/cur/* dist/assets/ 2>/dev/null || true
+          cp -n /tmp/cache/prev/* dist/assets/ 2>/dev/null || true
+          rm -rf /tmp/pub && mkdir -p /tmp/pub/cur /tmp/pub/prev
+          cp /tmp/new/* /tmp/pub/cur/
+          cp /tmp/cache/cur/* /tmp/pub/prev/ 2>/dev/null || true
+          cd /tmp/pub
+          git init -q -b asset-cache
+          git config user.name "github-actions"; git config user.email "actions@users.noreply.github.com"
+          git add -A; git commit -q -m "page files of build ${GITHUB_SHA}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" asset-cache
       - run: cp dist/index.html dist/404.html
       - uses: actions/upload-pages-artifact@v3
         with:

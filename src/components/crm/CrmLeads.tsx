@@ -3161,7 +3161,7 @@ ${user.name || ''}`);
               <div className="p-3 bg-green-50 border border-green-100 rounded-xl flex gap-2 text-green-800">
                 <Info size={16} className="text-green-600 flex-shrink-0 mt-0.5" />
                 <p className="text-[10px] leading-relaxed">
-                  Review and customize the message template before sending. Once sent, the message will open in WhatsApp Web and the action will be registered in the Lead timeline history.
+                  Review the message, then press the green button. It opens WhatsApp with the customer's number and this text ready (WhatsApp Web on a computer). The action is written to the lead timeline.
                 </p>
               </div>
 
@@ -3212,7 +3212,7 @@ ${user.name || ''}`);
                   disabled={!whatsappTemplateText.trim()}
                   className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-5 py-2 rounded-xl font-bold shadow flex items-center gap-1.5"
                 >
-                  <span>Launch WhatsApp Web</span>
+                  <span>{isPhoneDevice() ? 'Open WhatsApp' : 'Launch WhatsApp Web'}</span>
                 </button>
               </div>
             </div>

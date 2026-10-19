@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { setBasePx } from '../lib/textSize';
 import { SystemSettings } from '../types';
 import { settingsService } from '../services/settingsService';
 import { useAuth } from './AuthContext';
@@ -83,7 +84,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     // Apply Font Size Base
     const sizeMap = { xs: '12px', sm: '14px', base: '16px', lg: '18px', xl: '20px' };
-    root.style.setProperty('font-size', sizeMap[s.fontSize]);
+    setBasePx(parseInt(sizeMap[s.fontSize], 10) || 14);
 
     // Apply Border Radius
     const radiusMap = { none: '0px', md: '0.375rem', xl: '0.75rem', '2xl': '1rem', full: '9999px' };

@@ -9,10 +9,12 @@ export function getTextSize(): TextSize {
   try { const v = localStorage.getItem(KEY) as TextSize | null; if (v && SCALE[v]) return v; } catch { /* ignore */ }
   return 'large';
 }
+let basePx = 14;   // the administrator's base size (Setup > look & feel); the person's choice multiplies it
+export function setBasePx(px: number) { if (px > 0) basePx = px; applyTextSize(); }
 export function applyTextSize(s: TextSize = getTextSize()) {
   const r = document.documentElement;
   r.style.setProperty('--ui-scale', String(SCALE[s]));
-  r.style.fontSize = `${16 * SCALE[s]}px`;
+  r.style.fontSize = `${basePx * SCALE[s]}px`;
 }
 export function setTextSize(s: TextSize) { try { localStorage.setItem(KEY, s); } catch { /* ignore */ } applyTextSize(s); window.dispatchEvent(new Event('sdm-text-size')); }
 export const nextTextSize = (s: TextSize): TextSize => (s === 'normal' ? 'large' : s === 'large' ? 'xlarge' : 'normal');

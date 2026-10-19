@@ -1704,6 +1704,7 @@ ${user.name || ''}`);
               {salespeople.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
             </select>
           )}
+          <XFilterPanel barOnly xf={xf} setXf={setXf} channels={xfOptions.channels} industries={xfOptions.industries} nationalities={xfOptions.nationalities} pinned={pinned} />
           <button type="button" onClick={() => setShowFilters(true)} className="text-[11px] font-bold text-brand-red hover:underline ml-auto">Choose filters</button>
         </div>
       )}
@@ -1798,7 +1799,7 @@ ${user.name || ''}`);
             </div>
 
             <div className="mt-4 pt-4 border-t border-brand-gray/10">
-              <XFilterPanel xf={xf} setXf={setXf} channels={xfOptions.channels} industries={xfOptions.industries} nationalities={xfOptions.nationalities} />
+              <XFilterPanel xf={xf} setXf={setXf} channels={xfOptions.channels} industries={xfOptions.industries} nationalities={xfOptions.nationalities} pinned={pinned} onTogglePin={togglePin} />
             </div>
 
             <div className="flex justify-between items-center mt-4 pt-4 border-t border-brand-gray/10">

@@ -174,30 +174,45 @@ const Range: React.FC<{ label: string; a: string; b: string; onA: (v: string) =>
     </div></div>
 );
 
-export const XFilterPanel: React.FC<{ xf: XF; setXf: (f: XF) => void; channels: string[]; industries: string[]; nationalities: string[] }> = ({ xf, setXf, channels, industries, nationalities }) => {
+export const XFilterPanel: React.FC<{ xf: XF; setXf: (f: XF) => void; channels: string[]; industries: string[]; nationalities: string[]; pinned?: string[]; onTogglePin?: (id: string) => void; barOnly?: boolean }> = ({ xf, setXf, channels, industries, nationalities, pinned = [], onTogglePin, barOnly }) => {
   const up = (p: Partial<XF>) => setXf({ ...xf, ...p });
   const o = (a: string[]) => a.map((v) => ({ value: v, label: v }));
+  const items: [string, React.ReactElement][] = [
+    ['x:stages', <MultiSelect label="Stage group" options={Object.entries(STAGE_LABELS).map(([value, label]) => ({ value, label }))} value={xf.stages} onChange={(stages) => up({ stages })} />],
+    ['x:channels', <MultiSelect label="Channel" options={o(channels)} value={xf.channels} onChange={(c) => up({ channels: c })} />],
+    ['x:industries', <MultiSelect label="Industry / plot type" options={o(industries)} value={xf.industries} onChange={(industries) => up({ industries })} />],
+    ['x:nationalities', <MultiSelect label="Nationality" options={o(nationalities)} value={xf.nationalities} onChange={(nationalities) => up({ nationalities })} />],
+    ['x:size', <Range label="Required size (sqm)" type="number" a={xf.sizeMin} b={xf.sizeMax} onA={(v) => up({ sizeMin: v })} onB={(v) => up({ sizeMax: v })} />],
+    ['x:created', <Range label="Date created" a={xf.createdFrom} b={xf.createdTo} onA={(v) => up({ createdFrom: v })} onB={(v) => up({ createdTo: v })} />],
+    ['x:updated', <Range label="Last updated" a={xf.updatedFrom} b={xf.updatedTo} onA={(v) => up({ updatedFrom: v })} onB={(v) => up({ updatedTo: v })} />],
+    ['x:closing', <Range label="Expected closing" a={xf.closeFrom} b={xf.closeTo} onA={(v) => up({ closeFrom: v })} onB={(v) => up({ closeTo: v })} />],
+    ['x:follow', <Sel label="Next follow-up" value={xf.follow} onChange={(follow) => up({ follow })} options={[['overdue', 'Overdue'], ['today', 'Due today'], ['upcoming', 'Upcoming'], ['none', 'None set']]} />],
+    ['x:followRange', <Range label="Follow-up date range" a={xf.followFrom} b={xf.followTo} onA={(v) => up({ followFrom: v })} onB={(v) => up({ followTo: v })} />],
+    ['x:sla', <Sel label="SLA" value={xf.sla} onChange={(sla) => up({ sla })} options={[['at_risk', 'At risk'], ['breached', 'Breached'], ['within', 'Within SLA'], ['none', 'No SLA']]} />],
+    ['x:score', <Sel label="Lead score" value={xf.score} onChange={(score) => up({ score })} options={[['high', 'High (70+)'], ['mid', 'Medium (40-69)'], ['low', 'Low (<40)']]} />],
+    ['x:qualification', <Sel label="Qualification" value={xf.qualification} onChange={(qualification) => up({ qualification })} options={[['Qualified', 'Qualified'], ['Unqualified', 'Unqualified'], ['none', 'Not set']]} />],
+    ['x:temperature', <Sel label="Temperature" value={xf.temperature} onChange={(temperature) => up({ temperature })} options={[['Hot', 'Hot'], ['Warm', 'Warm'], ['Cold', 'Cold'], ['none', 'Not set']]} />],
+    ['x:offer', <Sel label="Offer" value={xf.offer} onChange={(offer) => up({ offer })} options={[['sent', 'Sent'], ['not_sent', 'Not sent']]} />],
+    ['x:contract', <Sel label="Contract" value={xf.contract} onChange={(contract) => up({ contract })} options={[['none', 'No contract'], ['Draft', 'Draft'], ['In Progress', 'In progress'], ['On Hold', 'On hold'], ['Signed', 'Signed'], ['Cancelled', 'Cancelled']]} />],
+    ['x:cash', <Sel label="Cash" value={xf.cash} onChange={(cash) => up({ cash })} options={[['pending', 'Pending'], ['confirmed', 'Confirmed'], ['none', 'Not applicable']]} />],
+    ['x:phone2', <Sel label="Second phone" value={xf.phone2} onChange={(phone2) => up({ phone2 })} options={[['yes', 'Has phone 2'], ['no', 'No phone 2']]} />],
+    ['x:email', <Sel label="E-mail" value={xf.email} onChange={(email) => up({ email })} options={[['yes', 'Has e-mail'], ['no', 'No e-mail']]} />],
+  ];
+  if (barOnly) {
+    return <>{items.filter(([id]) => pinned.includes(id)).map(([id, node]) => <div key={id} className="min-w-[140px] max-w-[260px]">{node}</div>)}</>;
+  }
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-      <MultiSelect label="Stage group" options={Object.entries(STAGE_LABELS).map(([value, label]) => ({ value, label }))} value={xf.stages} onChange={(stages) => up({ stages })} />
-      <MultiSelect label="Channel" options={o(channels)} value={xf.channels} onChange={(c) => up({ channels: c })} />
-      <MultiSelect label="Industry / plot type" options={o(industries)} value={xf.industries} onChange={(industries) => up({ industries })} />
-      <MultiSelect label="Nationality" options={o(nationalities)} value={xf.nationalities} onChange={(nationalities) => up({ nationalities })} />
-      <Range label="Required size (sqm)" type="number" a={xf.sizeMin} b={xf.sizeMax} onA={(v) => up({ sizeMin: v })} onB={(v) => up({ sizeMax: v })} />
-      <Range label="Date created" a={xf.createdFrom} b={xf.createdTo} onA={(v) => up({ createdFrom: v })} onB={(v) => up({ createdTo: v })} />
-      <Range label="Last updated" a={xf.updatedFrom} b={xf.updatedTo} onA={(v) => up({ updatedFrom: v })} onB={(v) => up({ updatedTo: v })} />
-      <Range label="Expected closing" a={xf.closeFrom} b={xf.closeTo} onA={(v) => up({ closeFrom: v })} onB={(v) => up({ closeTo: v })} />
-      <Sel label="Next follow-up" value={xf.follow} onChange={(follow) => up({ follow })} options={[['overdue', 'Overdue'], ['today', 'Due today'], ['upcoming', 'Upcoming'], ['none', 'None set']]} />
-      <Range label="Follow-up date range" a={xf.followFrom} b={xf.followTo} onA={(v) => up({ followFrom: v })} onB={(v) => up({ followTo: v })} />
-      <Sel label="SLA" value={xf.sla} onChange={(sla) => up({ sla })} options={[['at_risk', 'At risk'], ['breached', 'Breached'], ['within', 'Within SLA'], ['none', 'No SLA']]} />
-      <Sel label="Lead score" value={xf.score} onChange={(score) => up({ score })} options={[['high', 'High (70+)'], ['mid', 'Medium (40-69)'], ['low', 'Low (<40)']]} />
-      <Sel label="Qualification" value={xf.qualification} onChange={(qualification) => up({ qualification })} options={[['Qualified', 'Qualified'], ['Unqualified', 'Unqualified'], ['none', 'Not set']]} />
-      <Sel label="Temperature" value={xf.temperature} onChange={(temperature) => up({ temperature })} options={[['Hot', 'Hot'], ['Warm', 'Warm'], ['Cold', 'Cold'], ['none', 'Not set']]} />
-      <Sel label="Offer" value={xf.offer} onChange={(offer) => up({ offer })} options={[['sent', 'Sent'], ['not_sent', 'Not sent']]} />
-      <Sel label="Contract" value={xf.contract} onChange={(contract) => up({ contract })} options={[['none', 'No contract'], ['Draft', 'Draft'], ['In Progress', 'In progress'], ['On Hold', 'On hold'], ['Signed', 'Signed'], ['Cancelled', 'Cancelled']]} />
-      <Sel label="Cash" value={xf.cash} onChange={(cash) => up({ cash })} options={[['pending', 'Pending'], ['confirmed', 'Confirmed'], ['none', 'Not applicable']]} />
-      <Sel label="Second phone" value={xf.phone2} onChange={(phone2) => up({ phone2 })} options={[['yes', 'Has phone 2'], ['no', 'No phone 2']]} />
-      <Sel label="E-mail" value={xf.email} onChange={(email) => up({ email })} options={[['yes', 'Has e-mail'], ['no', 'No e-mail']]} />
+      {items.map(([id, node]) => (
+        <div key={id}>
+          {onTogglePin && (
+            <label className="flex items-center gap-1.5 text-[10px] font-bold text-brand-gray mb-1 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list">
+              <input type="checkbox" checked={pinned.includes(id)} onChange={() => onTogglePin(id)} className="accent-brand-red" /> Quick bar
+            </label>
+          )}
+          {node}
+        </div>
+      ))}
     </div>
   );
 };

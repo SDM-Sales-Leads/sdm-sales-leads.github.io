@@ -138,8 +138,9 @@ const LINKED = new Set(["contacts", "companies"]);
 
 const out = (r: any) => ({ ...r.data, id: r.id, _rev: r.updated_at || r.created_at });
 
+const listHandlers: Record<string, (ctx: any) => Promise<any>> = {};
 for (const [name, spec] of Object.entries(SPECS)) {
-  route("GET", `/crm/${name}`, async ({ c, query }) => {
+  const listHandler = async ({ c, query }: any) => {
     needCrm(c);
     if (name === "email-logs" && !can(c, "canViewSalesMail") && crmScope(c) !== "all") throw forbidden();
     const scope = crmScope(c);
@@ -168,7 +169,9 @@ for (const [name, spec] of Object.entries(SPECS)) {
     } catch { throw new HttpError(500, "Could not load " + name); }
     const lk = LINKED.has(name) ? await linkedKeys(c, scope, team) : null;
     return (data || []).filter((r: any) => spec.owns(c, scope, team, r) && linkedOk(name, r, lk)).map(out);
-  });
+  };
+  listHandlers[name] = listHandler;
+  route("GET", `/crm/${name}`, listHandler);
 
   route("POST", `/crm/${name}`, async ({ req, c }) => {
     needCrm(c);
@@ -616,4 +619,18 @@ route("POST", "/crm/queue-settings", async ({ req, c }) => {
   await setConfig("queue_settings", { ...(await getConfig<any>("queue_settings", {})), ...s });
   await logActivity(c, "Update Routing Rules", "Lead routing settings changed", "admin");
   return { success: true };
+});
+
+/** ONE request instead of one per list: the changes of the lists that move all day (leads, tasks, activities) plus the bell's unread count.
+ *  ?leads=ISO&tasks=ISO&activities=ISO  (each: only rows changed after that moment). Cuts the polling calls of every open tab by about 6 times. */
+route("GET", "/crm/pulse", async ({ c, query }) => {
+  needCrm(c);
+  const results: Record<string, any> = {};
+  for (const k of ["leads", "tasks", "activities"]) {
+    const since = query.get(k);
+    if (!since) continue;
+    try { results[k] = await listHandlers[k]({ c, query: new URLSearchParams({ since }) }); } catch { results[k] = { error: true }; }
+  }
+  const { count } = await admin.from("crm_notifications").select("id", { count: "exact", head: true }).eq("user_id", c.id).is("read_at", null);
+  return { now: nowIso(), unread: count || 0, results };
 });

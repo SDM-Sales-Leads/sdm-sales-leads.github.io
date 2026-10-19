@@ -143,6 +143,16 @@ function pullDelta(kind: Kind): Promise<boolean | null> {
       if (!res.ok) return null;
       j = await res.json();
     } catch { return null; }
+    return applyDelta(kind, j);
+  };
+  const p = run().finally(() => { delete inflight[kind]; });
+  inflight[kind] = p;
+  return p;
+}
+
+/** merges one delta answer ({ delta, rows, removed, now }) into memory. true = changed, false = nothing, null = malformed (full load needed) */
+function applyDelta(kind: Kind, j: any): boolean | null {
+  {
     if (!j || j.delta !== true || !Array.isArray(j.rows)) return null;
     if (pending[kind] > 0) return false; // a save started meanwhile: the next refresh will merge
     const nextCursor = cursorFrom(j.now);
@@ -172,10 +182,35 @@ function pullDelta(kind: Kind): Promise<boolean | null> {
     for (const r of j.rows) baseline[kind].set(String(r.id), stable(r));
     for (const id of removed) baseline[kind].delete(id);
     return true;
-  };
-  const p = run().finally(() => { delete inflight[kind]; });
-  inflight[kind] = p;
-  return p;
+  }
+}
+
+// ---- ONE request for every poll: leads + tasks + activities changes and the bell's unread count (see /crm/pulse on the server) ----
+const HOT: Kind[] = ['leads', 'tasks', 'activities'];
+const IDLE_MS = 5 * 60_000;                // nobody touched the screen for 5 minutes: stop polling until they do
+let lastActivity = Date.now(), lastPulseAt = 0, pulsing = false;
+async function pulse(): Promise<boolean> {
+  if (pulsing) return false;
+  const qs = new URLSearchParams();
+  for (const k of HOT) if (cursor[k] && pending[k] === 0) qs.set(k, cursor[k]!);
+  if (![...qs.keys()].length) return false;
+  pulsing = true; lastDeltaAt = lastPulseAt = Date.now(); (window as any).__sdmLastPulse = lastPulseAt;
+  try {
+    const res = await fetch(`/api/crm/pulse?${qs}`);
+    if (!res.ok) return false;
+    const j = await res.json();
+    window.dispatchEvent(new CustomEvent('crm-pulse', { detail: { unread: Number(j.unread) || 0 } }));
+    let any = false;
+    for (const k of HOT) {
+      const r = j.results?.[k];
+      if (!r || r.error) continue;
+      const d = applyDelta(k, r);
+      if (d === true) any = true;
+      else if (d === null) { const rows = await pull(k); if (rows && pending[k] === 0) { write(k, rows); setBaseline(k, rows); any = true; } }
+    }
+    if (any) changed();
+    return any;
+  } catch { return false; } finally { pulsing = false; }
 }
 
 async function flush(kind: Kind) {
@@ -320,17 +355,23 @@ export const crmService = {
    * Polls refreshDelta every ~90 s while the tab is visible, and when the window regains focus / becomes visible.
    * Returns a stop function. Reference counted: call it from every screen that shows leads.
    */
-  startAutoRefresh: (intervalMs = 120_000): (() => void) => {
+  startAutoRefresh: (intervalMs = 150_000): (() => void) => {
     autoUsers++;
     if (autoUsers === 1) {
-      // only the lists that change all day (leads, tasks, activities), only while the tab is visible
-      const hot: Kind[] = ['leads', 'tasks', 'activities'];
-      autoTimer = setInterval(() => { if (document.visibilityState === 'visible') void crmService.refreshDelta({ kinds: hot }); }, intervalMs);
-      // coming back to the tab: refresh only if the last refresh is older than a minute
-      const onWake = () => { if (document.visibilityState === 'visible' && Date.now() - lastDeltaAt > 60_000) void crmService.refreshDelta({ kinds: hot }); };
+      const visible = () => document.visibilityState === 'visible';
+      // only while the tab is in front AND the person is using the screen (idle PCs and forgotten tabs stop calling the server)
+      autoTimer = setInterval(() => { if (visible() && Date.now() - lastActivity < IDLE_MS) void pulse(); }, intervalMs);
+      const onActivity = () => {
+        const wasIdle = Date.now() - lastActivity > IDLE_MS;
+        lastActivity = Date.now();
+        if (wasIdle && visible()) void pulse();           // back after a pause: catch up at once
+      };
+      const onWake = () => { if (visible() && Date.now() - lastPulseAt > 60_000) { lastActivity = Date.now(); void pulse(); } };
+      const evs = ['pointerdown', 'keydown', 'touchstart', 'wheel'] as const;
+      evs.forEach((e) => window.addEventListener(e, onActivity, { passive: true }));
       window.addEventListener('focus', onWake);
       document.addEventListener('visibilitychange', onWake);
-      autoOff = () => { window.removeEventListener('focus', onWake); document.removeEventListener('visibilitychange', onWake); };
+      autoOff = () => { evs.forEach((e) => window.removeEventListener(e, onActivity)); window.removeEventListener('focus', onWake); document.removeEventListener('visibilitychange', onWake); };
     }
     let done = false;
     return () => {

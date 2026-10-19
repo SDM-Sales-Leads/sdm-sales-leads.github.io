@@ -19,6 +19,8 @@ const Icon = ({ type }: { type: string }) =>
 export const NotificationBell: React.FC<{ dark?: boolean; className?: string }> = ({ dark = false, className = '' }) => {
   const [items, setItems] = useState<Notif[]>([]);
   const [unread, setUnread] = useState(0);
+  const unreadRef = useRef(0);
+  unreadRef.current = unread;
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ left: 8, top: 60 });
   const btn = useRef<HTMLButtonElement>(null);
@@ -38,11 +40,17 @@ export const NotificationBell: React.FC<{ dark?: boolean; className?: string }> 
 
   useEffect(() => {
     void load(true);
-    const t = setInterval(() => void load(), 60_000);                       // one tiny request a minute, only while the tab is visible
-    const f = () => void load();
+    // the poll of the lists (/crm/pulse) also carries the unread count: the bell reads its items only when that count changes.
+    // On pages without that poll, a slow fallback (every 5 min, visible tab) keeps the bell alive.
+    const t = setInterval(() => { if (Date.now() - Number((window as any).__sdmLastPulse || 0) > 240_000) void load(); }, 300_000);
+    const onPulse = (e: Event) => { const n = Number((e as CustomEvent).detail?.unread) || 0; if (n !== unreadRef.current) void load(); };
+    let lastFocus = 0;
+    const f = () => { if (Date.now() - lastFocus > 60_000) { lastFocus = Date.now(); void load(); } };
+    const r = () => void load();
     window.addEventListener('focus', f);
-    window.addEventListener('crm-notify-refresh', f);
-    return () => { clearInterval(t); window.removeEventListener('focus', f); window.removeEventListener('crm-notify-refresh', f); };
+    window.addEventListener('crm-pulse', onPulse);
+    window.addEventListener('crm-notify-refresh', r);
+    return () => { clearInterval(t); window.removeEventListener('focus', f); window.removeEventListener('crm-pulse', onPulse); window.removeEventListener('crm-notify-refresh', r); };
   }, [load]);
 
   const toggle = () => {

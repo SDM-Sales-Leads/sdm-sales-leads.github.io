@@ -197,3 +197,21 @@ route("GET", "/crm/call-center/fairness", async ({ c }) => {
       .sort((a, b) => b.leads - a.leads || a.name.localeCompare(b.name)),
   };
 });
+
+/** the status and the owner are stored twice (in columns, used by routing and the counts, and inside the lead); report where they differ */
+route("POST", "/admin/lead-consistency", async ({ c }) => {
+  needAdmin(c);
+  const rows = await pageAll((a, z) => admin.from("crm_leads").select("id,status,assigned_to,data").is("deleted_at", null).order("id").range(a, z), 30000);
+  const statusPairs: Record<string, number> = {}, byOwner: Record<string, number> = {};
+  let different = 0;
+  for (const r of rows || []) {
+    const ds = r.data?.status || "New", cs = r.status || "New";
+    const od = asUuid(r.data?.assignedSalespersonId) || null, oc = r.assigned_to || null;
+    if (ds !== cs || od !== oc) {
+      different++;
+      if (ds !== cs) { const k = `${cs} (column) vs ${ds} (lead)`; statusPairs[k] = (statusPairs[k] || 0) + 1; }
+      const n = r.data?.assignedSalespersonName || "(none)"; byOwner[n] = (byOwner[n] || 0) + 1;
+    }
+  }
+  return { scanned: (rows || []).length, different, statusPairs, byOwner };
+});

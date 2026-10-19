@@ -242,6 +242,8 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   const [filterTouch, setFilterTouch] = useState<string>('All');
   const [filterSource, setFilterSource] = useState<string>('All');
   const [filterSalesperson, setFilterSalesperson] = useState<string>('All');
+  // a team leader opens the list on the leads assigned to him (the Owner filter or its chip shows the whole team again)
+  useEffect(() => { if (user?.role === 'Sales Team Leader' && user?.name) setFilterSalesperson((cur) => (cur === 'All' ? user.name : cur)); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [showFilters, setShowFilters] = useState(false);
   // filters the person pinned to the quick bar above the list: remembered for this person on this browser
   const pinKey = `crm_pinned_filters_${user?.id ?? 'anon'}`;

@@ -8,9 +8,13 @@ declare const EdgeRuntime: any;
 /** keep working after the HTTP answer has been sent (Supabase edge runtime); plain fire-and-forget elsewhere */
 export const later = (p: Promise<any>) => { const q = p.catch(() => {}); try { EdgeRuntime?.waitUntil?.(q); } catch { /* ignore */ } };
 
+const SITE = "https://sdm-sales-leads.github.io/";
+/** the address every e-mail link points to. A setting or APP_URL secret is only used when it is the sales site itself: a wrong value
+ *  (it once held the Land Bank address) must never reach a customer or a colleague. */
 export async function appBase(): Promise<string> {
-  const u = (await getConfig<any>("app", {})).url || Deno.env.get("APP_URL") || "https://sdm-sales-leads.github.io/";
-  return String(u).replace(/\/?(index\.html)?$/, "/");
+  const u = String((await getConfig<any>("app", {})).url || Deno.env.get("APP_URL") || SITE);
+  const ok = /^https:\/\/sdm-sales-leads\.github\.io(\/|$)/i.test(u) ? u : SITE;
+  return ok.replace(/\/?(index\.html)?$/, "/");
 }
 /** opens the lead itself after sign-in (the app reads #lead=...) */
 export const leadLink = (base: string, id: string) => `${base}#lead=${encodeURIComponent(id)}`;

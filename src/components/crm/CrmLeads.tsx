@@ -3158,7 +3158,7 @@ ${user.name || ''}`);
             </div>
 
             <div className="p-4 sm:p-6 space-y-3 sm:space-y-4 font-medium">
-              <div className="p-3 bg-green-50 border border-green-100 rounded-xl flex gap-2 text-green-800">
+              <div className="hidden sm:flex p-3 bg-green-50 border border-green-100 rounded-xl gap-2 text-green-800">
                 <Info size={16} className="text-green-600 flex-shrink-0 mt-0.5" />
                 <p className="text-[10px] leading-relaxed">
                   Review the message, then press the green button. It opens WhatsApp with the customer's number and this text ready (WhatsApp Web on a computer). The action is written to the lead timeline.
@@ -3192,7 +3192,7 @@ ${user.name || ''}`);
                 <textarea
                   value={whatsappTemplateText}
                   onChange={(e) => setWhatsappTemplateText(e.target.value)}
-                  rows={8}
+                  rows={isPhoneDevice() ? 5 : 8}
                   dir={emailLang === 'ar' ? 'rtl' : 'ltr'}
                   className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl p-3.5 focus:outline-none font-sans text-brand-black leading-relaxed"
                 />
@@ -3239,7 +3239,7 @@ ${user.name || ''}`);
             </div>
 
             <div className="p-4 sm:p-6 space-y-3 sm:space-y-4 font-medium">
-              <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl flex gap-2 text-blue-800">
+              <div className="hidden sm:flex p-3 bg-blue-50 border border-blue-100 rounded-xl gap-2 text-blue-800">
                 <Info size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
                 <p className="text-[10px] leading-relaxed">
                   Review and edit the e-mail, then press "Open in my mail program". A new message opens in Outlook (or your phone's mail app) with the customer's address, the subject and the text ready: just press Send there. The action is written to the lead timeline.
@@ -3278,7 +3278,7 @@ ${user.name || ''}`);
                   value={emailTemplateText}
                   onChange={(e) => setEmailTemplateText(e.target.value)}
                   dir={emailLang === 'ar' ? 'rtl' : 'ltr'}
-                  rows={10}
+                  rows={isPhoneDevice() ? 6 : 10}
                   className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl p-3.5 focus:outline-none font-sans text-brand-black leading-relaxed"
                 />
               </div>

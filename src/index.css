@@ -240,3 +240,13 @@ button.glass-card:hover { transform: translateY(-2px); box-shadow: 0 10px 26px r
 }
 input[type="date"], input[type="time"], input[type="datetime-local"] { min-width: 0; max-width: 100%; -webkit-appearance: none; appearance: none; }
 .grid > * { min-width: 0; }
+
+/* compact windows on a phone: smaller padding and gaps, text a touch smaller, short text boxes, so a whole window fits one screen */
+@media (max-width: 767px) {
+  .fixed.inset-0.flex[class*="z-50"] > *, .fixed.inset-0.flex[class*="z-[100]"] > * { font-size: 0.9rem; }
+  .fixed.inset-0.flex[class*="z-50"] .p-6, .fixed.inset-0.flex[class*="z-[100]"] .p-6 { padding: 12px !important; }
+  .fixed.inset-0.flex[class*="z-50"] .p-5, .fixed.inset-0.flex[class*="z-[100]"] .p-5 { padding: 10px 12px !important; }
+  .fixed.inset-0.flex[class*="z-50"] .space-y-4 > * + *, .fixed.inset-0.flex[class*="z-50"] .space-y-3 > * + * { margin-top: 8px !important; }
+  .fixed.inset-0.flex[class*="z-50"] textarea { min-height: 0; }
+  .fixed.inset-0.flex[class*="z-50"] input:not([type=checkbox]):not([type=radio]), .fixed.inset-0.flex[class*="z-50"] select { padding-top: 7px; padding-bottom: 7px; }
+}

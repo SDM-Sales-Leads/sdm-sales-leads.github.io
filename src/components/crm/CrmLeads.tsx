@@ -1374,7 +1374,9 @@ ${user.name || ''}`);
   const [emailLang, setEmailLang] = useState<'en' | 'ar'>('en');
   const [emailSubject, setEmailSubject] = useState('');
   const emailSubjectFor = (l: Lead) => {
-    const first = String(l.customerName || '').trim().split(/\s+/).filter((w) => !/^(mr|mrs|ms|eng|dr|م|مهندس|دكتور)\.?$/i.test(w))[0] || String(l.customerName || '').trim();
+    // call center names look like "job title/ name": the name is the part after the slash
+    const full = String(l.customerName || '').split('/').pop() || '';
+    const first = full.trim().split(/\s+/).filter((w) => !/^(mr|mrs|ms|eng|dr|م|مهندس|دكتور)\.?$/i.test(w))[0] || full.trim() || String(l.customerName || '').trim();
     return [first, phoneIntl(l.phoneNumber) || String(l.phoneNumber || '').trim(), 'Elsewedy Industrial Development', 'Land Inquiry'].filter(Boolean).join(' | ');
   };
   const emailBodyFor = (l: Lead, lang: 'en' | 'ar') => lang === 'ar'
@@ -3276,6 +3278,7 @@ ${user.name || ''}`);
                 <textarea
                   value={emailTemplateText}
                   onChange={(e) => setEmailTemplateText(e.target.value)}
+                  dir={emailLang === 'ar' ? 'rtl' : 'ltr'}
                   rows={10}
                   className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl p-3.5 focus:outline-none font-sans text-brand-black leading-relaxed"
                 />

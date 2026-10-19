@@ -34,7 +34,23 @@ route("POST", "/cron/ingest", async ({ req }) => {
   return { ...m, ...fb };
 }, { public: true });
 
-Deno.serve(async (req: Request) => {
+/** Big JSON answers (the lead, contact and company lists are several MB) are sent gzip-compressed: about 8 times less data out,
+ *  which is what the free plan's 5 GB monthly egress limit counts. Only when the browser says it can read gzip. */
+async function gzipIfBig(req: Request, res: Response): Promise<Response> {
+  try {
+    if (req.method === "OPTIONS" || !/\bgzip\b/i.test(req.headers.get("accept-encoding") || "") || res.headers.get("content-encoding") || !res.body) return res;
+    if (!/json|text/i.test(res.headers.get("content-type") || "")) return res;
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength < 8192) return new Response(buf, { status: res.status, headers: res.headers });
+    const gz = await new Response(new Blob([buf]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
+    const h = new Headers(res.headers); h.set("Content-Encoding", "gzip"); h.append("Vary", "Accept-Encoding"); h.delete("Content-Length");
+    return new Response(gz, { status: res.status, headers: h });
+  } catch { return res; }
+}
+
+Deno.serve(async (req: Request) => gzipIfBig(req, await handle(req)));
+
+async function handle(req: Request): Promise<Response> {
   const origin = req.headers.get("origin");
   const cors = corsHeaders(origin);
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -61,4 +77,4 @@ Deno.serve(async (req: Request) => {
     console.error("api error", e?.message || e);
     return wrap(json({ error: "Something went wrong on the server" }, 500));
   }
-});
+}

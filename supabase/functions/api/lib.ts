@@ -37,7 +37,7 @@ export function corsHeaders(origin: string | null): Record<string, string> {
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
   };
-  if (origin && allowedOrigins().includes(origin)) h["Access-Control-Allow-Origin"] = origin;
+  if (origin && allowedOrigins().includes(origin)) { h["Access-Control-Allow-Origin"] = origin; h["Timing-Allow-Origin"] = origin; }
   return h;
 }
 export function json(data: unknown, status = 200, extra: Record<string, string> = {}): Response {

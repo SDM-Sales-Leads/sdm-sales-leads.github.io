@@ -65,7 +65,7 @@ export function installTelemetry() {
     logIssue('js_promise', m);
   });
 
-  for (const ev of ['resume', 'pageshow', 'online', 'focus']) window.addEventListener(ev, () => { lastWake = Date.now(); });
+  for (const ev of ['resume', 'pageshow', 'online']) window.addEventListener(ev, () => { lastWake = Date.now(); });
   document.addEventListener('resume', () => { lastWake = Date.now(); });
   // freeze: the page did not answer for several seconds while the tab was in front
   let last = performance.now(), hiddenSince = 0, wasHidden = false;

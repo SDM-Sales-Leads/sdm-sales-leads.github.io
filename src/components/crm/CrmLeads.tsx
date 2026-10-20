@@ -440,6 +440,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
     setFilterProject([]);
     setFilterPriority([]);
     setFilterSource([]);
+    setFilterTouch([]);
     setFilterSalesperson([]);
     clearSearch();
     setXf(EMPTY_XF);

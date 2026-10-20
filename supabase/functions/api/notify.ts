@@ -89,7 +89,7 @@ export async function sendAssignDigest() {
   const rows = await pageAll((a, b) => admin.from("crm_leads").select("id,assigned_to,status,data->customerName,data->companyName,data->project,data->source,data->channel,data->assignedDate,data->legacyId")
     .is("deleted_at", null).not("assigned_to", "is", null).gte("data->>assignedDate", String(cur.at)).lte("data->>assignedDate", now.toISOString()).order("id").range(a, b), 5000);
   const by = new Map<string, any[]>();
-  for (const r of rows || []) { if ((r as any).legacyId) continue; by.set(r.assigned_to as string, [...(by.get(r.assigned_to as string) || []), r]); }
+  for (const r of rows || []) { by.set(r.assigned_to as string, [...(by.get(r.assigned_to as string) || []), r]); }
   const base = await appBase();
   const when = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
   let sent = 0;

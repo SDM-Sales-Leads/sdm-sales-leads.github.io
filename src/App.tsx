@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './services/AuthContext';
 import { ThemeProvider, useTheme } from './services/ThemeContext';
 import { Toaster } from 'sonner';
@@ -46,6 +46,20 @@ const AppContent: React.FC = () => {
   // Back goes to the page the user came from (and closes an open ticket first)
   usePageHistory({ tab: activeTab, sub: crmSubTab }, !!user, (p) => { setSelectedTicket(null); setActiveTab(p.tab); setCrmSubTab(p.sub); });
   useBackClose(!!selectedTicket, () => setSelectedTicket(null));
+  // "My day" is part of Home now: old links, bookmarks and the reminder bell land there
+  useEffect(() => { if (activeTab === 'sales-crm' && crmSubTab === 'my-day') { setActiveTab('glass-home'); setCrmSubTab('dashboard'); } }, [activeTab, crmSubTab]);
+  // a number or lead clicked on a page outside the Sales module (Home, tickets ...): open the Sales module first, then repeat the click for it
+  const tabRef = useRef(activeTab); tabRef.current = activeTab;
+  useEffect(() => {
+    const h = (e: Event) => {
+      const d: any = (e as CustomEvent).detail || {};
+      if (d.__replay || tabRef.current === 'sales-crm') return;
+      setSelectedTicket(null); setActiveTab('sales-crm'); setCrmSubTab(d.kind === 'customer' ? 'contacts' : 'leads');
+      for (const ms of [400, 1500]) setTimeout(() => window.dispatchEvent(new CustomEvent('crm-nav', { detail: { ...d, __replay: true } })), ms);
+    };
+    window.addEventListener('crm-nav', h);
+    return () => window.removeEventListener('crm-nav', h);
+  }, []);
   useEffect(() => { (window as any).__sdmPage = `${activeTab}/${crmSubTab}`; }, [activeTab, crmSubTab]);
 
   // the first page for everybody who works with leads is Home (the day at a glance), in every look

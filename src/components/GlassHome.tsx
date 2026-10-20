@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, CalendarClock, PhoneCall, Trophy, Users } from 'lucide-react';
 import { useAuth } from '../services/AuthContext';
 import { crmService } from './crm/crmService';
@@ -6,6 +6,7 @@ import { crmNav } from './crm/crmNav';
 import { isOpenStatus } from './crm/leadConfig';
 import { dayOf, todayISO } from './crm/leadMetrics';
 import { CrmCallCenter } from './crm/CrmCallCenter';
+const CrmMyDay = lazy(() => import('./crm/CrmMyDay').then((m) => ({ default: m.CrmMyDay })));
 
 const plus = (iso: string, n: number) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA'); };
 
@@ -51,13 +52,6 @@ export const GlassHome: React.FC = () => {
       <div className="mt-1.5 text-[11px] font-semibold text-brand-gray flex items-center justify-between">{sub}<ArrowUpRight size={13} className="opacity-0 group-hover:opacity-100 transition-opacity" /></div>
     </button>
   );
-  const strip = (title: string, text: string, n: number, leads: any[], on = false) => (
-    <button type="button" onClick={() => go(title, leads)} className={`rounded-2xl p-4 text-left flex flex-col justify-between min-h-[96px] transition-transform hover:-translate-y-0.5 ${on ? 'bg-brand-red text-white shadow-lg shadow-brand-red/30' : 'glass-card'}`}>
-      <div><div className={`font-extrabold text-[15px] ${on ? '' : 'text-brand-black'}`}>{title}</div><div className={`text-[11px] mt-1 ${on ? 'text-white/80' : 'text-brand-gray'}`}>{text}</div></div>
-      <span className={`mt-3 self-start text-[11px] font-bold rounded-full px-2.5 py-1 ${on ? 'bg-white text-brand-red' : 'bg-brand-red/10 text-brand-red'}`}>{n.toLocaleString('en-US')} {n === 1 ? 'lead' : 'leads'}</span>
-    </button>
-  );
-
   return (
     <div className="space-y-5">
       {/* people who phoned us and wait for a call back: the first thing everybody who owns them sees */}
@@ -84,13 +78,12 @@ export const GlassHome: React.FC = () => {
           )}
       </div>
 
+      {/* the day's work (it used to be a second tab, "My day"): the queue, the follow-ups, the offers and the schedule, under the numbers */}
       <div>
         <div className="flex items-center justify-between mb-2.5"><h3 className="glass-home-h font-bold text-[15px] border-l-[3px] border-brand-red pl-2.5">My day</h3></div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {strip('Call first', 'New leads nobody has contacted yet', d.fresh.length, d.fresh)}
-          {strip('Follow up today', 'Follow-ups due today or overdue', d.due.length, d.due, true)}
-          {strip('Meetings this week', 'Meetings and site visits in the next 7 days', d.meet.length, d.meet)}
-        </div>
+        <Suspense fallback={<div className="p-6 text-sm text-brand-gray">Loading your day…</div>}>
+          <CrmMyDay leads={crmService.getLeads() as any[]} onLeadsUpdated={() => { void crmService.refreshDelta({ force: true, kinds: ['leads'] }); }} setActiveSubTab={() => {}} />
+        </Suspense>
       </div>
     </div>
   );

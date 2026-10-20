@@ -289,7 +289,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const crmSubTabs = [
     { id: 'dashboard', label: 'Executive Board', icon: LayoutDashboard, permission: permissions?.canViewSalesDashboard },
-    { id: 'my-day', label: 'My Day', icon: CheckSquare, permission: permissions?.canViewSalesLeads || permissions?.canViewSalesCrm },
     { id: 'leads', label: 'Sales Leads', icon: Layers, permission: permissions?.canViewSalesLeads },
     { id: 'contacts', label: 'Contacts', icon: Users, permission: permissions?.canViewSalesContacts },
     { id: 'companies', label: 'Corporate Accounts', icon: Building, permission: permissions?.canViewSalesCompanies },

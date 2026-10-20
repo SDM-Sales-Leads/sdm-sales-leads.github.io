@@ -25,7 +25,6 @@ export function buildGlassNav(p: any, role?: string): { general: NavEntry[]; crm
     ],
     crm: [
       c('dashboard', 'Executive Board', LayoutDashboard, p?.canViewSalesDashboard),
-      c('my-day', 'My Day', CheckSquare, crmAny),
       c('leads', 'Sales Leads', Layers, p?.canViewSalesLeads),
       c('contacts', 'Contacts', Users, p?.canViewSalesContacts),
       c('companies', 'Corporate Accounts', Building, p?.canViewSalesCompanies),

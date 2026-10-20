@@ -234,9 +234,9 @@ export const CrmActivities: React.FC<CrmActivitiesProps> = ({ leads, onLeadsUpda
                       <h4 className="font-extrabold text-brand-black text-xs">{item.activity.title}</h4>
                       <span className="text-[10px] text-brand-gray font-bold">• Associated with</span>
                       <span className="font-bold text-brand-red">{item.leadName}</span>
-                      <span className="font-mono text-[9px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                      <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('app-open-lead', { detail: { id: item.leadId } }))} title="Open the lead card" className="font-mono text-[9px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded underline decoration-dotted underline-offset-2 hover:opacity-70">
                         {item.leadId}
-                      </span>
+                      </button>
                     </div>
 
                     <div className="flex items-center gap-2.5 text-[10px] text-brand-gray font-bold">

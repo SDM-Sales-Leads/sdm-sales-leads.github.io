@@ -20,6 +20,7 @@ import {
   localISO, pc, sourceWinRates, todayISO,
 } from './leadMetrics';
 import { InfoTip } from './CrmMetricsUi';
+import { crmNav } from './crmNav';
 import { suggestTemplate, waCompose, waFill } from './waTemplates';
 
 interface CrmMyDayProps {
@@ -117,23 +118,24 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
 
   const stats = useMemo(() => {
     let active = 0, won = 0, lost = 0, unworked = 0, working = 0, pipeline = 0, activeValue = 0, sizeSum = 0, sizeN = 0, vip = 0, high = 0;
+    const L = { active: [] as Lead[], won: [] as Lead[], lost: [] as Lead[], unworked: [] as Lead[], pipeline: [] as Lead[] };
     const src: Record<string, number> = {}; const lostR: Record<string, number> = {};
     for (const l of mine) {
       const st = statusStage(l.status);
-      if (st === 'won') won++;
-      else if (st === 'lost') { lost++; const r = l.lostReason || l.lostCategory; if (r) lostR[r] = (lostR[r] || 0) + 1; }
+      if (st === 'won') { won++; L.won.push(l); }
+      else if (st === 'lost') { lost++; L.lost.push(l); const r = l.lostReason || l.lostCategory; if (r) lostR[r] = (lostR[r] || 0) + 1; }
       if (l.source) src[l.source] = (src[l.source] || 0) + 1;
       if (!isOpenStatus(l.status)) continue;
-      active++;
-      if (!isEngaged(l)) unworked++; else working++;
-      if (PIPELINE_STATUSES.includes(l.status)) pipeline++;
+      active++; L.active.push(l);
+      if (!isEngaged(l)) { unworked++; L.unworked.push(l); } else working++;
+      if (PIPELINE_STATUSES.includes(l.status)) { pipeline++; L.pipeline.push(l); }
       activeValue += Number(l.dealValue) || 0;
       if (Number(l.requiredSize) > 0) { sizeSum += Number(l.requiredSize); sizeN++; }
       if (l.priority === 'VIP' || l.priority === 'Urgent') vip++;
       else if (l.priority === 'High') high++;
     }
     const top = (o: Record<string, number>) => Object.entries(o).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
-    return { total: mine.length, active, won, lost, unworked, working, pipeline, activeValue, avgSize: sizeN ? Math.round(sizeSum / sizeN) : null, vip, high, topSource: top(src), topLost: top(lostR), win: pc(won, won + lost) };
+    return { total: mine.length, active, won, lost, unworked, working, pipeline, activeValue, avgSize: sizeN ? Math.round(sizeSum / sizeN) : null, vip, high, topSource: top(src), topLost: top(lostR), win: pc(won, won + lost), L };
   }, [mine]);
 
   // ---- queues ----
@@ -210,11 +212,12 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
   const isOwner = (l: Lead) => !!user && String(l.assignedSalespersonId) === String(user.id);
   const touched = (l: Lead): Partial<Lead> => ({ lastContactDate: todayISO(), ...(isOwner(l) && !l.firstContactAt ? { firstContactAt: new Date().toISOString() } : {}) });
 
-  const openLead = (id: string) => {
-    window.dispatchEvent(new CustomEvent('crm-select-lead', { detail: { leadId: id } }));
-    try { localStorage.setItem('crm_selected_lead_id_from_notification', id); } catch { /* ignore */ }
-    setActiveSubTab('leads');
-  };
+  const openLead = (id: string) => { window.dispatchEvent(new CustomEvent('app-open-lead', { detail: { id } })); };
+  // every number opens exactly the leads behind it in the Leads list
+  const go = (title: string, ls: Lead[]) => crmNav.leads({ title, ids: ls.map((l) => l.id) });
+  const Num: React.FC<{ n: number | string; title: string; leads: Lead[]; className?: string }> = ({ n, title, leads: ls, className = '' }) => (
+    ls.length ? <button type="button" onClick={() => go(title, ls)} title={`Show these ${ls.length} leads in the Leads list`} className={`${className} underline decoration-dotted underline-offset-2 hover:opacity-70 cursor-pointer`}>{n}</button> : <span className={className}>{n}</span>
+  );
 
   const openModal = (kind: Exclude<ModalKind, null>, l: Lead) => {
     setTarget(l); setNotes(''); setModal(kind);
@@ -324,7 +327,7 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
         <p className="text-[10px] text-brand-gray truncate">{t.why}</p>
       </div>
       {t.sla && <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 shrink-0">{t.sla === 'vip' ? 'VIP SLA' : 'Neglected'}</span>}
-      <span className="font-mono text-[10px] text-brand-red shrink-0">{t.lead.id}</span>
+      <button type="button" onClick={(e) => { e.stopPropagation(); openLead(t.lead.id); }} title="Open the lead card" className="font-mono text-[10px] text-brand-red shrink-0 underline decoration-dotted underline-offset-2 hover:opacity-70">{t.lead.id}</button>
     </div>
   );
 
@@ -362,12 +365,12 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bento-card relative overflow-hidden">
           <span className="text-[10px] font-extrabold text-brand-gray dark:text-white/40 uppercase tracking-wider block mb-2">My leads <InfoTip text="Leads assigned to this person. Open = not Won, Lost, Not Interested, Low Budget or Wrong Number. Not yet worked = open leads nobody has contacted." /></span>
-          <div className="flex items-baseline gap-2"><span className="text-3xl font-black text-brand-black dark:text-white">{stats.total}</span><span className="text-xs text-brand-gray">assigned</span></div>
+          <div className="flex items-baseline gap-2"><Num n={stats.total} title="My leads" leads={mine} className="text-3xl font-black text-brand-black dark:text-white" /><span className="text-xs text-brand-gray">assigned</span></div>
           <div className="mt-3 space-y-1 text-[10px] font-semibold text-brand-gray">
-            <div className="flex justify-between"><span>Open</span><span className="text-brand-red font-bold">{stats.active}</span></div>
-            <div className="flex justify-between"><span>Not yet worked</span><span className="font-bold text-sky-600">{stats.unworked}</span></div>
-            <div className="flex justify-between"><span>In offer / meeting / negotiation</span><span className="font-bold text-amber-600">{stats.pipeline}</span></div>
-            <div className="flex justify-between"><span>Won</span><span className="font-bold text-emerald-600">{stats.won}</span></div>
+            <div className="flex justify-between"><span>Open</span><Num n={stats.active} title="My open leads" leads={stats.L.active} className="text-brand-red font-bold" /></div>
+            <div className="flex justify-between"><span>Not yet worked</span><Num n={stats.unworked} title="Not yet worked" leads={stats.L.unworked} className="font-bold text-sky-600" /></div>
+            <div className="flex justify-between"><span>In offer / meeting / negotiation</span><Num n={stats.pipeline} title="In offer / meeting / negotiation" leads={stats.L.pipeline} className="font-bold text-amber-600" /></div>
+            <div className="flex justify-between"><span>Won</span><Num n={stats.won} title="Won deals" leads={stats.L.won} className="font-bold text-emerald-600" /></div>
           </div>
         </div>
         <div className="bento-card">
@@ -382,16 +385,16 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
           <span className="text-[10px] font-extrabold text-brand-gray dark:text-white/40 uppercase tracking-wider block mb-2">Win rate <InfoTip text="Won ÷ (Won + Lost) of this person's leads. Not Interested and Low Budget are not counted here." /></span>
           <span className="text-3xl font-black text-indigo-600">{stats.win == null ? '—' : `${Math.round(stats.win)}%`}</span>
           <div className="mt-4 pt-3 border-t border-brand-gray/10 flex justify-between text-center text-[10px] font-extrabold">
-            <div className="flex-1"><span className="text-emerald-500 block text-base">{stats.won}</span><span className="text-[8px] uppercase text-brand-gray">Won</span></div>
-            <div className="flex-1"><span className="text-rose-500 block text-base">{stats.lost}</span><span className="text-[8px] uppercase text-brand-gray">Lost</span></div>
+            <div className="flex-1"><Num n={stats.won} title="Won deals" leads={stats.L.won} className="text-emerald-500 block text-base mx-auto" /><span className="text-[8px] uppercase text-brand-gray">Won</span></div>
+            <div className="flex-1"><Num n={stats.lost} title="Lost deals" leads={stats.L.lost} className="text-rose-500 block text-base mx-auto" /><span className="text-[8px] uppercase text-brand-gray">Lost</span></div>
           </div>
         </div>
         <div className="bento-card">
           <span className="text-[10px] font-extrabold text-brand-gray dark:text-white/40 uppercase tracking-wider block mb-2">Needs attention <InfoTip text={`First-call SLA: a VIP lead with no first contact for more than ${VIP_SLA_HOURS} h, or any lead for more than ${NEGLECT_HOURS} h, counted from the moment it was assigned (or 09:00 on the lead date).`} /></span>
-          <div className="flex items-baseline gap-2"><span className="text-3xl font-black text-rose-600">{board.callList.filter((t) => t.level === 0).length}</span><span className="text-xs text-brand-gray">must do today</span></div>
+          <div className="flex items-baseline gap-2"><Num n={board.callList.filter((t) => t.level === 0).length} title="Must do today" leads={board.callList.filter((t) => t.level === 0).map((t) => t.lead)} className="text-3xl font-black text-rose-600" /><span className="text-xs text-brand-gray">must do today</span></div>
           <div className="mt-3 pt-3 border-t border-brand-gray/10 space-y-1 text-[10px] font-semibold text-brand-gray">
-            <div className="flex justify-between"><span>VIP first call overdue</span><span className="font-extrabold text-rose-500">{board.first.filter((t) => t.sla === 'vip').length}</span></div>
-            <div className="flex justify-between"><span>Neglected (no first call)</span><span className="font-extrabold text-rose-500">{board.first.filter((t) => t.sla).length}</span></div>
+            <div className="flex justify-between"><span>VIP first call overdue</span><Num n={board.first.filter((t) => t.sla === 'vip').length} title="VIP first call overdue" leads={board.first.filter((t) => t.sla === 'vip').map((t) => t.lead)} className="font-extrabold text-rose-500" /></div>
+            <div className="flex justify-between"><span>Neglected (no first call)</span><Num n={board.first.filter((t) => t.sla).length} title="Neglected: no first call" leads={board.first.filter((t) => t.sla).map((t) => t.lead)} className="font-extrabold text-rose-500" /></div>
             <div className="flex justify-between"><span>Main reason for loss</span><span className="font-extrabold text-brand-black dark:text-white">{stats.topLost}</span></div>
           </div>
         </div>
@@ -419,7 +422,7 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
             </p>
             <div className="flex items-center justify-between text-xs font-bold text-brand-black">
               <span>{parseLocalDay(today).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>
-              <span className="text-brand-gray">{doneN} done · {queue.length} to go</span>
+              <span className="text-brand-gray">{doneN} done · <Num n={`${queue.length} to go`} title="Still to do today" leads={queue.map((t) => t.lead)} className="text-brand-red" /></span>
             </div>
             <div className="h-1.5 bg-brand-gray/10 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${pct}%` }} /></div>
 
@@ -435,7 +438,7 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                   <div className="space-y-2 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-xs font-extrabold text-brand-red">{hero.lead.id}</span>
+                      <button type="button" onClick={() => openLead(hero.lead.id)} title="Open the lead card" className="font-mono text-xs font-extrabold text-brand-red underline decoration-dotted underline-offset-2 hover:opacity-70">{hero.lead.id}</button>
                       <h4 className="font-bold text-base text-brand-black truncate">{hero.lead.companyName || hero.lead.customerName}</h4>
                       <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${priorityPill(hero.lead.priority)}`}>{hero.lead.priority}</span>
                       <span className="bg-brand-black text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full">{hero.lead.status}</span>
@@ -474,7 +477,7 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
                 <p className="text-xs text-brand-gray">{mode === 'follow' ? 'Nobody is waiting on you right now.' : 'Every lead has been opened.'}</p>
                 <div className="flex justify-center gap-2 pt-1">
                   {mode === 'follow' && board.first.length > 0 && <button onClick={() => setQueueMode('new')} className="btn-primary text-xs px-4 py-2">Start on new leads</button>}
-                  <button onClick={() => setActiveSubTab('leads')} className="btn-secondary text-xs px-4 py-2">Open my leads</button>
+                  <button onClick={() => go('My leads', mine)} className="btn-secondary text-xs px-4 py-2">Open my leads</button>
                 </div>
               </div>
             )}
@@ -490,10 +493,11 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
               const isOpenFold = open[f.kind];
               return (
                 <div key={f.kind} className="bento-card !p-0 overflow-hidden">
-                  <button onClick={() => setOpen({ ...open, [f.kind]: !isOpenFold })} className="w-full flex items-center justify-between px-5 py-3 hover:bg-brand-gray/5">
-                    <span className={`text-xs font-extrabold uppercase tracking-wide ${f.tone}`}>{f.title} <span className="font-mono text-brand-black">({list.length})</span></span>
-                    {isOpenFold ? <ChevronUp size={14} className="text-brand-gray" /> : <ChevronDown size={14} className="text-brand-gray" />}
-                  </button>
+                  <div className="w-full flex items-center gap-3 px-5 py-3 hover:bg-brand-gray/5">
+                    <button onClick={() => setOpen({ ...open, [f.kind]: !isOpenFold })} className="flex-1 text-left"><span className={`text-xs font-extrabold uppercase tracking-wide ${f.tone}`}>{f.title}</span></button>
+                    <button onClick={() => go(f.title, list.map((t) => t.lead))} title="Show these leads in the Leads list" className="font-mono text-xs font-bold text-brand-red underline decoration-dotted underline-offset-2 hover:opacity-70">({list.length})</button>
+                    <button onClick={() => setOpen({ ...open, [f.kind]: !isOpenFold })} aria-label="Expand or collapse">{isOpenFold ? <ChevronUp size={14} className="text-brand-gray" /> : <ChevronDown size={14} className="text-brand-gray" />}</button>
+                  </div>
                   {isOpenFold && (
                     <div className="px-2 pb-3">
                       {list.slice(0, f.cap).map((t) => <TaskRow key={t.lead.id} t={t} />)}
@@ -505,17 +509,18 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
             })}
             {board.wonPendingAR.length > 0 && (
               <div className="bento-card !p-0 overflow-hidden">
-                <button onClick={() => setOpen({ ...open, ar: !open.ar })} className="w-full flex items-center justify-between px-5 py-3 hover:bg-brand-gray/5">
-                  <span className="text-xs font-extrabold uppercase tracking-wide text-amber-600 flex items-center gap-1.5"><Wallet size={13} />Won — cash not yet confirmed by Accounts Receivable <span className="font-mono text-brand-black">({board.wonPendingAR.length})</span></span>
-                  {open.ar ? <ChevronUp size={14} className="text-brand-gray" /> : <ChevronDown size={14} className="text-brand-gray" />}
-                </button>
+                <div className="w-full flex items-center gap-3 px-5 py-3 hover:bg-brand-gray/5">
+                  <button onClick={() => setOpen({ ...open, ar: !open.ar })} className="flex-1 text-left"><span className="text-xs font-extrabold uppercase tracking-wide text-amber-600 flex items-center gap-1.5"><Wallet size={13} />Won — cash not yet confirmed by Accounts Receivable </span></button>
+                  <button onClick={() => go('Won — cash not yet confirmed', board.wonPendingAR)} title="Show these leads in the Leads list" className="font-mono text-xs font-bold text-brand-red underline decoration-dotted underline-offset-2 hover:opacity-70">({board.wonPendingAR.length})</button>
+                  <button onClick={() => setOpen({ ...open, ar: !open.ar })} aria-label="Expand or collapse">{open.ar ? <ChevronUp size={14} className="text-brand-gray" /> : <ChevronDown size={14} className="text-brand-gray" />}</button>
+                </div>
                 {open.ar && (
                   <div className="px-2 pb-3">
                     {board.wonPendingAR.slice(0, 40).map((l) => (
                       <div key={l.id} className="flex items-center gap-3 py-2 px-3 hover:bg-brand-gray/5 rounded-xl cursor-pointer" onClick={() => openLead(l.id)}>
                         <div className="min-w-0 flex-1"><p className="text-xs font-bold truncate">{l.companyName || l.customerName}</p><p className="text-[10px] text-brand-gray">{l.project} · won {fmtDay(dayOf(l.wonDate))}</p></div>
                         <span className="font-mono text-[11px] font-bold">{Number(l.dealValue) > 0 ? fmtEGP(Number(l.dealValue)) : '—'}</span>
-                        <span className="font-mono text-[10px] text-brand-red">{l.id}</span>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); openLead(l.id); }} title="Open the lead card" className="font-mono text-[10px] text-brand-red underline decoration-dotted underline-offset-2 hover:opacity-70">{l.id}</button>
                       </div>
                     ))}
                     <p className="text-[10px] text-brand-gray px-3 pt-2">Only Accounts Receivable confirms the cash. Ask the client to complete payment.</p>
@@ -525,10 +530,11 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
             )}
             {board.contractDue.length > 0 && (
               <div className="bento-card !p-0 overflow-hidden">
-                <button onClick={() => setOpen({ ...open, ct: !open.ct })} className="w-full flex items-center justify-between px-5 py-3 hover:bg-brand-gray/5">
-                  <span className="text-xs font-extrabold uppercase tracking-wide text-indigo-600 flex items-center gap-1.5"><FileText size={13} />Deals awaiting a contract <span className="font-mono text-brand-black">({board.contractDue.length})</span></span>
-                  {open.ct ? <ChevronUp size={14} className="text-brand-gray" /> : <ChevronDown size={14} className="text-brand-gray" />}
-                </button>
+                <div className="w-full flex items-center gap-3 px-5 py-3 hover:bg-brand-gray/5">
+                  <button onClick={() => setOpen({ ...open, ct: !open.ct })} className="flex-1 text-left"><span className="text-xs font-extrabold uppercase tracking-wide text-indigo-600 flex items-center gap-1.5"><FileText size={13} />Deals awaiting a contract </span></button>
+                  <button onClick={() => go('Deals awaiting a contract', board.contractDue.map((c) => c.lead))} title="Show these leads in the Leads list" className="font-mono text-xs font-bold text-brand-red underline decoration-dotted underline-offset-2 hover:opacity-70">({board.contractDue.length})</button>
+                  <button onClick={() => setOpen({ ...open, ct: !open.ct })} aria-label="Expand or collapse">{open.ct ? <ChevronUp size={14} className="text-brand-gray" /> : <ChevronDown size={14} className="text-brand-gray" />}</button>
+                </div>
                 {open.ct && (
                   <div className="px-2 pb-3">
                     {board.contractDue.slice(0, 40).map((c) => (
@@ -596,7 +602,7 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
               <Clock size={32} className="mx-auto text-brand-gray/40" />
               <h4 className="font-bold text-sm text-brand-black">All clear for {parseLocalDay(selectedDate || todayISO()).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}</h4>
               <p className="text-xs text-brand-gray max-w-md mx-auto">No meetings, site visits, offer follow-ups, follow-ups or expected closings are set for this date.</p>
-              <button onClick={() => setActiveSubTab('leads')} className="btn-primary text-xs font-extrabold px-4 py-2">Open the leads</button>
+              <button onClick={() => go('My leads', mine)} className="btn-primary text-xs font-extrabold px-4 py-2">Open the leads</button>
             </div>
           ) : (
             <div className="space-y-4">

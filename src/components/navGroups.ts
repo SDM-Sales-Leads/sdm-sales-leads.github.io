@@ -26,7 +26,7 @@ export function buildGroups(p: any, role?: string): NavGroup[] {
     return list.length ? { id, label, icon, emoji, items: list } : null;
   };
   return [
-    G('home', 'Home', Home, '⌂', [t('home', 'Home', 'glass-home', crmAny), s('my-day', 'My day', 'my-day', crmAny)]),
+    G('home', 'Home', Home, '⌂', [t('home', 'Home', 'glass-home', crmAny)]),
     G('leads', 'Leads', Layers, '☰', [s('leads', 'Leads', 'leads', p?.canViewSalesLeads), s('calendar', 'Calendar', 'calendar', p?.canViewSalesLeads), s('activities', 'Activity log', 'activities', p?.canViewSalesActivities)]),
     G('customers', 'Customers', Users, '☎', [s('contacts', 'Contacts', 'contacts', p?.canViewSalesContacts), s('companies', 'Corporate accounts', 'companies', p?.canViewSalesCompanies)]),
     G('land', 'Land & Offers', Map, '▧', [s('plots', 'Plots', 'plots-inventory', p?.canViewSalesPlotsInventory), s('offers', 'Offers to follow', 'offers', p?.canViewSalesLeads), s('lbact', 'Printed offers', 'lb-activity', p?.canViewSalesLeads)]),

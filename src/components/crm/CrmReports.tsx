@@ -208,7 +208,7 @@ export const CrmReports: React.FC<CrmReportsProps> = ({ leads }) => {
                 {[...A.byOwner].sort(byRevenue).map((b) => {
                   const g = b.agg; const cyc = mean(g.cycles);
                   return (
-                    <tr key={b.key} className="hover:bg-brand-gray/5 cursor-pointer" onClick={() => setF({ ...f, owner: f.owner === b.key ? '' : b.key })} title="Click to filter the whole page by this person">
+                    <tr key={b.key} className="hover:bg-brand-gray/5 cursor-pointer" onClick={() => setF({ ...f, owner: f.owner.includes(b.key) ? f.owner.filter((x) => x !== b.key) : [...f.owner, b.key] })} title="Click to filter the whole page by this person">
                       <td className="py-2 px-2 font-bold">{b.label}</td>
                       <td className={`${TD} text-right`}>{g.total}</td>
                       <td className={`${TD} text-right`}>{g.contacted} <span className="text-brand-gray">({fmtPct(pc(g.contacted, g.total))})</span></td>

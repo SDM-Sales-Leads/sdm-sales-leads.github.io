@@ -1,4 +1,5 @@
 // Small shared pieces for the dashboard and the reports: info tooltip, KPI tile, filter bar, rate dial, bar row.
+import { MultiSelect } from '../ui/MultiSelect';
 import React from 'react';
 import { Info, ArrowUpRight, ArrowDownRight, Minus, X } from 'lucide-react';
 import { Filters, Period, deltaPct } from './leadMetrics';
@@ -92,7 +93,7 @@ export const FilterBar: React.FC<{
   f: Filters; set: (f: Filters) => void; owners?: { id: string; name: string }[]; sources: string[]; rangeLabel: string;
 }> = ({ f, set, owners, sources, rangeLabel }) => {
   const sel = 'bg-white border border-brand-gray/20 rounded-xl px-3 py-1.5 text-xs font-bold text-brand-black focus:outline-none focus:border-brand-red';
-  const dirty = !!(f.owner || f.source);
+  const dirty = !!(f.owner.length || f.source.length);
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div className="flex bg-brand-gray/10 rounded-xl p-1 gap-0.5">
@@ -108,16 +109,10 @@ export const FilterBar: React.FC<{
         </>
       )}
       {owners && owners.length > 1 && (
-        <select value={f.owner} onChange={(e) => set({ ...f, owner: e.target.value })} className={sel} aria-label="Salesperson">
-          <option value="">All salespeople</option>
-          {owners.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-        </select>
+        <MultiSelect options={owners.map((o) => ({ value: o.id, label: o.name }))} value={f.owner} onChange={(owner) => set({ ...f, owner })} allLabel="All salespeople" name="salespeople" className="min-w-[150px] max-w-[220px]" buttonClassName={`${sel} w-full flex items-center justify-between gap-2 text-left`} />
       )}
-      <select value={f.source} onChange={(e) => set({ ...f, source: e.target.value })} className={sel} aria-label="Source">
-        <option value="">All sources</option>
-        {sources.map((s) => <option key={s} value={s}>{s}</option>)}
-      </select>
-      {dirty && <button onClick={() => set({ ...f, owner: '', source: '' })} className="text-[10px] font-bold text-brand-red flex items-center gap-1"><X size={12} /> Clear filters</button>}
+      <MultiSelect options={sources.map((s) => ({ value: s, label: s }))} value={f.source} onChange={(source) => set({ ...f, source })} allLabel="All sources" name="sources" className="min-w-[130px] max-w-[200px]" buttonClassName={`${sel} w-full flex items-center justify-between gap-2 text-left`} />
+      {dirty && <button onClick={() => set({ ...f, owner: [], source: [] })} className="text-[10px] font-bold text-brand-red flex items-center gap-1"><X size={12} /> Clear filters</button>}
       <span className="text-[10px] font-bold text-brand-gray ml-auto">{rangeLabel}</span>
     </div>
   );

@@ -348,13 +348,13 @@ export function prepare(leads: Lead[]): P[] {
   return out;
 }
 
-export interface Filters { period: Period; from: string; to: string; owner: string; source: string }
-export const DEFAULT_FILTERS: Filters = { period: 'all', from: '', to: '', owner: '', source: '' };
+export interface Filters { period: Period; from: string; to: string; owner: string[]; source: string[] }   // owner / source: tick several; empty = all
+export const DEFAULT_FILTERS: Filters = { period: 'all', from: '', to: '', owner: [], source: [] };
 const inRange = (d: string, r: Range) => !!d && d >= r.from && d <= r.to;
 /** period membership: created in the window, or won with its closing date in the window */
 export function selectPool(all: P[], f: Filters, r: Range): P[] {
   const ar = f.period === 'all';
-  return all.filter((p) => (!f.owner || p.owner === f.owner) && (!f.source || p.source === f.source) && (ar || inRange(p.created, r) || (p.won && inRange(p.closing, r))));
+  return all.filter((p) => (!f.owner.length || f.owner.includes(p.owner)) && (!f.source.length || f.source.includes(p.source)) && (ar || inRange(p.created, r) || (p.won && inRange(p.closing, r))));
 }
 
 export interface Agg {

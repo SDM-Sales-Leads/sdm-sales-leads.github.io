@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
+import { MultiSelect } from '../ui/MultiSelect';
 import { toast } from 'sonner';
 import { AlertTriangle, Download, FileSpreadsheet, ShieldAlert, Upload } from 'lucide-react';
 import { ContractRecord, Lead } from './types';
@@ -92,8 +93,8 @@ export const CrmContractControl: React.FC<CrmContractControlProps> = ({ leads, o
   const canEdit = !!permissions?.canManageContracts;
   const who = user?.name || 'User';
   const [filter, setFilter] = useState<'all' | 'overdue' | 'today' | 'soon' | 'blocked' | 'update' | 'signed'>('all');
-  const [fProject, setFProject] = useState('');
-  const [fOwner, setFOwner] = useState('');
+  const [fProject, setFProject] = useState<string[]>([]);
+  const [fOwner, setFOwner] = useState<string[]>([]);
 
   const todayStr = todayIso();
   const items = useMemo(() => {
@@ -103,15 +104,15 @@ export const CrmContractControl: React.FC<CrmContractControlProps> = ({ leads, o
   const withContract = useMemo(() => items.filter((i) => i.c), [items]);
   const projects = useMemo(() => [...new Set(items.map((i) => i.l.project).filter(Boolean))].sort(), [items]);
   const owners = useMemo(() => [...new Set(items.map((i) => i.l.assignedSalespersonName || '').filter(Boolean))].sort(), [items]);
-  const scoped = useMemo(() => items.filter((i) => (!fProject || i.l.project === fProject) && (!fOwner || (i.l.assignedSalespersonName || '') === fOwner)), [items, fProject, fOwner]);
+  const scoped = useMemo(() => items.filter((i) => (!fProject.length || fProject.includes(i.l.project as string)) && (!fOwner.length || fOwner.includes(i.l.assignedSalespersonName || ''))), [items, fProject, fOwner]);
 
   const goLead = (id: string) => { try { localStorage.setItem('selected_lead_id', id); localStorage.setItem('crm_selected_lead_id_from_notification', id); } catch { /* ignore */ } setActiveSubTab?.('leads'); };
   const activeOnes = (a: Item[]) => a.filter((i) => i.state === 'progress' || i.state === 'hold');
 
   const filterBar = (
     <div className={`${cardCls} p-3 flex flex-wrap gap-2`}>
-      <select value={fProject} onChange={(e) => setFProject(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white"><option value="">All projects</option>{projects.map((p) => <option key={p}>{p}</option>)}</select>
-      <select value={fOwner} onChange={(e) => setFOwner(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white"><option value="">All salespeople</option>{owners.map((p) => <option key={p}>{p}</option>)}</select>
+      <MultiSelect options={projects.map((x) => ({ value: x, label: x }))} value={fProject} onChange={setFProject} allLabel="All projects" name="projects" className="min-w-[140px] max-w-[220px]" buttonClassName={`px-3 py-2 rounded-xl border text-sm bg-white flex items-center justify-between gap-2 text-left w-full ${fProject.length ? 'border-brand-red/50 text-brand-red' : 'border-gray-200'}`} />
+      <MultiSelect options={owners.map((x) => ({ value: x, label: x }))} value={fOwner} onChange={setFOwner} allLabel="All salespeople" name="salespeople" className="min-w-[140px] max-w-[220px]" buttonClassName={`px-3 py-2 rounded-xl border text-sm bg-white flex items-center justify-between gap-2 text-left w-full ${fOwner.length ? 'border-brand-red/50 text-brand-red' : 'border-gray-200'}`} />
     </div>
   );
 
@@ -142,11 +143,11 @@ export const CrmContractControl: React.FC<CrmContractControlProps> = ({ leads, o
       : filter === 'blocked' ? i.blocked && (i.state === 'progress' || i.state === 'hold') : filter === 'update' ? (i.state === 'progress' || i.state === 'hold') && i.issues.length > 0 : i.state === 'signed';
     return scoped.filter(pick).sort((a, b) => (b.overdueDays - a.overdueDays) || (Number(b.l.dealValue) || 0) - (Number(a.l.dealValue) || 0));
   }, [scoped, filter]);
-  const paged = usePagedList(listRows, 'crm.ctcontrol.page', filter + fProject + fOwner);
+  const paged = usePagedList(listRows, 'crm.ctcontrol.page', filter + fProject.join() + fOwner.join());
 
   // ============================== BLOCKERS ==============================
   const blockers = useMemo(() => scoped.filter((i) => i.c?.blocker && (i.state === 'progress' || i.state === 'hold')).sort((a, b) => b.blockedDays - a.blockedDays), [scoped]);
-  const blockedPaged = usePagedList(blockers, 'crm.ctblockers.page', fProject + fOwner);
+  const blockedPaged = usePagedList(blockers, 'crm.ctblockers.page', fProject.join() + fOwner.join());
 
   // ============================== REPORTS ==============================
   const reports = useMemo(() => {

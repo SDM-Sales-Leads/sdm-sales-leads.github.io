@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 // The pool of unassigned leads. Leads nobody has worked on go back to the pool; whenever a salesperson has fewer open leads than the
 // limit (Setup > Routing rules), the oldest pool leads are handed out, fairly by number and size. Call center leads go first and ignore the limit.
-import { admin, asUuid, bad, crmScope, HttpError, needAdmin, needCrm, nowIso, pageAll, rid } from "./lib.ts";
+import { admin, asUuid, bad, crmScope, getConfig, HttpError, needAdmin, needCrm, nowIso, pageAll, rid, setConfig } from "./lib.ts";
 import { isTouched } from "./leadrules.ts";
 import { SALES_ROLES } from "./ingest.ts";
 import { route } from "./router.ts";
@@ -44,9 +44,11 @@ export async function unassignUntouched(dryRun: boolean, everyLead = false) {
 }
 
 /** hands out pool leads, oldest first (call center first), to whoever is below the limit, fair by number and size */
-export async function fillPool(limit = 300) {
+export async function fillPool(limit = 300, force = false) {
   const q = await loadQueue();
   if (q.assignmentMethod === "Manual Assignment Only") return { assigned: 0, skipped: "manual assignment only" };
+  // when the last run found nobody with a free place, wait 10 minutes before reading the whole pool again (the scheduler calls every 5)
+  if (!force) { const st = await getConfig<any>("pool_wait", {}); if (st.until && Date.parse(st.until) > Date.now()) return { assigned: 0, skipped: "nobody has a free place yet" }; }
   const rows = await pageAll((a, b) => admin.from("crm_leads").select("id,data").is("assigned_to", null).is("deleted_at", null).eq("status", "New").order("id").range(a, b), 20000);
   // a touched lead never goes back to the pool automatically (somebody already spoke to the customer)
   const pool = (rows || []).filter((r: any) => !r.data?.mergedInto && !r.data?.assignedSalespersonId && !isTouched(r.data))
@@ -69,6 +71,7 @@ export async function fillPool(limit = 300) {
       if (u.data?.length) { assigned++; (per[agent.id] ||= { name: agent.name, n: 0 }).n++; }
     }));
   }
+  if (!force) await setConfig("pool_wait", assigned === 0 && pool.length > 0 ? { until: new Date(Date.now() + 10 * 60_000).toISOString() } : {}).catch(() => {});
   const bells = Object.entries(per).map(([userId, v]) => ({ userId, type: "assigned", title: `${v.n} new lead${v.n === 1 ? "" : "s"} assigned to you from the pool`, body: "The oldest waiting leads were handed out first." }));
   if (bells.length) await addNotifications(bells);
   return { assigned, left: Math.max(0, pool.length - assigned), perPerson: Object.fromEntries(Object.values(per).map((v) => [v.name, v.n])) };
@@ -95,7 +98,7 @@ route("POST", "/crm/pool/fill", async ({ c }) => {
   let assigned = 0, last: any = {};
   const per: Record<string, number> = {};
   while (Date.now() - t0 < 80_000) {
-    last = await fillPool(200);
+    last = await fillPool(200, true);
     assigned += last.assigned || 0;
     for (const [k, v] of Object.entries(last.perPerson || {})) per[k] = (per[k] || 0) + (v as number);
     if (!last.assigned) break;

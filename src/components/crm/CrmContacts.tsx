@@ -1,4 +1,5 @@
 import { crmNav } from './crmNav';
+import { MultiSelect } from '../ui/MultiSelect';
 import { useBackClose } from '../../lib/backNav';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Contact, Lead, ContactEditLog } from './types';
@@ -586,11 +587,11 @@ export const CrmContacts: React.FC<CrmContactsProps> = ({
   }, [leadsByPhone]);
   const aggOf = useCallback((c: Contact) => aggMap.get(phoneKey(c.phoneNumber)) || EMPTY_AGG, [aggMap]);
 
-  const [fCompany, setFCompany] = useState('');
-  const [fOwner, setFOwner] = useState('');
-  const [fChannel, setFChannel] = useState('');
-  const [fCity, setFCity] = useState('');
-  const [fLeads, setFLeads] = useState<'' | 'open' | 'won' | 'none'>('');
+  const [fCompany, setFCompany] = useState<string[]>([]);
+  const [fOwner, setFOwner] = useState<string[]>([]);
+  const [fChannel, setFChannel] = useState<string[]>([]);
+  const [fCity, setFCity] = useState<string[]>([]);
+  const [fLeads, setFLeads] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>('serial');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const toggleSort = (k: SortKey) => {
@@ -609,16 +610,14 @@ export const CrmContacts: React.FC<CrmContactsProps> = ({
   const filteredContacts = useMemo(() => {
     const q = debouncedSearch.toLowerCase();
     let rows = q ? contacts.filter(c => contactText(c).includes(q)) : contacts.slice();
-    if (fCompany) rows = rows.filter(c => c.company === fCompany);
-    if (fCity) rows = rows.filter(c => c.city === fCity);
-    if (fOwner || fChannel || fLeads) {
+    if (fCompany.length) rows = rows.filter(c => fCompany.includes(c.company as string));
+    if (fCity.length) rows = rows.filter(c => fCity.includes(c.city as string));
+    if (fOwner.length || fChannel.length || fLeads.length) {
       rows = rows.filter(c => {
         const a = aggOf(c);
-        if (fOwner && !a.owners.includes(fOwner)) return false;
-        if (fChannel && !a.channels.includes(fChannel)) return false;
-        if (fLeads === 'open' && !a.open) return false;
-        if (fLeads === 'won' && !a.won) return false;
-        if (fLeads === 'none' && a.total) return false;
+        if (fOwner.length && !fOwner.some((o) => a.owners.includes(o))) return false;
+        if (fChannel.length && !fChannel.some((c) => a.channels.includes(c))) return false;
+        if (fLeads.length && !((fLeads.includes('open') && a.open) || (fLeads.includes('won') && a.won) || (fLeads.includes('none') && !a.total))) return false;
         return true;
       });
     }
@@ -639,11 +638,11 @@ export const CrmContacts: React.FC<CrmContactsProps> = ({
     };
     return rows.sort((x, y) => { const a = val(x), b = val(y); return (a < b ? -1 : a > b ? 1 : 0) * dir; });
   }, [contacts, debouncedSearch, fCompany, fCity, fOwner, fChannel, fLeads, sortKey, sortDir, aggOf]);
-  const resetKey = `${debouncedSearch}|${fCompany}|${fCity}|${fOwner}|${fChannel}|${fLeads}|${sortKey}|${sortDir}`;
+  const resetKey = `${debouncedSearch}|${fCompany.join(',')}|${fCity.join(',')}|${fOwner.join(',')}|${fChannel.join(',')}|${fLeads.join(',')}|${sortKey}|${sortDir}`;
   const { pageRows, page, pageSize, setPage, setPageSize, allShown, more } = usePagedList(filteredContacts, 'sid_contacts_page_size', resetKey);
   const selectedSet = useMemo(() => new Set(selectedContactIds), [selectedContactIds]);
   const openLead = useCallback((id: string) => { try { localStorage.setItem('selected_lead_id', id); } catch { /* ignore */ } setActiveSubTab?.('leads'); }, [setActiveSubTab]);
-  const anyFilter = !!(fCompany || fCity || fOwner || fChannel || fLeads || searchTerm);
+  const anyFilter = !!(fCompany.length || fCity.length || fOwner.length || fChannel.length || fLeads.length || searchTerm);
 
   // Export to CSV helper
   const exportToCSV = () => {
@@ -1027,32 +1026,15 @@ export const CrmContacts: React.FC<CrmContactsProps> = ({
             className="w-full pl-10 pr-4 py-2.5 bg-brand-gray/5 border border-brand-gray/15 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-red text-xs font-semibold" />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select value={fCompany} onChange={(e) => setFCompany(e.target.value)} className="bg-white border border-brand-gray/20 rounded-xl px-3 py-2 text-xs font-semibold text-brand-black focus:outline-none focus:ring-1 focus:ring-brand-red">
-            <option value="">All companies</option>
-            {filterOptions.companies.map(x => <option key={x} value={x}>{x}</option>)}
-          </select>
-          <select value={fLeads} onChange={(e) => setFLeads(e.target.value as '' | 'open' | 'won' | 'none')} className="bg-white border border-brand-gray/20 rounded-xl px-3 py-2 text-xs font-semibold text-brand-black focus:outline-none focus:ring-1 focus:ring-brand-red">
-            <option value="">All customers</option>
-            <option value="open">With open leads</option>
-            <option value="won">Won customers</option>
-            <option value="none">No leads yet</option>
-          </select>
-          <select value={fOwner} onChange={(e) => setFOwner(e.target.value)} className="bg-white border border-brand-gray/20 rounded-xl px-3 py-2 text-xs font-semibold text-brand-black focus:outline-none focus:ring-1 focus:ring-brand-red">
-            <option value="">All salespeople</option>
-            {filterOptions.owners.map(x => <option key={x} value={x}>{x}</option>)}
-          </select>
-          <select value={fChannel} onChange={(e) => setFChannel(e.target.value)} className="bg-white border border-brand-gray/20 rounded-xl px-3 py-2 text-xs font-semibold text-brand-black focus:outline-none focus:ring-1 focus:ring-brand-red">
-            <option value="">All channels</option>
-            {CHANNELS.map(x => <option key={x} value={x}>{x}</option>)}
-          </select>
+          <MultiSelect options={filterOptions.companies.map((x) => ({ value: x, label: x }))} value={fCompany} onChange={setFCompany} allLabel="All companies" name="companies" className="min-w-[140px] max-w-[220px]" buttonClassName={`bg-white border rounded-xl px-3 py-2 text-xs font-semibold text-brand-black focus:outline-none flex items-center justify-between gap-2 text-left w-full ${fCompany.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
+          <MultiSelect options={[{ value: 'open', label: 'With open leads' }, { value: 'won', label: 'Won customers' }, { value: 'none', label: 'No leads yet' }]} value={fLeads} onChange={setFLeads} allLabel="All customers" name="groups" className="min-w-[140px] max-w-[220px]" buttonClassName={`bg-white border rounded-xl px-3 py-2 text-xs font-semibold text-brand-black focus:outline-none flex items-center justify-between gap-2 text-left w-full ${fLeads.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
+          <MultiSelect options={filterOptions.owners.map((x) => ({ value: x, label: x }))} value={fOwner} onChange={setFOwner} allLabel="All salespeople" name="salespeople" className="min-w-[140px] max-w-[220px]" buttonClassName={`bg-white border rounded-xl px-3 py-2 text-xs font-semibold text-brand-black focus:outline-none flex items-center justify-between gap-2 text-left w-full ${fOwner.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
+          <MultiSelect options={CHANNELS.map((x) => ({ value: x, label: x }))} value={fChannel} onChange={setFChannel} allLabel="All channels" name="channels" className="min-w-[140px] max-w-[220px]" buttonClassName={`bg-white border rounded-xl px-3 py-2 text-xs font-semibold text-brand-black focus:outline-none flex items-center justify-between gap-2 text-left w-full ${fChannel.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
           {filterOptions.cities.length > 0 && (
-            <select value={fCity} onChange={(e) => setFCity(e.target.value)} className="bg-white border border-brand-gray/20 rounded-xl px-3 py-2 text-xs font-semibold text-brand-black focus:outline-none focus:ring-1 focus:ring-brand-red">
-              <option value="">All cities</option>
-              {filterOptions.cities.map(x => <option key={x} value={x}>{x}</option>)}
-            </select>
+            <MultiSelect options={filterOptions.cities.map((x) => ({ value: x, label: x }))} value={fCity} onChange={setFCity} allLabel="All cities" name="cities" className="min-w-[140px] max-w-[220px]" buttonClassName={`bg-white border rounded-xl px-3 py-2 text-xs font-semibold text-brand-black focus:outline-none flex items-center justify-between gap-2 text-left w-full ${fCity.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
           )}
           {anyFilter && (
-            <button onClick={() => { setSearchTerm(''); setFCompany(''); setFCity(''); setFOwner(''); setFChannel(''); setFLeads(''); }} className="text-xs font-bold text-brand-red hover:underline flex items-center gap-1"><X size={12} /> Clear</button>
+            <button onClick={() => { setSearchTerm(''); setFCompany([]); setFCity([]); setFOwner([]); setFChannel([]); setFLeads([]); }} className="text-xs font-bold text-brand-red hover:underline flex items-center gap-1"><X size={12} /> Clear</button>
           )}
         </div>
       </div>

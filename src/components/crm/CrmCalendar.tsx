@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { MultiSelect } from '../ui/MultiSelect';
 import { ChevronLeft, ChevronRight, Calendar as CalIcon } from 'lucide-react';
 import { Lead } from './types';
 import { ACTIVE_EXCLUDE, REQ_DATETIME } from './leadConfig';
@@ -49,7 +50,7 @@ export const CrmCalendar: React.FC<CrmCalendarProps> = ({ leads, setActiveSubTab
   const manager = isManagerScope(crmScopeOf(user, permissions));
   const [mode, setMode] = useState<'month' | 'week' | 'day'>('month');
   const [cursor, setCursor] = useState(() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d; });
-  const [owner, setOwner] = useState('');
+  const [owner, setOwner] = useState<string[]>([]);
   const [kinds, setKinds] = useState<Set<Kind>>(new Set(KINDS));
   const today = iso(new Date());
 
@@ -58,7 +59,7 @@ export const CrmCalendar: React.FC<CrmCalendarProps> = ({ leads, setActiveSubTab
   const byDay = useMemo(() => {
     const m = new Map<string, Ev[]>();
     for (const l of leads) {
-      if (owner && (l.assignedSalespersonName || '') !== owner) continue;
+      if (owner.length && !owner.includes(l.assignedSalespersonName || '')) continue;
       for (const e of eventsOf(l)) {
         if (!kinds.has(e.kind)) continue;
         const a = m.get(e.date); if (a) a.push(e); else m.set(e.date, [e]);
@@ -108,9 +109,7 @@ export const CrmCalendar: React.FC<CrmCalendarProps> = ({ leads, setActiveSubTab
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {manager && (
-            <select value={owner} onChange={(e) => setOwner(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
-              <option value="">Everyone</option>{owners.map((o) => <option key={o}>{o}</option>)}
-            </select>)}
+            <MultiSelect options={owners.map((o) => ({ value: o, label: o }))} value={owner} onChange={setOwner} allLabel="Everyone" name="people" className="min-w-[140px] max-w-[220px]" buttonClassName={`px-3 py-2 rounded-xl border text-sm bg-white flex items-center justify-between gap-2 text-left w-full ${owner.length ? 'border-brand-red/50 text-brand-red' : 'border-gray-200'}`} />)}
           <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm font-bold">
             {(['month', 'week', 'day'] as const).map((m) => <button key={m} onClick={() => setMode(m)} className={`px-3 py-2 capitalize ${mode === m ? 'bg-brand-red text-white' : 'bg-white text-brand-dark'}`}>{m}</button>)}
           </div>

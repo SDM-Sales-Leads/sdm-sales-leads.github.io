@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { MultiSelect } from '../ui/MultiSelect';
 import { toast } from 'sonner';
 import { CheckCircle, XCircle, Plus, Download, RotateCcw, Trash2 } from 'lucide-react';
 import { Lead } from './types';
@@ -37,8 +38,8 @@ export const CrmExternalSales: React.FC<CrmExternalSalesProps> = () => {
   const [people, setPeople] = useState<{ id: string; name: string; teamLeaderId?: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [statusF, setStatusF] = useState('');
-  const [personF, setPersonF] = useState('');
+  const [statusF, setStatusF] = useState<string[]>([]);
+  const [personF, setPersonF] = useState<string[]>([]);
   const [yearF, setYearF] = useState(String(new Date().getFullYear()));
   const [page, setPage] = useState(0);
   const [size, setSize] = useState(25);
@@ -84,7 +85,7 @@ export const CrmExternalSales: React.FC<CrmExternalSalesProps> = () => {
   }, [rows]);
 
   const filtered = useMemo(() => rows
-    .filter((r) => (!statusF || r.status === statusF) && (!personF || r.salespersonId === personF) && (!yearF || (r.saleDate || '').startsWith(yearF)))
+    .filter((r) => (!statusF.length || statusF.includes(r.status)) && (!personF.length || personF.includes(r.salespersonId)) && (!yearF || (r.saleDate || '').startsWith(yearF)))
     .sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || '')), [rows, statusF, personF, yearF]);
 
   const totals = useMemo(() => {
@@ -188,13 +189,9 @@ export const CrmExternalSales: React.FC<CrmExternalSalesProps> = () => {
         <select className="input-field !w-auto" value={yearF} onChange={(e) => { setYearF(e.target.value); setPage(0); }}>
           <option value="">All years</option>{years.map((y) => <option key={y}>{y}</option>)}
         </select>
-        <select className="input-field !w-auto" value={statusF} onChange={(e) => { setStatusF(e.target.value); setPage(0); }}>
-          <option value="">All statuses</option><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="rejected">Rejected</option>
-        </select>
+        <MultiSelect options={[{ value: 'pending', label: 'Pending' }, { value: 'confirmed', label: 'Confirmed' }, { value: 'rejected', label: 'Rejected' }]} value={statusF} onChange={(v) => { setStatusF(v); setPage(0); }} allLabel="All statuses" name="statuses" className="min-w-[140px] max-w-[220px]" buttonClassName={`px-3 py-2 rounded-xl border text-sm bg-white flex items-center justify-between gap-2 text-left w-full ${statusF.length ? 'border-brand-red/50 text-brand-red' : 'border-gray-200'}`} />
         {(canDecide || sellers.length > 1) && (
-          <select className="input-field !w-auto" value={personF} onChange={(e) => { setPersonF(e.target.value); setPage(0); }}>
-            <option value="">All salespeople</option>{sellers.map(([id, n]) => <option key={id} value={id}>{n}</option>)}
-          </select>
+          <MultiSelect options={sellers.map(([id, n]) => ({ value: id, label: n }))} value={personF} onChange={(v) => { setPersonF(v); setPage(0); }} allLabel="All salespeople" name="salespeople" className="min-w-[140px] max-w-[220px]" buttonClassName={`px-3 py-2 rounded-xl border text-sm bg-white flex items-center justify-between gap-2 text-left w-full ${personF.length ? 'border-brand-red/50 text-brand-red' : 'border-gray-200'}`} />
         )}
       </div>
 

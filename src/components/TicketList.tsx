@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { MultiSelect } from './ui/MultiSelect';
 import { Ticket, TicketStatus } from '../types';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../constants';
 import { 
@@ -19,14 +20,14 @@ interface TicketListProps {
 
 export const TicketList: React.FC<TicketListProps> = ({ tickets, onSelect }) => {
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
 
   const filteredTickets = useMemo(() => {
     return tickets.filter(t => {
       const searchStr = search.toLowerCase();
       const ticketId = String(t.id).toLowerCase();
       const matchesSearch = (t.title?.toLowerCase() || '').includes(searchStr) || ticketId.includes(searchStr);
-      const matchesStatus = statusFilter === 'All' || t.status === statusFilter;
+      const matchesStatus = !statusFilter.length || statusFilter.includes(t.status);
       return matchesSearch && matchesStatus;
     });
   }, [tickets, search, statusFilter]);
@@ -91,21 +92,7 @@ export const TicketList: React.FC<TicketListProps> = ({ tickets, onSelect }) => 
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          <select 
-            className="input-field w-full sm:w-auto"
-            aria-label="Filter by status"
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-          >
-            <option value="All">All Statuses</option>
-            <option value="New">New</option>
-            <option value="In Progress">In Progress</option>
-            <option value="Waiting on User">Waiting on User</option>
-            <option value="Waiting on Vendor">Waiting on Vendor</option>
-            <option value="Resolved">Resolved</option>
-            <option value="Closed">Closed</option>
-            <option value="Reopened">Reopened</option>
-          </select>
+          <MultiSelect options={[{ value: 'New', label: 'New' }, { value: 'In Progress', label: 'In Progress' }, { value: 'Waiting on User', label: 'Waiting on User' }, { value: 'Waiting on Vendor', label: 'Waiting on Vendor' }, { value: 'Resolved', label: 'Resolved' }, { value: 'Closed', label: 'Closed' }, { value: 'Reopened', label: 'Reopened' }]} value={statusFilter} onChange={setStatusFilter} allLabel="All Statuses" name="statuses" className="w-full sm:w-auto sm:min-w-[170px]" buttonClassName={`input-field w-full flex items-center justify-between gap-2 text-left ${statusFilter.length ? 'border-brand-red/50 text-brand-red' : ''}`} />
         </div>
       </div>
 

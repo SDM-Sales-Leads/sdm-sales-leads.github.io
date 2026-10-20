@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { MultiSelect } from '../ui/MultiSelect';
 import { Lead } from './types';
 import { closingDate } from './leadConfig';
 import { useAuth } from '../../services/AuthContext';
@@ -21,9 +22,9 @@ export const CrmFinance: React.FC<CrmFinanceProps> = ({ leads, onLeadsUpdated, s
 
   const [q, setQ] = useState('');
   const [dq, setDq] = useState('');
-  const [status, setStatus] = useState<'all' | 'pending' | 'confirmed'>('all');
-  const [owner, setOwner] = useState('');
-  const [project, setProject] = useState('');
+  const [status, setStatus] = useState<string[]>([]);
+  const [owner, setOwner] = useState<string[]>([]);
+  const [project, setProject] = useState<string[]>([]);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [size, setSize] = useState(25);
@@ -41,10 +42,9 @@ export const CrmFinance: React.FC<CrmFinanceProps> = ({ leads, onLeadsUpdated, s
 
   const rows = useMemo(() => {
     const out = won.filter((l) => {
-      if (status === 'pending' && isConfirmed(l)) return false;
-      if (status === 'confirmed' && !isConfirmed(l)) return false;
-      if (owner && (l.assignedSalespersonName || '') !== owner) return false;
-      if (project && (l.project || '') !== project) return false;
+      if (status.length === 1 && (status[0] === 'pending' ? isConfirmed(l) : !isConfirmed(l))) return false;
+      if (owner.length && !owner.includes(l.assignedSalespersonName || '')) return false;
+      if (project.length && !project.includes(l.project || '')) return false;
       const d = closingDate(l);
       if (from && (!d || d < from)) return false;
       if (to && (!d || d > to)) return false;
@@ -134,15 +134,9 @@ export const CrmFinance: React.FC<CrmFinanceProps> = ({ leads, onLeadsUpdated, s
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gray" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search lead, company, plot, owner…" className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 text-sm" />
         </div>
-        <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm">
-          <option value="all">All cash status</option><option value="pending">Pending</option><option value="confirmed">Confirmed</option>
-        </select>
-        <select value={owner} onChange={(e) => setOwner(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm">
-          <option value="">All owners</option>{owners.map((o) => <option key={o}>{o}</option>)}
-        </select>
-        <select value={project} onChange={(e) => setProject(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm">
-          <option value="">All projects</option>{projects.map((o) => <option key={o}>{o}</option>)}
-        </select>
+        <MultiSelect options={[{ value: 'pending', label: 'Pending' }, { value: 'confirmed', label: 'Confirmed' }]} value={status} onChange={setStatus} allLabel="All cash status" name="kinds" className="min-w-[140px] max-w-[220px]" buttonClassName={`px-3 py-2 rounded-xl border text-sm bg-white flex items-center justify-between gap-2 text-left w-full ${status.length ? 'border-brand-red/50 text-brand-red' : 'border-gray-200'}`} />
+        <MultiSelect options={owners.map((x) => ({ value: x, label: x }))} value={owner} onChange={setOwner} allLabel="All owners" name="owners" className="min-w-[140px] max-w-[220px]" buttonClassName={`px-3 py-2 rounded-xl border text-sm bg-white flex items-center justify-between gap-2 text-left w-full ${owner.length ? 'border-brand-red/50 text-brand-red' : 'border-gray-200'}`} />
+        <MultiSelect options={projects.map((x) => ({ value: x, label: x }))} value={project} onChange={setProject} allLabel="All projects" name="projects" className="min-w-[140px] max-w-[220px]" buttonClassName={`px-3 py-2 rounded-xl border text-sm bg-white flex items-center justify-between gap-2 text-left w-full ${project.length ? 'border-brand-red/50 text-brand-red' : 'border-gray-200'}`} />
         <label className="flex items-center gap-1 text-xs text-brand-gray">From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" /></label>
         <label className="flex items-center gap-1 text-xs text-brand-gray">To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" /></label>
       </div>

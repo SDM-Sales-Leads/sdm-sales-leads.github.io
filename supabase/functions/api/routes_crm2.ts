@@ -63,7 +63,7 @@ route("GET", "/crm/audit", async ({ c, query }) => {
   if (!(crmScope(c) === "all" || can(c, "canViewSalesAudit"))) throw forbidden();
   await rateLimit(`audit:${c.id}`, 60, 60);
   let q: any = admin.from("crm_lead_audit").select("*").order("at", { ascending: false });
-  const action = query.get("action"); if (action) q = q.eq("action", action);
+  const action = query.get("action"); if (action) { const list = action.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 30); q = list.length === 1 ? q.eq("action", list[0]) : q.in("action", list); }
   const actor = query.get("actor"); if (actor) q = q.ilike("actor_name", `%${actor.replace(/[%_]/g, "")}%`);
   const lead = query.get("lead"); if (lead) q = q.eq("lead_id", lead);
   const from = query.get("from"); if (from && !isNaN(Date.parse(from))) q = q.gte("at", new Date(from).toISOString());

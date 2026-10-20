@@ -146,12 +146,16 @@ route("POST", "/cron/reminders", async ({ req }) => {
   if (!want || !safeEqual(given, want)) throw new HttpError(401, "Not allowed");
   const { data } = await admin.from("system_config").select("value").eq("key", "ingest_auto").maybeSingle();
   if (data?.value !== true) return { skipped: true, reason: "automatic jobs are off" };
-  const r = await runReminders();
-  let cc: any = {}; try { cc = await escalateCallCenter(); } catch (e: any) { cc = { ccError: String(e?.message || e).slice(0, 120) }; }
-  let pool: any = {}; try { pool = await fillPool(300); } catch (e: any) { pool = { poolError: String(e?.message || e).slice(0, 120) }; }
-  let dg: any = {}; try { dg = await sendAssignDigest(); } catch (e: any) { dg = { digestError: String(e?.message || e).slice(0, 120) }; }
-  let ug: any = {}; try { if (+new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", hourCycle: "h23" }).format(new Date()) >= 8) ug = await usageGuard(); } catch { /* ignore */ }
-  return { ...r, ...cc, pool, ...dg, ...ug };
+  // nobody is at work between 22:00 and 07:00 Cairo time: no reminders, escalations, pool hand-outs or digests to prepare
+  const hourNow = +new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", hourCycle: "h23" }).format(new Date());
+  if (hourNow < 7 || hourNow >= 22) return { skipped: true, reason: "night" };
+  const T: Record<string, number> = {}; const lap = async <X,>(k: string, f: () => Promise<X>): Promise<X> => { const t0 = Date.now(); try { return await f(); } finally { T[k] = Date.now() - t0; } };
+  const r = await lap("reminders", () => runReminders());
+  let cc: any = {}; try { cc = await lap("callcenter", () => escalateCallCenter()); } catch (e: any) { cc = { ccError: String(e?.message || e).slice(0, 120) }; }
+  let pool: any = {}; try { pool = await lap("pool", () => fillPool(300)); } catch (e: any) { pool = { poolError: String(e?.message || e).slice(0, 120) }; }
+  let dg: any = {}; try { dg = await lap("digest", () => sendAssignDigest()); } catch (e: any) { dg = { digestError: String(e?.message || e).slice(0, 120) }; }
+  let ug: any = {}; try { if (+new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", hourCycle: "h23" }).format(new Date()) >= 8) ug = await lap("usage", () => usageGuard()); } catch { /* ignore */ }
+  return { ...r, ...cc, pool, ...dg, ...ug, ms: T };
 }, { public: true });
 
 void isObj;

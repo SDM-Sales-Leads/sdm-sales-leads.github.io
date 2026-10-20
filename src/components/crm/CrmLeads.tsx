@@ -12,6 +12,7 @@ import { statusAfterAction, REQ_FOLLOWUP, isTouchedLead } from './leadConfig';
 import { LoadBar } from './LoadBar';
 import { isPhoneDevice, repNameFromEmail, signOff } from '../../lib/repName';
 import { useBackClose } from '../../lib/backNav';
+import { MultiSelect } from '../ui/MultiSelect';
 import { cleanPersonName, firstNameOf } from '../../lib/personName';
 import { CrmCallCenter } from './CrmCallCenter';
 import { Collapse } from './Collapse';
@@ -174,7 +175,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   
   // Advanced filters
-  const [filterStatus, setFilterStatus] = useState<string>('All');
+  const [filterStatus, setFilterStatus] = useState<string[]>([]);
   const [plots, setPlots] = useState<Plot[]>([]);
   const [plotsInfo, setPlotsInfo] = useState<{ landBankUrl: string } | null>(null);
 
@@ -204,12 +205,12 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
         const foundLead = leads.find(l => String(l.id) === String(targetLeadId));
         if (foundLead) {
           setSelectedLead(foundLead);
-          setFilterStatus('All');
+          setFilterStatus([]);
           clearSearch();
-          setFilterProject('All');
-          setFilterPriority('All');
-          setFilterSource('All');
-          setFilterSalesperson('All');
+          setFilterProject([]);
+          setFilterPriority([]);
+          setFilterSource([]);
+          setFilterSalesperson([]);
           localStorage.removeItem('crm_selected_lead_id_from_notification');
         }
       }
@@ -222,12 +223,12 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
         const foundLead = leads.find(l => String(l.id) === String(e.detail.leadId));
         if (foundLead) {
           setSelectedLead(foundLead);
-          setFilterStatus('All');
+          setFilterStatus([]);
           clearSearch();
-          setFilterProject('All');
-          setFilterPriority('All');
-          setFilterSource('All');
-          setFilterSalesperson('All');
+          setFilterProject([]);
+          setFilterPriority([]);
+          setFilterSource([]);
+          setFilterSalesperson([]);
           localStorage.removeItem('crm_selected_lead_id_from_notification');
         }
       }
@@ -238,13 +239,13 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
       window.removeEventListener('crm-select-lead', handleSelectLeadEvent);
     };
   }, [leads]);
-  const [filterProject, setFilterProject] = useState<string>('All');
-  const [filterPriority, setFilterPriority] = useState<string>('All');
-  const [filterTouch, setFilterTouch] = useState<string>('All');
-  const [filterSource, setFilterSource] = useState<string>('All');
-  const [filterSalesperson, setFilterSalesperson] = useState<string>('All');
+  const [filterProject, setFilterProject] = useState<string[]>([]);
+  const [filterPriority, setFilterPriority] = useState<string[]>([]);
+  const [filterTouch, setFilterTouch] = useState<string[]>([]);
+  const [filterSource, setFilterSource] = useState<string[]>([]);
+  const [filterSalesperson, setFilterSalesperson] = useState<string[]>([]);
   // a team leader opens the list on the leads assigned to him (the Owner filter or its chip shows the whole team again)
-  useEffect(() => { if (user?.role === 'Sales Team Leader' && user?.name) setFilterSalesperson((cur) => (cur === 'All' ? user.name : cur)); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (user?.role === 'Sales Team Leader' && user?.name) setFilterSalesperson((cur) => (cur.length ? cur : [user.name])); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [showFilters, setShowFilters] = useState(false);
   // filters the person pinned to the quick bar above the list: remembered for this person on this browser
   const pinKey = `crm_pinned_filters_${user?.id ?? 'anon'}`;
@@ -435,11 +436,11 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
 
   // Reset all filters
   const resetFilters = () => {
-    setFilterStatus('All');
-    setFilterProject('All');
-    setFilterPriority('All');
-    setFilterSource('All');
-    setFilterSalesperson('All');
+    setFilterStatus([]);
+    setFilterProject([]);
+    setFilterPriority([]);
+    setFilterSource([]);
+    setFilterSalesperson([]);
     clearSearch();
     setXf(EMPTY_XF);
     setSavedView('All');
@@ -454,10 +455,10 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
         const p = JSON.parse(raw);
         resetFilters();
         if (Array.isArray(p.ids)) setIdPreset({ ids: new Set(p.ids.map(String)), title: String(p.title || 'Selected leads') });
-        if (p.status) setFilterStatus(p.status);
-        if (p.project) setFilterProject(p.project);
-        if (p.source) setFilterSource(p.source);
-        if (p.salesperson) setFilterSalesperson(p.salesperson);
+        if (p.status) setFilterStatus(([] as string[]).concat(p.status).map(String));
+        if (p.project) setFilterProject(([] as string[]).concat(p.project).map(String));
+        if (p.source) setFilterSource(([] as string[]).concat(p.source).map(String));
+        if (p.salesperson) setFilterSalesperson(([] as string[]).concat(p.salesperson).map(String));
         if (p.search) { setSearchInput(p.search); setSearchTerm(p.search); }
       } catch { /* ignore */ }
     };
@@ -473,15 +474,15 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
     } else if (view === 'My Open Leads') {
       resetFilters();
       // Filter leads assigned to current user, assuming user index/name match
-      setFilterSalesperson(user?.name || '');
-      setFilterStatus('OpenLeads'); // Internal flag
+      setFilterSalesperson(user?.name ? [user.name] : []);
+      setFilterStatus(['OpenLeads']); // Internal flag
     } else if (view === 'SLA Violated') {
       resetFilters();
     } else if (view === 'SLA Within Limit') {
       resetFilters();
     } else if (view === 'Unassigned') {
       resetFilters();
-      setFilterSalesperson('Unassigned');
+      setFilterSalesperson(['Unassigned']);
     } else if (view === 'SLA At Risk') {
       resetFilters();
     }
@@ -525,14 +526,12 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
         }
       }
       if (idPreset && !idPreset.ids.has(String(l.id))) return false;
-      if (filterStatus === 'OpenLeads') { if (!isOpenStatus(l.status)) return false; }
-      else if (filterStatus !== 'All' && l.status !== filterStatus) return false;
-      if (filterProject !== 'All' && l.project !== filterProject) return false;
-      if (filterPriority !== 'All' && prioKey(l.priority) !== filterPriority) return false;
-      if (filterTouch !== 'All' && (filterTouch === 'Touched') !== isTouchedLead(l)) return false;
-      if (filterSource !== 'All' && l.source !== filterSource) return false;
-      if (filterSalesperson === 'Unassigned') { if (l.assignedSalespersonId) return false; }
-      else if (filterSalesperson !== 'All' && l.assignedSalespersonName !== filterSalesperson) return false;
+      if (filterStatus.length && !filterStatus.some((st) => (st === 'OpenLeads' ? isOpenStatus(l.status) : l.status === st))) return false;
+      if (filterProject.length && !filterProject.includes(l.project as string)) return false;
+      if (filterPriority.length && !filterPriority.includes(prioKey(l.priority) as string)) return false;
+      if (filterTouch.length === 1 && (filterTouch[0] === 'Touched') !== isTouchedLead(l)) return false;
+      if (filterSource.length && !filterSource.includes(l.source as string)) return false;
+      if (filterSalesperson.length && !filterSalesperson.some((n) => (n === 'Unassigned' ? !l.assignedSalespersonId : l.assignedSalespersonName === n))) return false;
       if (xfPred && !xfPred(l)) return false;
       if (q) {
         const e = searchOf(l);
@@ -608,12 +607,12 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
 
   const activeChips = useMemo(() => {
     const out: { key: string; label: string; onClear: () => void }[] = [];
-    if (filterStatus !== 'All') out.push({ key: 'status', label: `Status: ${filterStatus === 'OpenLeads' ? 'Open leads' : filterStatus}`, onClear: () => setFilterStatus('All') });
-    if (filterProject !== 'All') out.push({ key: 'project', label: `Project: ${filterProject}`, onClear: () => setFilterProject('All') });
-    if (filterPriority !== 'All') out.push({ key: 'priority', label: `Priority: ${filterPriority}`, onClear: () => setFilterPriority('All') });
-    if (filterTouch !== 'All') out.push({ key: 'touch', label: filterTouch, onClear: () => setFilterTouch('All') });
-    if (filterSource !== 'All') out.push({ key: 'source', label: `Source: ${filterSource}`, onClear: () => setFilterSource('All') });
-    if (filterSalesperson !== 'All') out.push({ key: 'owner', label: `Owner: ${filterSalesperson === 'Unassigned' ? 'Unassigned' : filterSalesperson}`, onClear: () => setFilterSalesperson('All') });
+    if (filterStatus.length) out.push({ key: 'status', label: `Status: ${filterStatus.map((x) => (x === 'OpenLeads' ? 'Open leads' : x)).join(', ')}`, onClear: () => setFilterStatus([]) });
+    if (filterProject.length) out.push({ key: 'project', label: `Project: ${filterProject.join(', ')}`, onClear: () => setFilterProject([]) });
+    if (filterPriority.length) out.push({ key: 'priority', label: `Priority: ${filterPriority.join(', ')}`, onClear: () => setFilterPriority([]) });
+    if (filterTouch.length) out.push({ key: 'touch', label: filterTouch.join(' + '), onClear: () => setFilterTouch([]) });
+    if (filterSource.length) out.push({ key: 'source', label: `Source: ${filterSource.join(', ')}`, onClear: () => setFilterSource([]) });
+    if (filterSalesperson.length) out.push({ key: 'owner', label: `Owner: ${filterSalesperson.map((x) => (x === 'Unassigned' ? 'Unassigned' : x)).join(', ')}`, onClear: () => setFilterSalesperson([]) });
     for (const c of xfChips(xf)) out.push({ key: c.key, label: c.label, onClear: () => setXf((x) => c.clear(x)) });
     if (idPreset) out.push({ key: 'ids', label: `${idPreset.title} · ${idPreset.ids.size} leads`, onClear: () => setIdPreset(null) });
     return out;
@@ -623,6 +622,13 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   const sources = useMemo(() => {
     return Array.from(new Set(leads.map(l => l.source).filter(Boolean))).sort();
   }, [leads]);
+
+  const statusOptions = useMemo(() => [
+    { value: 'OpenLeads', label: 'Open leads (not closed)', group: 'Shortcut' },
+    ...STATUS_GROUPS.flatMap((g) => g.statuses.map((st) => ({ value: st, label: st, group: g.group }))),
+    ...LEGACY_STATUSES.map((st) => ({ value: st, label: st, group: 'Legacy' })),
+  ], []);
+  const ownerOptions = useMemo(() => [{ value: 'Unassigned', label: 'Unassigned leads' }, ...(salespeople as any[]).map((sp) => ({ value: sp.name, label: sp.name }))], [salespeople]);
 
   // View Source Ingested Email helper
   const handleViewInboundEmail = async (lead: Lead) => {
@@ -1707,44 +1713,22 @@ ${user.name || ''}`);
         <div className="flex flex-wrap items-center gap-2 bg-white border border-brand-gray/15 rounded-2xl px-3 py-2 shadow-sm" aria-label="Quick filters">
           <span className="text-[10px] uppercase font-extrabold text-brand-gray">Quick filters</span>
           {pinned.includes('status') && (
-            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none max-w-[190px]" aria-label="Status">
-              <option value="All">All statuses</option>
-              <option value="OpenLeads">Open leads (not closed)</option>
-              {STATUS_GROUPS.map((g) => (<optgroup key={g.group} label={g.group}>{g.statuses.map((st) => <option key={st} value={st}>{st}</option>)}</optgroup>))}
-              <optgroup label="Legacy">{LEGACY_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}</optgroup>
-            </select>
+            <MultiSelect options={statusOptions} value={filterStatus} onChange={setFilterStatus} allLabel="All statuses" name="statuses" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterStatus.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
           )}
           {pinned.includes('project') && (
-            <select value={filterProject} onChange={(e) => setFilterProject(e.target.value)} className="bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none max-w-[190px]" aria-label="Project">
-              <option value="All">All projects</option>
-              {projects.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
+            <MultiSelect options={projects.map((x) => ({ value: x, label: x }))} value={filterProject} onChange={setFilterProject} allLabel="All projects" name="projects" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterProject.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
           )}
           {pinned.includes('touch') && (
-            <select value={filterTouch} onChange={(e) => setFilterTouch(e.target.value)} className="bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none" aria-label="Touched or untouched">
-              <option value="All">Touched + untouched</option>
-              <option value="Touched">Touched</option>
-              <option value="Untouched">Untouched</option>
-            </select>
+            <MultiSelect options={[{ value: 'Touched', label: 'Touched' }, { value: 'Untouched', label: 'Untouched' }]} value={filterTouch} onChange={setFilterTouch} allLabel="Touched + untouched" name="kinds" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterTouch.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
           )}
           {pinned.includes('priority') && (
-            <select value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)} className="bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none" aria-label="Priority">
-              <option value="All">All priorities</option>
-              {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
+            <MultiSelect options={PRIORITIES.map((x) => ({ value: x as string, label: x as string }))} value={filterPriority} onChange={setFilterPriority} allLabel="All priorities" name="priorities" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterPriority.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
           )}
           {pinned.includes('source') && (
-            <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)} className="bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none max-w-[190px]" aria-label="Source">
-              <option value="All">All sources</option>
-              {sources.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <MultiSelect options={sources.map((x) => ({ value: x, label: x }))} value={filterSource} onChange={setFilterSource} allLabel="All sources" name="sources" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterSource.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
           )}
           {pinned.includes('owner') && (
-            <select value={filterSalesperson} onChange={(e) => setFilterSalesperson(e.target.value)} className="bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none max-w-[190px]" aria-label="Account manager">
-              <option value="All">All agents</option>
-              <option value="Unassigned">Unassigned leads</option>
-              {salespeople.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
-            </select>
+            <MultiSelect options={ownerOptions} value={filterSalesperson} onChange={setFilterSalesperson} allLabel="All agents" name="agents" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterSalesperson.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
           )}
           <XFilterPanel barOnly xf={xf} setXf={setXf} channels={xfOptions.channels} industries={xfOptions.industries} nationalities={xfOptions.nationalities} pinned={pinned} />
           <button type="button" onClick={() => setShowFilters(true)} className="text-[11px] font-bold text-brand-red hover:underline ml-auto">Choose filters</button>
@@ -1766,86 +1750,32 @@ ${user.name || ''}`);
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
               <div>
                 <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('status')} onChange={() => togglePin('status')} className="accent-brand-red" /> Funnel Status</label>
-                <select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none"
-                >
-                  <option value="All">All Statuses</option>
-                  <option value="OpenLeads">Open leads (not closed)</option>
-                  {STATUS_GROUPS.map(g => (
-                    <optgroup key={g.group} label={g.group}>
-                      {g.statuses.map(st => <option key={st} value={st}>{st}</option>)}
-                    </optgroup>
-                  ))}
-                  <optgroup label="Legacy">
-                    {LEGACY_STATUSES.map(st => <option key={st} value={st}>{st}</option>)}
-                  </optgroup>
-                </select>
+                <MultiSelect options={statusOptions} value={filterStatus} onChange={setFilterStatus} allLabel="All statuses" name="statuses" />
               </div>
 
               <div>
                 <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('project')} onChange={() => togglePin('project')} className="accent-brand-red" /> Industrial Project</label>
-                <select
-                  value={filterProject}
-                  onChange={(e) => setFilterProject(e.target.value)}
-                  className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none"
-                >
-                  <option value="All">All Projects</option>
-                  {projects.map(p => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
+                <MultiSelect options={projects.map((x) => ({ value: x, label: x }))} value={filterProject} onChange={setFilterProject} allLabel="All projects" name="projects" />
               </div>
 
               <div>
                 <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('touch')} onChange={() => togglePin('touch')} className="accent-brand-red" /> Touched / Untouched</label>
-                <select value={filterTouch} onChange={(e) => setFilterTouch(e.target.value)} className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none">
-                  <option value="All">Touched + untouched</option>
-                  <option value="Touched">Touched (worked on)</option>
-                  <option value="Untouched">Untouched (new, nobody worked on)</option>
-                </select>
+                <MultiSelect options={[{ value: 'Touched', label: 'Touched' }, { value: 'Untouched', label: 'Untouched' }]} value={filterTouch} onChange={setFilterTouch} allLabel="Touched + untouched" name="kinds" />
               </div>
 
               <div>
                 <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('priority')} onChange={() => togglePin('priority')} className="accent-brand-red" /> Lead Priority</label>
-                <select
-                  value={filterPriority}
-                  onChange={(e) => setFilterPriority(e.target.value)}
-                  className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none"
-                >
-                  <option value="All">All Priorities</option>
-                  {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
+                <MultiSelect options={PRIORITIES.map((x) => ({ value: x as string, label: x as string }))} value={filterPriority} onChange={setFilterPriority} allLabel="All priorities" name="priorities" />
               </div>
 
               <div>
                 <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('source')} onChange={() => togglePin('source')} className="accent-brand-red" /> Lead Source</label>
-                <select
-                  value={filterSource}
-                  onChange={(e) => setFilterSource(e.target.value)}
-                  className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none"
-                >
-                  <option value="All">All Lead Sources</option>
-                  {sources.map(s => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
+                <MultiSelect options={sources.map((x) => ({ value: x, label: x }))} value={filterSource} onChange={setFilterSource} allLabel="All sources" name="sources" />
               </div>
 
               <div>
                 <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('owner')} onChange={() => togglePin('owner')} className="accent-brand-red" /> Account Manager</label>
-                <select
-                  value={filterSalesperson}
-                  onChange={(e) => setFilterSalesperson(e.target.value)}
-                  className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none"
-                >
-                  <option value="All">All Agents</option>
-                  <option value="Unassigned">Unassigned Leads</option>
-                  {salespeople.map((s: any) => (
-                    <option key={s.id} value={s.name}>{s.name}</option>
-                  ))}
-                </select>
+                <MultiSelect options={ownerOptions} value={filterSalesperson} onChange={setFilterSalesperson} allLabel="All agents" name="agents" />
               </div>
             </div>
 

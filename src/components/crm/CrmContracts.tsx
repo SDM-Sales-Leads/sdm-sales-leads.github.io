@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { MultiSelect } from '../ui/MultiSelect';
 import { ContractRecord, ContractStep, Lead } from './types';
 import { CONTRACT_STEPS } from './leadConfig';
 import { crmService } from './crmService';
@@ -81,9 +82,9 @@ export const CrmContracts: React.FC<CrmContractsProps> = ({ leads, onLeadsUpdate
 
   const [tab, setTab] = useState<'list' | 'control'>('list');
   const [q, setQ] = useState(''); const [dq, setDq] = useState('');
-  const [fStatus, setFStatus] = useState('');
-  const [fProject, setFProject] = useState('');
-  const [fOwner, setFOwner] = useState('');
+  const [fStatus, setFStatus] = useState<string[]>([]);
+  const [fProject, setFProject] = useState<string[]>([]);
+  const [fOwner, setFOwner] = useState<string[]>([]);
   const [size, setSize] = useState(50);
   const [page, setPage] = useState(0);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -103,9 +104,9 @@ export const CrmContracts: React.FC<CrmContractsProps> = ({ leads, onLeadsUpdate
   const owners = useMemo(() => [...new Set(won.map((l) => l.assignedSalespersonName || '').filter(Boolean))].sort(), [won]);
 
   const filtered = useMemo(() => items.filter(({ l, v }) => {
-    if (fStatus && v.key !== fStatus && !(fStatus === 'overdue' && v.overdueDays) && !(fStatus === 'blocked' && v.blocked)) return false;
-    if (fProject && l.project !== fProject) return false;
-    if (fOwner && (l.assignedSalespersonName || '') !== fOwner) return false;
+    if (fStatus.length && !fStatus.some((st) => v.key === st || (st === 'overdue' && v.overdueDays) || (st === 'blocked' && v.blocked))) return false;
+    if (fProject.length && !fProject.includes(l.project as string)) return false;
+    if (fOwner.length && !fOwner.includes(l.assignedSalespersonName || '')) return false;
     if (dq && !`${l.id} ${l.customerName} ${l.companyName || ''} ${l.project} ${l.plotNo || ''} ${l.contract?.number || ''}`.toLowerCase().includes(dq)) return false;
     return true;
   }).sort((a, b) => (b.v.overdueDays - a.v.overdueDays) || (Number(b.l.dealValue) || 0) - (Number(a.l.dealValue) || 0)), [items, fStatus, fProject, fOwner, dq]);
@@ -286,12 +287,12 @@ export const CrmContracts: React.FC<CrmContractsProps> = ({ leads, onLeadsUpdate
       {tab === 'control' && (
         <div className="space-y-5">
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            {tile('Not started', control.none, 'text-brand-dark', () => { setFStatus('none'); setTab('list'); })}
-            {tile('Overdue vs SLA', control.overdue, control.overdue ? 'text-red-600' : 'text-brand-dark', () => { setFStatus('overdue'); setTab('list'); })}
-            {tile('Blocked', control.blocked, control.blocked ? 'text-red-600' : 'text-brand-dark', () => { setFStatus('blocked'); setTab('list'); })}
-            {tile('On hold', control.hold, 'text-sky-600', () => { setFStatus('hold'); setTab('list'); })}
-            {tile('Signed', control.signed, 'text-emerald-600', () => { setFStatus('signed'); setTab('list'); })}
-            {tile('Cancelled', control.cancelled, 'text-brand-gray', () => { setFStatus('cancelled'); setTab('list'); })}
+            {tile('Not started', control.none, 'text-brand-dark', () => { setFStatus(['none']); setTab('list'); })}
+            {tile('Overdue vs SLA', control.overdue, control.overdue ? 'text-red-600' : 'text-brand-dark', () => { setFStatus(['overdue']); setTab('list'); })}
+            {tile('Blocked', control.blocked, control.blocked ? 'text-red-600' : 'text-brand-dark', () => { setFStatus(['blocked']); setTab('list'); })}
+            {tile('On hold', control.hold, 'text-sky-600', () => { setFStatus(['hold']); setTab('list'); })}
+            {tile('Signed', control.signed, 'text-emerald-600', () => { setFStatus(['signed']); setTab('list'); })}
+            {tile('Cancelled', control.cancelled, 'text-brand-gray', () => { setFStatus(['cancelled']); setTab('list'); })}
           </div>
           <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-x-auto">
             <table className="w-full text-sm">
@@ -328,11 +329,9 @@ export const CrmContracts: React.FC<CrmContractsProps> = ({ leads, onLeadsUpdate
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gray" />
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search contract no., customer, plot…" className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 text-sm" />
             </div>
-            <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm">
-              <option value="">All statuses</option><option value="none">Not started</option><option value="progress">In progress</option><option value="overdue">Overdue</option><option value="blocked">Blocked</option><option value="hold">On hold</option><option value="signed">Signed</option><option value="cancelled">Cancelled</option>
-            </select>
-            <select value={fProject} onChange={(e) => setFProject(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm"><option value="">All projects</option>{projects.map((p) => <option key={p}>{p}</option>)}</select>
-            <select value={fOwner} onChange={(e) => setFOwner(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm"><option value="">All owners</option>{owners.map((p) => <option key={p}>{p}</option>)}</select>
+            <MultiSelect options={[{ value: 'none', label: 'Not started' }, { value: 'progress', label: 'In progress' }, { value: 'overdue', label: 'Overdue' }, { value: 'blocked', label: 'Blocked' }, { value: 'hold', label: 'On hold' }, { value: 'signed', label: 'Signed' }, { value: 'cancelled', label: 'Cancelled' }]} value={fStatus} onChange={setFStatus} allLabel="All statuses" name="statuses" className="min-w-[140px] max-w-[220px]" buttonClassName={`px-3 py-2 rounded-xl border text-sm bg-white flex items-center justify-between gap-2 text-left w-full ${fStatus.length ? 'border-brand-red/50 text-brand-red' : 'border-gray-200'}`} />
+            <MultiSelect options={projects.map((x) => ({ value: x, label: x }))} value={fProject} onChange={setFProject} allLabel="All projects" name="projects" className="min-w-[140px] max-w-[220px]" buttonClassName={`px-3 py-2 rounded-xl border text-sm bg-white flex items-center justify-between gap-2 text-left w-full ${fProject.length ? 'border-brand-red/50 text-brand-red' : 'border-gray-200'}`} />
+            <MultiSelect options={owners.map((x) => ({ value: x, label: x }))} value={fOwner} onChange={setFOwner} allLabel="All owners" name="owners" className="min-w-[140px] max-w-[220px]" buttonClassName={`px-3 py-2 rounded-xl border text-sm bg-white flex items-center justify-between gap-2 text-left w-full ${fOwner.length ? 'border-brand-red/50 text-brand-red' : 'border-gray-200'}`} />
           </div>
 
           <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-x-auto">

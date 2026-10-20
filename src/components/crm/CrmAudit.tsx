@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { MultiSelect } from '../ui/MultiSelect';
 import { Lead } from './types';
 import { isMarketingSource, isOpenStatus } from './leadConfig';
 import { toast } from 'sonner';
@@ -17,7 +18,7 @@ const ACTIONS = ['status', 'owner', 'source', 'value', 'stage', 'cash', 'delete'
 const PAGE = 50;
 
 export const CrmAudit: React.FC<CrmAuditProps> = ({ leads, setActiveSubTab }) => {
-  const [action, setAction] = useState('');
+  const [action, setAction] = useState<string[]>([]);
   const [actor, setActor] = useState(''); const [dActor, setDActor] = useState('');
   const [lead, setLead] = useState('');
   const [from, setFrom] = useState(''); const [to, setTo] = useState('');
@@ -27,12 +28,12 @@ export const CrmAudit: React.FC<CrmAuditProps> = ({ leads, setActiveSubTab }) =>
   const [err, setErr] = useState('');
 
   useEffect(() => { const t = setTimeout(() => setDActor(actor.trim()), 350); return () => clearTimeout(t); }, [actor]);
-  useEffect(() => { setPage(0); }, [action, dActor, lead, from, to]);
+  useEffect(() => { setPage(0); }, [action.join(','), dActor, lead, from, to]);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
     const p = new URLSearchParams({ page: String(page), size: String(PAGE) });
-    if (action) p.set('action', action);
+    if (action.length) p.set('action', action.join(','));
     if (dActor) p.set('actor', dActor);
     if (lead.trim()) p.set('lead', lead.trim());
     if (from) p.set('from', from);
@@ -44,7 +45,7 @@ export const CrmAudit: React.FC<CrmAuditProps> = ({ leads, setActiveSubTab }) =>
       setRows(Array.isArray(j?.rows) ? j.rows : []);
     } catch { setErr('Could not reach the server.'); setRows([]); }
     finally { setLoading(false); }
-  }, [page, action, dActor, lead, from, to]);
+  }, [page, action.join(','), dActor, lead, from, to]);
   useEffect(() => { void load(); }, [load]);
 
   const openLead = (id: string) => { try { localStorage.setItem('selected_lead_id', id); } catch { /* ignore */ } setActiveSubTab?.('leads'); };
@@ -105,9 +106,7 @@ export const CrmAudit: React.FC<CrmAuditProps> = ({ leads, setActiveSubTab }) =>
       </div>
 
       <div className="bg-white border border-gray-100 rounded-2xl p-3 flex flex-wrap items-center gap-2 shadow-sm">
-        <select value={action} onChange={(e) => setAction(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm">
-          <option value="">All actions</option>{ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
+        <MultiSelect options={ACTIONS.map((a) => ({ value: a, label: a }))} value={action} onChange={setAction} allLabel="All actions" name="actions" className="min-w-[140px] max-w-[220px]" buttonClassName={`px-3 py-2 rounded-xl border text-sm bg-white flex items-center justify-between gap-2 text-left w-full ${action.length ? 'border-brand-red/50 text-brand-red' : 'border-gray-200'}`} />
         <input value={actor} onChange={(e) => setActor(e.target.value)} placeholder="Actor name" className="px-3 py-2 rounded-xl border border-gray-200 text-sm" />
         <input value={lead} onChange={(e) => setLead(e.target.value)} placeholder="Lead ID" className="px-3 py-2 rounded-xl border border-gray-200 text-sm w-32" />
         <label className="flex items-center gap-1 text-xs text-brand-gray">From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" /></label>

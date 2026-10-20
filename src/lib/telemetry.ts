@@ -5,6 +5,8 @@ const queue: Ev[] = [];
 let sent = 0;
 const perKind: Record<string, number> = {};
 let tabCount = 1;
+let lastWake = Date.now();     // the computer woke up, the tab was restored or the network came back: failures right after that are not the system's fault
+const justWoke = () => Date.now() - lastWake < 25_000;
 const SLOW_API_MS = 8000, FREEZE_MS = 4000;
 
 const page = () => String((window as any).__sdmPage || location.pathname + location.hash).slice(0, 60);
@@ -45,7 +47,7 @@ export function installTelemetry() {
       else if (ms > SLOW_API_MS) logIssue('api_slow', `${init?.method || 'GET'} ${route(url)} took ${(ms / 1000).toFixed(1)} s`, ms);
       return res;
     } catch (e: any) {
-      if (e?.name !== 'AbortError') logIssue('api_fail', `${init?.method || 'GET'} ${route(url)} failed: ${e?.message || 'network'}`, performance.now() - t0);
+      if (e?.name !== 'AbortError' && navigator.onLine !== false && !justWoke()) logIssue('api_fail', `${init?.method || 'GET'} ${route(url)} failed: ${e?.message || 'network'}`, performance.now() - t0);
       throw e;
     }
   };
@@ -63,6 +65,8 @@ export function installTelemetry() {
     logIssue('js_promise', m);
   });
 
+  for (const ev of ['resume', 'pageshow', 'online', 'focus']) window.addEventListener(ev, () => { lastWake = Date.now(); });
+  document.addEventListener('resume', () => { lastWake = Date.now(); });
   // freeze: the page did not answer for several seconds while the tab was in front
   let last = performance.now(), hiddenSince = 0, wasHidden = false;
   document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenSince = performance.now(); } else wasHidden = true; });
@@ -70,7 +74,7 @@ export function installTelemetry() {
     const now = performance.now(), gap = now - last; last = now;
     if (document.hidden) return;
     if (wasHidden) { wasHidden = false; return; }
-    if (gap > FREEZE_MS + 1000) logIssue('freeze', `the page stopped responding for ${(gap / 1000).toFixed(1)} s`, gap);
+    if (!justWoke() && gap > FREEZE_MS + 1000) logIssue('freeze', `the page stopped responding for ${(gap / 1000).toFixed(1)} s`, gap);
   }, 1000);
   void hiddenSince;
 

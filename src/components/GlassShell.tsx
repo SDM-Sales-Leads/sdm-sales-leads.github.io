@@ -163,7 +163,7 @@ export const GlassShell: React.FC<{ activeTab: string; crmSubTab: string; go: (t
               <div className="space-y-2">
                 {(list.length ? list : upcoming).map((e, i) => (
                   <button key={i} type="button" onClick={() => crmNav.lead(e.lead.id)} className="w-full text-left rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 px-3 py-2.5">
-                    <span className="text-[9px] font-bold uppercase tracking-wide bg-brand-red/90 rounded px-1.5 py-0.5">{e.kind}</span>
+                    <span className="text-[10.5px] font-bold uppercase tracking-wide bg-brand-red/90 rounded px-1.5 py-0.5">{e.kind}</span>
                     <div className="text-[13px] font-bold truncate mt-1">{e.lead.customerName || e.lead.id}</div>
                     <div className="text-[11px] text-white/50">{e.lead.project || '—'}{e.time ? ` · ${e.time}` : ''}{!list.length ? ` · ${dayOf(e.kind === 'Meeting' ? e.lead.meetingDate : e.lead.nextFollowUpDate).slice(5)}` : ''}</div>
                   </button>

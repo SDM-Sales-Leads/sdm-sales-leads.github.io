@@ -326,7 +326,7 @@ const Ledger: React.FC<{ ledger: { park: string; sector: string; plots: Plot[] }
               {pageRows.map((p) => (
                 <tr key={p.key} onClick={() => onOpen(p)} className="hover:bg-brand-gray/5 cursor-pointer">
                   <td className="py-2.5 px-4 font-semibold">{dash(p.park)}</td>
-                  <td className="py-2.5 px-3 font-mono font-bold text-brand-red">{dash(p.unit)}{p.merged && <span className="ml-1 text-[9px] text-brand-gray font-sans">merged ×{p.merged.length}</span>}</td>
+                  <td className="py-2.5 px-3 font-mono font-bold text-brand-red">{dash(p.unit)}{p.merged && <span className="ml-1 text-[10.5px] text-brand-gray font-sans">merged ×{p.merged.length}</span>}</td>
                   <td className="py-2.5 px-3"><StatusPill status={p.status} /></td>
                   <td className="py-2.5 px-3 text-right font-mono">{nf(p.areaSqM)}</td>
                   <td className="py-2.5 px-3 text-right font-mono">{nf(p.listPriceSqm)}</td>

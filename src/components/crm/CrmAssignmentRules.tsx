@@ -317,7 +317,7 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
                       </div>
                     </div>
 
-                    <div className="flex justify-between items-center text-[9px] text-brand-gray font-bold uppercase tracking-wider">
+                    <div className="flex justify-between items-center text-[10.5px] text-brand-gray font-bold uppercase tracking-wider">
                       <span>Projects: {agent.projects.length ? agent.projects.join(', ') : 'all'}</span>
                       <span>{agent.untouched} not yet contacted</span>
                     </div>
@@ -350,7 +350,7 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
             ))}</div>
             <table className="w-full text-left"><thead><tr className="text-[10px] uppercase text-brand-gray font-bold border-b border-brand-gray/15"><th className="py-1">Person</th><th className="py-1 text-right">Leads before → after</th><th className="py-1 text-right">Sqm before → after</th></tr></thead>
               <tbody className="divide-y divide-brand-gray/10 font-semibold">{testOut.people.map((p: any) => (
-                <tr key={p.name}><td className="py-1">{p.name}{!p.eligible && <span className="ml-1 text-[9px] text-brand-gray">(at a limit)</span>}</td><td className="py-1 text-right font-mono">{p.openBefore} → {p.openAfter}</td><td className="py-1 text-right font-mono">{Math.round(p.sqmBefore).toLocaleString('en-US')} → {Math.round(p.sqmAfter).toLocaleString('en-US')}</td></tr>
+                <tr key={p.name}><td className="py-1">{p.name}{!p.eligible && <span className="ml-1 text-[10.5px] text-brand-gray">(at a limit)</span>}</td><td className="py-1 text-right font-mono">{p.openBefore} → {p.openAfter}</td><td className="py-1 text-right font-mono">{Math.round(p.sqmBefore).toLocaleString('en-US')} → {Math.round(p.sqmAfter).toLocaleString('en-US')}</td></tr>
               ))}</tbody></table>
           </div>
         )}
@@ -379,7 +379,7 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
               <tbody className="divide-y divide-brand-gray/10 font-semibold">
                 {agents.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-brand-gray">No salespeople configured.</td></tr>}
                 {[...agents].sort((a, b) => b.activeLeads - a.activeLeads).map((a) => (
-                  <tr key={a.id}><td className="py-2 pr-2 font-bold text-brand-black">{a.name}{a.status !== 'Online' && <span className="ml-1 text-[9px] text-brand-gray font-bold">({a.status})</span>}</td>
+                  <tr key={a.id}><td className="py-2 pr-2 font-bold text-brand-black">{a.name}{a.status !== 'Online' && <span className="ml-1 text-[10.5px] text-brand-gray font-bold">({a.status})</span>}</td>
                     <td className="py-2 px-2 text-right font-mono">{a.activeLeads}</td><td className="py-2 px-2 text-right font-mono">{a.openSqm > 0 ? a.openSqm.toLocaleString('en-US') : '—'}</td><td className="py-2 px-2 text-right font-mono">{a.untouched}</td>
                     <td className="py-2 px-2 text-right font-mono">{a.assignedToday}</td><td className="py-2 pl-2 text-right font-mono text-brand-gray">{a.totalLeads}</td></tr>
                 ))}

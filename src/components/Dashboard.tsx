@@ -200,7 +200,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ tickets }) => {
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-start">
                     <p className="text-xs font-bold truncate">{log.userName || '—'}</p>
-                    <span className="text-[9px] text-brand-gray whitespace-nowrap ml-2">
+                    <span className="text-[10.5px] text-brand-gray whitespace-nowrap ml-2">
                       {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>

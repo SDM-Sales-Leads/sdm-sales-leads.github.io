@@ -10,7 +10,7 @@ export const LeadScoreChip: React.FC<{ lead: Lead; winRate?: number; className?:
   return (
     <span
       title={`Lead score ${s}/100. A ranking aid built from priority, qualification, requested area, stage, source history and age.`}
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[9px] font-extrabold whitespace-nowrap ${tone} ${className}`}
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10.5px] font-extrabold whitespace-nowrap ${tone} ${className}`}
     >
       {s >= 70 ? '▲' : s >= 45 ? '●' : '○'} {s}
     </span>

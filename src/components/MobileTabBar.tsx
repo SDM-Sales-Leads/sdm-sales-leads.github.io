@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { TextSizeButton } from './TextSizeButton';
 import { createPortal } from 'react-dom';
+import { useBackClose } from '../lib/backNav';
 import { LogOut, MoreHorizontal, X } from 'lucide-react';
 import { useAuth } from '../services/AuthContext';
 import { buildGroups, groupOf, isHere, NavGroup, NavItem } from './navGroups';
@@ -11,6 +12,7 @@ import { getLang, setLang } from '../i18n/lang';
 export const MobileTabBar: React.FC<{ activeTab: string; crmSubTab: string; go: (tab: string, sub?: string) => void }> = ({ activeTab, crmSubTab, go }) => {
   const { user, permissions, logout } = useAuth();
   const [more, setMore] = useState(false);
+  useBackClose(more, () => setMore(false));   // the phone's Back closes the menu sheet first
   const groups = useMemo(() => buildGroups(permissions, user?.role), [permissions, user?.role]);
   const cur = groupOf(groups, activeTab, crmSubTab);
   const ids = ['home', 'leads', 'customers', 'reports'];

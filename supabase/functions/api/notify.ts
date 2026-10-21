@@ -89,7 +89,7 @@ export async function sendAssignDigest() {
   const rows = await pageAll((a, b) => admin.from("crm_leads").select("id,assigned_to,status,data->customerName,data->companyName,data->project,data->source,data->channel,data->assignedDate,data->legacyId")
     .is("deleted_at", null).not("assigned_to", "is", null).gte("data->>assignedDate", String(cur.at)).lte("data->>assignedDate", now.toISOString()).order("id").range(a, b), 5000);
   const by = new Map<string, any[]>();
-  for (const r of rows || []) { by.set(r.assigned_to as string, [...(by.get(r.assigned_to as string) || []), r]); }
+  for (const r of rows || []) { if ((r as any).legacyId) continue; by.set(r.assigned_to as string, [...(by.get(r.assigned_to as string) || []), r]); }   // imported old leads are not "new leads assigned to you"
   const base = await appBase();
   const when = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
   let sent = 0;
@@ -143,7 +143,7 @@ export async function runReminders() {
   const due: Due[] = [];
 
   // tasks: due date (with a time when the task has one; a plain date means 09:00)
-  const { data: tasks } = await admin.from("crm_tasks").select("id,owner_id,data").neq("data->>status", "Completed").gte("data->>dueDate", d0).lte("data->>dueDate", d1 + "T99").limit(500);
+  const { data: tasks } = await admin.from("crm_tasks").select("id,owner_id,data").neq("data->>status", "Completed").gte("data->>dueDate", d0).lte("data->>dueDate", d1 + "T99").order("id").limit(5000);
   for (const t of tasks || []) {
     const d = t.data || {}; const s = String(d.dueDate || ""); if (!t.owner_id || !s) continue;
     const when = s.length > 10 ? new Date(s) : cairoInstant(s, "09:00");
@@ -153,10 +153,10 @@ export async function runReminders() {
   // leads: meeting / site visit slot and the next follow-up date
   const base = admin.from("crm_leads").select("id,assigned_to,data").is("deleted_at", null).not("assigned_to", "is", null);
   const [mt, fu] = await Promise.all([
-    base.gte("data->>meetingDate", d0).lte("data->>meetingDate", d1).limit(500),
-    admin.from("crm_leads").select("id,assigned_to,data").is("deleted_at", null).not("assigned_to", "is", null).gte("data->>nextFollowUpDate", d0).lte("data->>nextFollowUpDate", d1).limit(500),
+    base.gte("data->>meetingDate", d0).lte("data->>meetingDate", d1).order("id").limit(5000),
+    admin.from("crm_leads").select("id,assigned_to,data").is("deleted_at", null).not("assigned_to", "is", null).gte("data->>nextFollowUpDate", d0).lte("data->>nextFollowUpDate", d1).order("id").limit(5000),
   ]);
-  const closed = new Set(["Won", "Lost", "Not Interested", "Low Budget", "Duplicate", "Closed", "Invalid"]);
+  const closed = new Set(["Won", "Lost", "Not Interested", "Low Budget", "Duplicate", "Closed", "Invalid", "Wrong Number"]);
   const leadDetails = (l: any): [string, string | undefined][] => [["Lead", l.data?.customerName], ["Company", l.data?.companyName], ["Phone", l.data?.phoneNumber], ["Project", l.data?.project], ["Status", l.data?.status]];
   for (const l of mt.data || []) {
     if (closed.has(l.data?.status)) continue;
@@ -220,7 +220,10 @@ export async function escalateCallCenter() {
   const now = Date.now();
   const hour = +(CAIRO_PARTS(new Date(now)) as any).hour;
   if (hour < 7 || hour >= 23) return { ccSkipped: "outside 07:00-23:00 Cairo" };
-  const { data } = await admin.from("crm_leads").select("id,assigned_to,data").is("deleted_at", null).not("assigned_to", "is", null).ilike("data->>channel", "call center").limit(800);
+  // 21 Oct 2026: only the last 3 days are read (it used to read the whole call-center history, capped at 800, and missed today's leads)
+  const since72 = new Date(now - 73 * 3600_000).toISOString();
+  const { data } = await admin.from("crm_leads").select("id,assigned_to,data").is("deleted_at", null).not("assigned_to", "is", null).ilike("data->>channel", "%call center%")
+    .or(`data->>assignedDate.gte.${since72},data->>date.gte.${since72}`).limit(3000);
   const late: any[] = [];
   for (const l of data || []) {
     const d = l.data || {};
@@ -231,7 +234,7 @@ export async function escalateCallCenter() {
     if (hrs >= 24 && hrs <= 72) late.push({ l, d, hrs, start });         // older than 3 days = history, never alerted
   }
   // call center leads nobody owns yet: Sales Operation is told after 4 hours, so the owner still has time inside the 24
-  const { data: orphans } = await admin.from("crm_leads").select("id,data").is("deleted_at", null).is("assigned_to", null).ilike("data->>channel", "call center").limit(300);
+  const { data: orphans } = await admin.from("crm_leads").select("id,data").is("deleted_at", null).is("assigned_to", null).ilike("data->>channel", "%call center%").gte("data->>date", new Date(now - 73 * 3600_000).toISOString().slice(0, 10)).limit(2000);
   const lonely = (orphans || []).filter((l: any) => !CC_CLOSED.has(l.data?.status) && !isEngagedRow(l.data) && (() => { const h = (now - (Date.parse(l.data?.date) || 0)) / 3600_000; return h >= 4 && h <= 72; })());
   if (lonely.length) {
     const lk = lonely.map((l: any) => `ccun:${l.id}`); const seenL = new Set<string>();

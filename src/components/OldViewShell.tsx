@@ -8,6 +8,7 @@ import { crmService } from './crm/crmService';
 import { ViewSwitch } from './ViewSwitch';
 import { buildGroups, groupOf } from './navGroups';
 import { todayISO } from './crm/leadMetrics';
+import { isOpenStatus } from './crm/leadConfig';
 
 export interface OldNavItem { id: string; tab: string; sub?: string; icon: string; label: string; show: boolean }
 
@@ -73,8 +74,9 @@ export const OldViewShell: React.FC<Props> = ({ activeTab, crmSubTab, go, childr
   // reminders: open leads whose follow-up date is today or earlier (the list is in memory already)
   const due = useMemo(() => {
     const t = todayISO();
-    return (crmService.getLeads() as any[]).filter((l) => l.nextFollowUpDate && l.nextFollowUpDate <= t && !['Won', 'Lost'].includes(l.status)).length;
-  }, [activeTab, crmSubTab]);
+    // the same count as Home's "Follow-ups due": my own open, not merged leads
+    return (crmService.getLeads() as any[]).filter((l) => !l.mergedInto && String(l.assignedSalespersonId || '') === String(user?.id ?? '') && l.nextFollowUpDate && l.nextFollowUpDate <= t && isOpenStatus(l.status)).length;
+  }, [activeTab, crmSubTab, user?.id, crmService.versionKey()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openLead = (id: string) => {
     try { localStorage.setItem('selected_lead_id', id); } catch { /* ignore */ }

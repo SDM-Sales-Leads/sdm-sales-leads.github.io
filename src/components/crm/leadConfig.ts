@@ -161,6 +161,11 @@ export function leadScore(l: Partial<Lead>, winRate = 0, today = new Date()): nu
   return Math.max(0, Math.min(100, Math.round(s)));
 }
 
+/** the day a deal is won when it is marked Won now: its EOI / reservation / contract date, else TODAY (never the day the lead came in) */
+export function wonDateFor(l: Partial<Lead>, today: string): string {
+  if (l.eoiApplicable === true && l.eoiDate) return l.eoiDate;
+  return l.reservationDate || l.eoiDate || l.contractDate || today;
+}
 /** the day a deal counts in reports: EOI (when that is the path), else reservation, contract, won date, lead date */
 export function closingDate(l: Partial<Lead>): string {
   if (l.wonDate) return l.wonDate;

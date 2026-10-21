@@ -63,10 +63,10 @@ export const SPECS: Record<string, Spec> = {
   leads: {
     table: "crm_leads", soft: true,
     cols: (d) => leadColumns(d),
-    owns: (c, scope, team, r) => scope === "all" || scope === "viewall" || (scope === "finance" ? r.status === "Won" : r.assigned_to === c.id || r.created_by === c.id || (scope === "team" && !!r.assigned_to && team.includes(r.assigned_to))),
+    owns: (c, scope, team, r) => scope === "all" || scope === "viewall" || (scope === "finance" ? r.status === "Won" : r.assigned_to === c.id || (r.created_by === c.id && !r.assigned_to) || (scope === "team" && !!r.assigned_to && team.includes(r.assigned_to))),
     canDelete: (_c, scope) => scope === "all" || scope === "team",
     narrow: (c, scope, team) => scope === "all" || scope === "viewall" ? null : scope === "finance" ? (q) => q.eq("status", "Won")
-      : (q) => q.or([`assigned_to.eq.${c.id}`, `created_by.eq.${c.id}`, ...(scope === "team" && team.length ? [`assigned_to.in.(${team.join(",")})`] : [])].join(",")),
+      : (q) => q.or([`assigned_to.eq.${c.id}`, `and(created_by.eq.${c.id},assigned_to.is.null)`, ...(scope === "team" && team.length ? [`assigned_to.in.(${team.join(",")})`] : [])].join(",")),
   },
   contacts: {
     table: "crm_contacts", soft: true,
@@ -101,7 +101,7 @@ export const SPECS: Record<string, Spec> = {
   "email-logs": {
     table: "crm_email_logs", soft: false,
     cols: (d) => ({ received_at: d.receivedTime && !isNaN(Date.parse(d.receivedTime)) ? new Date(d.receivedTime).toISOString() : null }),
-    owns: (c, scope) => scope === "all" || can(c, "canViewSalesMail"),      // the intake history is for everyone who may open the Intake page (Marketing too)
+    owns: (c) => can(c, "canViewSalesMail"),      // the intake history is for everyone who may open the Intake page (Marketing too)
     canDelete: (_c, scope) => scope === "all",
   },
 };
@@ -125,9 +125,11 @@ const IDENTITY_FIELDS = ["customerName", "companyName", "phoneNumber", "phone2",
 /** contacts and companies: a salesperson sees the customers of the leads he or she owns, a team leader those of the team;
  *  Sales Operation, Admin, Marketing, Finance and the view-all roles see every one */
 async function linkedKeys(c: Caller, scope: CrmScope, team: string[]) {
-  if (scope === "all" || scope === "viewall" || scope === "finance") return null;
+  if (scope === "all" || scope === "viewall") return null;
   const ids = [c.id, ...(scope === "team" ? team : [])];
-  const rows = await pageAll((a, b) => admin.from("crm_leads").select("phone_norm,email_norm,data->companyName").in("assigned_to", ids).is("deleted_at", null).order("id").range(a, b), 50000).catch(() => []);
+  // 21 Oct 2026: accounts receivable sees the customers of won deals only (it used to see every customer)
+  const rows = await pageAll((a, b) => (scope === "finance" ? admin.from("crm_leads").select("phone_norm,email_norm,data->companyName").eq("status", "Won")
+    : admin.from("crm_leads").select("phone_norm,email_norm,data->companyName").in("assigned_to", ids)).is("deleted_at", null).order("id").range(a, b), 50000).catch(() => []);
   const k = { phones: new Set<string>(), emails: new Set<string>(), companies: new Set<string>() };
   for (const r of rows || []) { if (r.phone_norm) k.phones.add(r.phone_norm); if (r.email_norm) k.emails.add(r.email_norm); const n = normName((r as any).companyName); if (n) k.companies.add(n); }
   return k;
@@ -137,12 +139,18 @@ const linkedOk = (name: string, r: any, k: { phones: Set<string>; emails: Set<st
 const LINKED = new Set(["contacts", "companies"]);
 
 const out = (r: any) => ({ ...r.data, id: r.id, _rev: r.updated_at || r.created_at });
+/** 21 Oct 2026: private lead notes never leave the server for a salesperson who did not write them */
+const outFor = (c: Caller, name: string, r: any) => {
+  const o = out(r);
+  if (name === "leads" && Array.isArray(o.comments) && !isAdmin(c) && ["Sales Rep", "Sales Team", "Read Only", "Call Center"].includes(c.role))
+    o.comments = o.comments.filter((x: any) => !x?.isPrivate || x.user === c.name);
+  return o; };
 
 const listHandlers: Record<string, (ctx: any) => Promise<any>> = {};
 for (const [name, spec] of Object.entries(SPECS)) {
   const listHandler = async ({ c, query }: any) => {
     needCrm(c);
-    if (name === "email-logs" && !can(c, "canViewSalesMail") && crmScope(c) !== "all") throw forbidden();
+    if (name === "email-logs" && !can(c, "canViewSalesMail")) throw forbidden();   // mailbox: Admin, Sales Operation, Marketing only
     const scope = crmScope(c);
     const since = query.get("since");
     if (since && !isNaN(Date.parse(since))) {
@@ -151,7 +159,7 @@ for (const [name, spec] of Object.entries(SPECS)) {
       const team0 = scope === "team" ? await teamIds(c) : [];
       const lk0 = LINKED.has(name) ? await linkedKeys(c, scope, team0) : null;
       const ch = await pageAll((a, b) => admin.from(spec.table).select("*").gt("updated_at", iso).order("updated_at", { ascending: true }).order("id").range(a, b), 20000).catch(() => { throw new HttpError(500, "Could not load " + name); });
-      const live = (ch || []).filter((r: any) => !r.deleted_at && spec.owns(c, scope, team0, r) && linkedOk(name, r, lk0)).map(out);
+      const live = (ch || []).filter((r: any) => !r.deleted_at && spec.owns(c, scope, team0, r) && linkedOk(name, r, lk0)).map((r: any) => outFor(c, name, r));
       const gone = (ch || []).filter((r: any) => r.deleted_at || !spec.owns(c, scope, team0, r) || !linkedOk(name, r, lk0)).map((r: any) => r.id);
       return { delta: true, rows: live, removed: gone, now: nowIso() };
     }
@@ -168,7 +176,7 @@ for (const [name, spec] of Object.entries(SPECS)) {
       }, name === "email-logs" ? 500 : 50000);
     } catch { throw new HttpError(500, "Could not load " + name); }
     const lk = LINKED.has(name) ? await linkedKeys(c, scope, team) : null;
-    return (data || []).filter((r: any) => spec.owns(c, scope, team, r) && linkedOk(name, r, lk)).map(out);
+    return (data || []).filter((r: any) => spec.owns(c, scope, team, r) && linkedOk(name, r, lk)).map((r: any) => outFor(c, name, r));
   };
   listHandlers[name] = listHandler;
   route("GET", `/crm/${name}`, listHandler);
@@ -209,8 +217,17 @@ for (const [name, spec] of Object.entries(SPECS)) {
       let d: any = clean(raw);
       const rev = d._rev; delete d._rev;
       let id = d.id;
-      const ex = exMap.get(id) || null;
+      let ex = exMap.get(id) || null;
       try {
+        if (ex && !rev && !ex.deleted_at && name === "leads" && ex.created_by === c.id && Date.now() - new Date(ex.created_at || 0).getTime() < 15 * 60e3) {
+          saved.push({ id, _rev: ex.updated_at }); continue;   // the first save worked, only its answer was lost: no duplicate
+        }
+        if (ex && !rev && !ex.deleted_at && (name === "leads" || name === "contacts" || name === "companies")) {
+          // the browser thinks it is new but the id is taken: a fresh id, then exactly the rules of a new row
+          // (21 Oct 2026: this path used to insert the browser's data as it was - no lead rules, no owner check, no audit)
+          id = await nextId(name === "leads" ? "lead" : name === "contacts" ? "contact" : "company");
+          idMap[d.id] = id; d.id = id; ex = null;
+        }
         if (ex) {
           if (ex.deleted_at) { rejected.push({ id, reason: "was deleted" }); continue; }
           let identityOnly = false;
@@ -218,18 +235,7 @@ for (const [name, spec] of Object.entries(SPECS)) {
             if (mkt && name === "leads") identityOnly = true; // marketing: contact details only
             else { rejected.push({ id, reason: "not yours" }); continue; }
           }
-          if (!rev) { // client thinks it is new but the id is taken: give it a fresh id
-            if (name === "leads" || name === "contacts" || name === "companies") {
-              id = await nextId(name === "leads" ? "lead" : name === "contacts" ? "contact" : "company");
-              idMap[d.id] = id; d.id = id;
-              const cols = spec.cols(d, c);
-              const ins = await admin.from(spec.table).insert({ id, data: d, ...cols, ...(name === "leads" ? { created_by: c.id } : {}) }).select("*").single();
-              if (ins.error) throw new Error("insert");
-              saved.push({ id, _rev: ins.data.updated_at });
-              continue;
-            }
-            conflicts.push(id); continue;
-          }
+          if (!rev) { conflicts.push(id); continue; }
           if (new Date(rev).getTime() !== new Date(ex.updated_at).getTime()) { conflicts.push(id); continue; }
           if (name === "leads" && identityOnly) {
             const nd: any = { ...ex.data };
@@ -238,7 +244,7 @@ for (const [name, spec] of Object.entries(SPECS)) {
               nd[k] = d[k];
             }
             if (d.dupCleared !== undefined) nd.dupCleared = !!d.dupCleared;
-            if (d.mergedInto && !nd.mergedInto) { nd.mergedInto = String(d.mergedInto).slice(0, 60); nd.status = "Duplicate"; audit(id, { action: "merge", to: nd.mergedInto }); }
+            if (d.mergedInto && !nd.mergedInto && nd.status !== "Won" && nd.cashStatus !== "confirmed" && !nd.touched) { /* a won, paid or worked lead is never folded away as a duplicate */ nd.mergedInto = String(d.mergedInto).slice(0, 60); nd.status = "Duplicate"; audit(id, { action: "merge", to: nd.mergedInto }); }
             const have = new Set((nd.timeline || []).map((x: any) => x?.id));
             nd.timeline = [...(nd.timeline || []), ...(Array.isArray(d.timeline) ? d.timeline : []).filter((x: any) => x?.id && !have.has(x.id))];
             nd.lastUpdated = nowIso();
@@ -270,7 +276,7 @@ for (const [name, spec] of Object.entries(SPECS)) {
           const u = await admin.from(spec.table).update({ data: d, ...spec.cols(d, c) }).eq("id", id).eq("updated_at", ex.updated_at).select("*");
           if (u.error) throw new Error("update");
           if (!u.data?.length) { conflicts.push(id); continue; }
-          saved.push({ id, _rev: u.data[0].updated_at });
+          saved.push({ id, _rev: u.data[0].updated_at, ...(name === "leads" ? { set: { touched: !!(u.data[0].data || {}).touched, wonDate: (u.data[0].data || {}).wonDate, assignedSalespersonName: (u.data[0].data || {}).assignedSalespersonName } } : {}) });
           if (name === "leads") { const had = new Set((ex.data?.timeline || []).map((x: any) => x?.id)); touched.push({ id, prev: ex.assigned_to || null, next: u.data[0].assigned_to || null, d: u.data[0].data || d, fresh: ((u.data[0].data || d).timeline || []).filter((e: any) => e?.id && !had.has(e.id)) }); }
         } else {
           // new row
@@ -306,6 +312,9 @@ for (const [name, spec] of Object.entries(SPECS)) {
           if (!ID_RE.test(id)) continue;
           const { data: ex } = await admin.from(spec.table).select("*").eq("id", id).maybeSingle();
           if (!ex || !(spec.owns(c, scope, team, ex) || (mkt && name === "leads"))) continue;
+          // 21 Oct 2026: marketing deletes only its own unassigned, open leads; customers are deleted only by those they belong to
+          if (mkt && name === "leads" && scope !== "all" && (ex.assigned_to || ex.created_by !== c.id || ex.status === "Won" || ex.data?.cashStatus === "confirmed")) continue;
+          if (LINKED.has(name) && scope !== "all" && !linkedOk(name, ex, lkw)) continue;
           if (name === "leads") audit(id, { action: "delete", from: ex.data?.status, note: `${ex.data?.customerName || ""} (${ex.data?.assignedSalespersonName || "unassigned"})` });
           if (spec.soft) await admin.from(spec.table).update({ deleted_at: nowIso() }).eq("id", id);
           else await admin.from(spec.table).delete().eq("id", id);
@@ -454,7 +463,7 @@ route("POST", "/crm/reparse-lead", async ({ req, c }) => {
 });
 
 async function runIngest(c: Caller) {
-  if (!(can(c, "canViewSalesMail") || crmScope(c) === "all")) throw forbidden();
+  if (!can(c, "canViewSalesMail")) throw forbidden();   // mailbox intake: Admin, Sales Operation, Marketing only
   await rateLimit(`ingest:${c.id}`, 3600, 30);
   const r = await ingestInbox(40, c.name);
   await logActivity(c, "Mail Ingestion", `${r.newLeadsCount} new lead(s) from ${r.processed} mail(s)`, "system");
@@ -463,7 +472,7 @@ async function runIngest(c: Caller) {
 // Facebook leads sheet: the same people who may read the mailbox may sync it; only an administrator can set a back-fill date
 route("POST", "/crm/fb-sync", async ({ req, c }) => {
   needCrm(c);
-  if (!(can(c, "canViewSalesMail") || crmScope(c) === "all")) throw forbidden();
+  if (!can(c, "canViewSalesMail")) throw forbidden();   // mailbox intake: Admin, Sales Operation, Marketing only
   await rateLimit(`fbsync:${c.id}`, 3600, 60);
   const b = await body(req, 10_000);
   const since = crmScope(c) === "all" && b.since && !isNaN(Date.parse(b.since)) ? new Date(b.since).toISOString() : undefined;
@@ -473,7 +482,7 @@ route("POST", "/crm/fb-sync", async ({ req, c }) => {
 });
 route("GET", "/crm/fb-sync/status", async ({ c }) => {
   needCrm(c);
-  if (!(can(c, "canViewSalesMail") || crmScope(c) === "all")) throw forbidden();
+  if (!can(c, "canViewSalesMail")) throw forbidden();   // mailbox intake: Admin, Sales Operation, Marketing only
   const cfg = await getConfig<any>("fb_sheet", {});
   return { enabled: cfg.enabled !== false, lastRun: cfg.lastRun || null, lastTab: cfg.lastTab || null, since: cfg.since || null };
 });

@@ -186,7 +186,7 @@ export const CrmReports: React.FC<CrmReportsProps> = ({ leads }) => {
                   <td className="py-2 px-2">{p.project}</td>
                   <td className="py-2 px-2">{p.ownerName || '—'}</td>
                   <td className={`${TD} text-right`}>{p.value ? p.value.toLocaleString('en-US') : '—'}</td>
-                  <td className="py-2 px-2"><span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${p.l.cashStatus === 'confirmed' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{p.l.cashStatus === 'confirmed' ? 'Confirmed' : 'Pending'}</span></td>
+                  <td className="py-2 px-2"><span className={`px-2 py-0.5 rounded-full text-[10.5px] font-black ${p.l.cashStatus === 'confirmed' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{p.l.cashStatus === 'confirmed' ? 'Confirmed' : 'Pending'}</span></td>
                 </tr>
               ))}
             </tbody>
@@ -296,7 +296,7 @@ export const CrmReports: React.FC<CrmReportsProps> = ({ leads }) => {
 
       {/* sources and projects */}
       <Card title="Source performance" info="Marketing channels are every source except Personal, Management and BD Research (self-generated, tagged below). Conversion = won ÷ leads from that source; win rate = won ÷ contacted. Sorted by revenue, then leads.">
-        <BreakTable rows={[...A.bySource].sort(byRevenue)} first="Source" cols={[{ head: 'Type', cell: (b) => <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${b.key !== 'Not recorded' && !isMarketingSource(b.key) ? 'bg-indigo-100 text-indigo-800' : 'bg-brand-gray/10 text-brand-gray'}`}>{b.key !== 'Not recorded' && !isMarketingSource(b.key) ? 'self-generated' : 'marketing'}</span> }, ...rateCols]} />
+        <BreakTable rows={[...A.bySource].sort(byRevenue)} first="Source" cols={[{ head: 'Type', cell: (b) => <span className={`text-[10.5px] font-black px-2 py-0.5 rounded-full ${b.key !== 'Not recorded' && !isMarketingSource(b.key) ? 'bg-indigo-100 text-indigo-800' : 'bg-brand-gray/10 text-brand-gray'}`}>{b.key !== 'Not recorded' && !isMarketingSource(b.key) ? 'self-generated' : 'marketing'}</span> }, ...rateCols]} />
       </Card>
       <Card title="By project" info="Project name after fixing typos and website page names. 'Not recorded' = no usable project. Same column definitions as the source table.">
         <BreakTable rows={[...A.byProject].sort((a, b) => b.agg.total - a.agg.total)} first="Project" cols={rateCols} />

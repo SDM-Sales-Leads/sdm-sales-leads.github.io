@@ -723,7 +723,7 @@ export const AdminPanel: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-xs uppercase text-brand-red">{c.type}</span>
                       {c.department && (
-                        <span className="text-[8px] font-bold bg-brand-black/5 px-1.5 py-0.5 rounded border border-black/5 uppercase">
+                        <span className="text-[10px] font-bold bg-brand-black/5 px-1.5 py-0.5 rounded border border-black/5 uppercase">
                           {c.department}
                         </span>
                       )}

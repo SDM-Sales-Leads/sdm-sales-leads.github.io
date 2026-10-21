@@ -17,8 +17,10 @@ export const GlassHome: React.FC = () => {
   useEffect(() => {
     const f = () => bump((n) => n + 1);
     window.addEventListener('crm-data-changed', f);
-    if (!crmService.getLeads().length) void crmService.loadAll().then(f);
-    return () => window.removeEventListener('crm-data-changed', f);
+    // Home is the landing page: it loads and keeps refreshing by itself (it used to wait for the Leads page to be opened)
+    void crmService.loadAll().then(f);
+    const stop = crmService.startAutoRefresh();
+    return () => { window.removeEventListener('crm-data-changed', f); stop(); };
   }, []);
 
   const d = useMemo(() => {
@@ -34,7 +36,7 @@ export const GlassHome: React.FC = () => {
     const days = Array.from({ length: 7 }, (_, i) => plus(today, i - 6));
     const series = days.map((day) => acts.filter((a) => dayOf(a.timestamp) === day).length);
     return { open, due, meet, won, fresh, days, series, total: mine.length };
-  }, [user?.id, crmService.getLeads().length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.id, crmService.versionKey()]); // eslint-disable-line react-hooks/exhaustive-deps -- any change to a lead (status, follow-up) recounts
 
   const go = (title: string, leads: any[]) => crmNav.leads({ title, ids: leads.map((l) => l.id) });
   const hour = new Date().getHours();

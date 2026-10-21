@@ -3,7 +3,7 @@
 import type { Lead } from './types';
 import { cairoDateISO } from '../../lib/cairoTime';
 import {
-  ACTIVE_EXCLUDE, LEGACY_STATUSES, REQ_DATETIME, REQ_FOLLOWUP, STATUS_GROUPS, closingDate, isOpenStatus, statusStage,
+  ACTIVE_EXCLUDE, LEGACY_STATUSES, REQ_DATETIME, REQ_FOLLOWUP, STATUS_GROUPS, closingDate, isOpenStatus, statusStage, wonDateFor,
 } from './leadConfig';
 
 export const todayISO = () => cairoDateISO(new Date());
@@ -118,7 +118,7 @@ export function withSideEffects(prev: Lead | null, next: Lead, actor?: { id?: st
   const s = out.status;
   if (s === 'Won' && prev?.status !== 'Won') {
     out.cashStatus = out.cashStatus || 'pending';
-    if (!out.wonDate) out.wonDate = closingDate(out);
+    if (!out.wonDate) out.wonDate = wonDateFor(out, todayISO());   // 21 Oct 2026: a won deal without dates counts today, not the lead's arrival day
   }
   if (s !== 'Lost') { if (out.lostReason) out.lostReason = undefined; if (out.lostCategory) out.lostCategory = undefined; }
   if (!REQ_DATETIME.includes(s)) { if (out.meetingDate) out.meetingDate = ''; if (out.meetingTime) out.meetingTime = ''; }

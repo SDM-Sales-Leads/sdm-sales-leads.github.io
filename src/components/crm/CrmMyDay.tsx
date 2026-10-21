@@ -321,12 +321,12 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
 
   const TaskRow: React.FC<{ t: DayTask }> = ({ t }) => (
     <div className="flex items-center gap-3 py-2 px-3 hover:bg-brand-gray/5 rounded-xl cursor-pointer" onClick={() => { setPinned(t.lead.id); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
-      <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full shrink-0 ${LEVEL_STYLE[t.level]}`}>{DAY_LEVEL[t.level].split(' ')[0]}</span>
+      <span className={`text-[10.5px] font-extrabold px-2 py-0.5 rounded-full shrink-0 ${LEVEL_STYLE[t.level]}`}>{DAY_LEVEL[t.level].split(' ')[0]}</span>
       <div className="min-w-0 flex-1">
         <p className="text-xs font-bold text-brand-black truncate">{t.lead.companyName || t.lead.customerName || t.lead.id} <span className="font-normal text-brand-gray">· {t.lead.status}</span></p>
         <p className="text-[10px] text-brand-gray truncate">{t.why}</p>
       </div>
-      {t.sla && <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 shrink-0">{t.sla === 'vip' ? 'VIP SLA' : 'Neglected'}</span>}
+      {t.sla && <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 shrink-0">{t.sla === 'vip' ? 'VIP SLA' : 'Neglected'}</span>}
       <button type="button" onClick={(e) => { e.stopPropagation(); openLead(t.lead.id); }} title="Open the lead card" className="font-mono text-[10px] text-brand-red shrink-0 underline decoration-dotted underline-offset-2 hover:opacity-70">{t.lead.id}</button>
     </div>
   );
@@ -385,8 +385,8 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
           <span className="text-[10px] font-extrabold text-brand-gray dark:text-white/40 uppercase tracking-wider block mb-2">Win rate <InfoTip text="Won ÷ (Won + Lost) of this person's leads. Not Interested and Low Budget are not counted here." /></span>
           <span className="text-3xl font-black text-indigo-600">{stats.win == null ? '—' : `${Math.round(stats.win)}%`}</span>
           <div className="mt-4 pt-3 border-t border-brand-gray/10 flex justify-between text-center text-[10px] font-extrabold">
-            <div className="flex-1"><Num n={stats.won} title="Won deals" leads={stats.L.won} className="text-emerald-500 block text-base mx-auto" /><span className="text-[8px] uppercase text-brand-gray">Won</span></div>
-            <div className="flex-1"><Num n={stats.lost} title="Lost deals" leads={stats.L.lost} className="text-rose-500 block text-base mx-auto" /><span className="text-[8px] uppercase text-brand-gray">Lost</span></div>
+            <div className="flex-1"><Num n={stats.won} title="Won deals" leads={stats.L.won} className="text-emerald-500 block text-base mx-auto" /><span className="text-[10px] uppercase text-brand-gray">Won</span></div>
+            <div className="flex-1"><Num n={stats.lost} title="Lost deals" leads={stats.L.lost} className="text-rose-500 block text-base mx-auto" /><span className="text-[10px] uppercase text-brand-gray">Lost</span></div>
           </div>
         </div>
         <div className="bento-card">
@@ -430,9 +430,9 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
             {hero ? (
               <div className="border-2 border-brand-red/25 rounded-2xl p-5 bg-brand-red/5 space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${LEVEL_STYLE[hero.level]}`}>{DAY_LEVEL[hero.level]}</span>
-                  {hero.sla === 'vip' && <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white flex items-center gap-1"><Flame size={10} />VIP SLA breached</span>}
-                  {hero.sla === 'neglect' && <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white flex items-center gap-1"><Hourglass size={10} />Neglected</span>}
+                  <span className={`text-[10.5px] font-extrabold px-2 py-0.5 rounded-full ${LEVEL_STYLE[hero.level]}`}>{DAY_LEVEL[hero.level]}</span>
+                  {hero.sla === 'vip' && <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white flex items-center gap-1"><Flame size={10} />VIP SLA breached</span>}
+                  {hero.sla === 'neglect' && <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white flex items-center gap-1"><Hourglass size={10} />Neglected</span>}
                   <span className="text-xs font-bold text-brand-red">{hero.why}</span>
                 </div>
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
@@ -440,8 +440,8 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
                     <div className="flex items-center gap-2 flex-wrap">
                       <button type="button" onClick={() => openLead(hero.lead.id)} title="Open the lead card" className="font-mono text-xs font-extrabold text-brand-red underline decoration-dotted underline-offset-2 hover:opacity-70">{hero.lead.id}</button>
                       <h4 className="font-bold text-base text-brand-black truncate">{hero.lead.companyName || hero.lead.customerName}</h4>
-                      <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${priorityPill(hero.lead.priority)}`}>{hero.lead.priority}</span>
-                      <span className="bg-brand-black text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full">{hero.lead.status}</span>
+                      <span className={`text-[10.5px] font-extrabold px-2 py-0.5 rounded-full ${priorityPill(hero.lead.priority)}`}>{hero.lead.priority}</span>
+                      <span className="bg-brand-black text-white text-[10.5px] font-extrabold px-2 py-0.5 rounded-full">{hero.lead.status}</span>
                     </div>
                     <p className="text-[11px] text-brand-gray">{sub(hero.lead)}</p>
                     <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-brand-gray font-medium">
@@ -588,8 +588,8 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
                       <div key={d} onClick={() => { setSelectedDate(d); setViewMode('list'); }} className={`bg-white p-2 min-h-[90px] cursor-pointer hover:bg-brand-gray/5 ${d === selectedDate ? 'ring-2 ring-inset ring-brand-red' : ''}`}>
                         <span className={`text-[10px] font-bold inline-flex items-center justify-center w-6 h-6 rounded-full ${d === today ? 'bg-brand-red text-white' : 'text-brand-gray'}`}>{Number(d.slice(8))}</span>
                         <div className="mt-1 flex flex-col gap-1">
-                          {ids.slice(0, 2).map((id) => <div key={id} className="text-[9px] truncate bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200">{leadById.get(id)?.customerName || id}</div>)}
-                          {ids.length > 2 && <div className="text-[9px] text-brand-gray font-bold px-1">+ {ids.length - 2} more</div>}
+                          {ids.slice(0, 2).map((id) => <div key={id} className="text-[10.5px] truncate bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200">{leadById.get(id)?.customerName || id}</div>)}
+                          {ids.length > 2 && <div className="text-[10.5px] text-brand-gray font-bold px-1">+ {ids.length - 2} more</div>}
                         </div>
                       </div>
                     );
@@ -613,15 +613,15 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-mono text-xs font-extrabold text-brand-red">{lead.id}</span>
                       <h4 className="font-bold text-sm text-brand-black">{lead.customerName}</h4>
-                      <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${priorityPill(lead.priority)}`}>{lead.priority}</span>
-                      <span className="bg-brand-black text-white/80 text-[9px] font-extrabold px-2 py-0.5 rounded-full">{lead.status}{SLOW_STATUSES.has(lead.status) ? '' : ' (older status)'}</span>
+                      <span className={`text-[10.5px] font-extrabold px-2 py-0.5 rounded-full ${priorityPill(lead.priority)}`}>{lead.priority}</span>
+                      <span className="bg-brand-black text-white/80 text-[10.5px] font-extrabold px-2 py-0.5 rounded-full">{lead.status}{SLOW_STATUSES.has(lead.status) ? '' : ' (older status)'}</span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-brand-gray font-medium">
                       <span className="flex items-center gap-1.5"><Phone size={12} />{lead.phoneNumber || '—'}</span>
                       <span className="flex items-center gap-1.5"><Briefcase size={12} />{lead.project || '—'} ({Number(lead.requiredSize) > 0 ? `${lead.requiredSize} sqm` : 'size n/a'})</span>
                     </div>
                     <div className="bg-white rounded-xl p-3 border border-brand-gray/10 space-y-2">
-                      <span className="text-[9px] font-extrabold text-brand-gray uppercase tracking-wider block">Day's scheduled focus</span>
+                      <span className="text-[10.5px] font-extrabold text-brand-gray uppercase tracking-wider block">Day's scheduled focus</span>
                       {leadTasksForDate(lead).map((task, i) => (
                         <div key={i} className="flex gap-2 text-[11px] leading-relaxed">
                           {task.type === 'Follow-Up' && <Clock className="text-amber-500 mt-0.5 shrink-0" size={13} />}
@@ -687,7 +687,7 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
               {modal === 'log' && (
                 <>
                   <div><label className={lbl}>Type</label>
-                    <div className="grid grid-cols-5 gap-1.5">{(['call', 'whatsapp', 'email', 'meeting', 'visit'] as const).map((k) => <button key={k} type="button" onClick={() => setIType(k)} className={`py-2 text-[9px] font-extrabold rounded-lg border uppercase tracking-wider ${iType === k ? 'bg-brand-red text-white border-brand-red' : 'bg-brand-gray/5 border-brand-gray/15 text-brand-gray'}`}>{k}</button>)}</div>
+                    <div className="grid grid-cols-5 gap-1.5">{(['call', 'whatsapp', 'email', 'meeting', 'visit'] as const).map((k) => <button key={k} type="button" onClick={() => setIType(k)} className={`py-2 text-[10.5px] font-extrabold rounded-lg border uppercase tracking-wider ${iType === k ? 'bg-brand-red text-white border-brand-red' : 'bg-brand-gray/5 border-brand-gray/15 text-brand-gray'}`}>{k}</button>)}</div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div><label className={lbl}>Date</label><input type="date" value={iDate} onChange={(e) => setIDate(e.target.value)} className={fieldCls} /></div>

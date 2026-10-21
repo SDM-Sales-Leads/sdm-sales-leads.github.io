@@ -370,7 +370,7 @@ export const WorkflowForm: React.FC<WorkflowFormProps> = ({ onSubmit, onCancel, 
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-4">
                     <div className="flex flex-col items-center px-4 py-2 bg-green-50 rounded-lg text-green-700 border border-green-100 min-w-[120px]">
-                      <span className="text-[9px] uppercase tracking-widest font-bold opacity-60">Total SLA</span>
+                      <span className="text-[10.5px] uppercase tracking-widest font-bold opacity-60">Total SLA</span>
                       <span className="text-sm font-black">{totalHours > 0 ? `${hoursToDays(totalHours)}d / ${totalHours}h` : '—'}</span>
                     </div>
                   </div>

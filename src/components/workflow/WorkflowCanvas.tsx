@@ -98,7 +98,7 @@ const WorkflowNode = ({ data, id }: NodeProps) => {
             <User size={10} />
             {step.responsibleRole}
           </div>
-          <div className="flex items-center gap-1 text-[8px] font-bold text-brand-gray uppercase">
+          <div className="flex items-center gap-1 text-[10px] font-bold text-brand-gray uppercase">
             <Clock size={8} />
             {slaLabel}
           </div>
@@ -106,7 +106,7 @@ const WorkflowNode = ({ data, id }: NodeProps) => {
 
         {step.hasRequirements && step.requirements && (
           <div className="pt-2 border-t border-brand-gray/10 text-[10px] text-brand-gray">
-            <span className="font-bold text-brand-black uppercase block text-[8px] tracking-wider mb-0.5">Required Inputs:</span>
+            <span className="font-bold text-brand-black uppercase block text-[10px] tracking-wider mb-0.5">Required Inputs:</span>
             <p className="line-clamp-2 bg-brand-gray/5 p-1.5 rounded border border-brand-gray/10 text-xs text-brand-gray/80 font-medium leading-normal">{step.requirements}</p>
           </div>
         )}
@@ -193,7 +193,7 @@ const WorkflowEdge = ({
         >
           <div className="flex flex-col items-center gap-1">
             {label && (
-              <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest text-white ${label === 'Yes' ? 'bg-green-500' : 'bg-brand-red'}`}>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest text-white ${label === 'Yes' ? 'bg-green-500' : 'bg-brand-red'}`}>
                 {label}
               </span>
             )}
@@ -207,7 +207,7 @@ const WorkflowEdge = ({
                   className={`bg-white border border-brand-gray/20 px-2 py-1 rounded-lg shadow-sm flex items-center gap-1 transition-all ${!data?.readOnly ? 'hover:border-brand-red hover:bg-brand-red/5 cursor-pointer' : ''}`}
                 >
                   <Clock size={8} className="text-brand-gray" />
-                  <span className="text-[9px] font-bold text-brand-black whitespace-nowrap">{slaLabel}</span>
+                  <span className="text-[10.5px] font-bold text-brand-black whitespace-nowrap">{slaLabel}</span>
                 </div>
                 {!data?.readOnly && (
                   <button
@@ -654,14 +654,14 @@ const WorkflowCanvasContent: React.FC<WorkflowCanvasProps> = ({ steps, onChange,
                       <button 
                         type="button"
                         onClick={() => updateStep(editingStep.id, { isExternal: false, responsibleRole: 'Development' })}
-                        className={`text-[8px] px-1.5 py-0.5 rounded transition-all font-bold ${!editingStep.isExternal ? 'bg-white text-brand-black shadow-sm' : 'text-brand-gray'}`}
+                        className={`text-[10px] px-1.5 py-0.5 rounded transition-all font-bold ${!editingStep.isExternal ? 'bg-white text-brand-black shadow-sm' : 'text-brand-gray'}`}
                       >
                         INT
                       </button>
                       <button 
                         type="button"
                         onClick={() => updateStep(editingStep.id, { isExternal: true, responsibleRole: '' })}
-                        className={`text-[8px] px-1.5 py-0.5 rounded transition-all font-bold ${editingStep.isExternal ? 'bg-white text-brand-black shadow-sm' : 'text-brand-gray'}`}
+                        className={`text-[10px] px-1.5 py-0.5 rounded transition-all font-bold ${editingStep.isExternal ? 'bg-white text-brand-black shadow-sm' : 'text-brand-gray'}`}
                       >
                         EXT
                       </button>
@@ -699,7 +699,7 @@ const WorkflowCanvasContent: React.FC<WorkflowCanvasProps> = ({ steps, onChange,
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <label className="text-[8px] font-bold text-brand-gray uppercase tracking-widest">SLA Duration</label>
+                      <label className="text-[10px] font-bold text-brand-gray uppercase tracking-widest">SLA Duration</label>
                       <input
                         type="number"
                         value={editingStep.sla ?? ''}
@@ -726,7 +726,7 @@ const WorkflowCanvasContent: React.FC<WorkflowCanvasProps> = ({ steps, onChange,
                   
                   {editingStep.hasRequirements && (
                     <div className="space-y-1 mt-2">
-                      <label className="text-[8px] font-bold text-brand-gray uppercase tracking-widest">Required Inputs/Requirements</label>
+                      <label className="text-[10px] font-bold text-brand-gray uppercase tracking-widest">Required Inputs/Requirements</label>
                       <textarea
                         value={editingStep.requirements || ''}
                         onChange={(e) => updateStep(editingStep.id, { requirements: e.target.value })}

@@ -178,14 +178,14 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ steps, onChang
                 <button 
                   type="button"
                   onClick={() => setNewStep({ ...newStep, isExternal: false, responsibleRole: 'Development' })}
-                  className={`text-[8px] px-1.5 py-0.5 rounded transition-all font-bold ${!newStep.isExternal ? 'bg-white text-brand-black shadow-sm' : 'text-brand-gray'}`}
+                  className={`text-[10px] px-1.5 py-0.5 rounded transition-all font-bold ${!newStep.isExternal ? 'bg-white text-brand-black shadow-sm' : 'text-brand-gray'}`}
                 >
                   INT
                 </button>
                 <button 
                   type="button"
                   onClick={() => setNewStep({ ...newStep, isExternal: true, responsibleRole: '' })}
-                  className={`text-[8px] px-1.5 py-0.5 rounded transition-all font-bold ${newStep.isExternal ? 'bg-white text-brand-black shadow-sm' : 'text-brand-gray'}`}
+                  className={`text-[10px] px-1.5 py-0.5 rounded transition-all font-bold ${newStep.isExternal ? 'bg-white text-brand-black shadow-sm' : 'text-brand-gray'}`}
                 >
                   EXT
                 </button>
@@ -388,14 +388,14 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ steps, onChang
                       <button 
                         type="button"
                         onClick={() => updateStep(step.id, { isExternal: false, responsibleRole: 'Development' })}
-                        className={`text-[8px] px-1 py-0.5 rounded transition-all font-bold ${!step.isExternal ? 'bg-white text-brand-black shadow-sm' : 'text-brand-gray'}`}
+                        className={`text-[10px] px-1 py-0.5 rounded transition-all font-bold ${!step.isExternal ? 'bg-white text-brand-black shadow-sm' : 'text-brand-gray'}`}
                       >
                         INT
                       </button>
                       <button 
                         type="button"
                         onClick={() => updateStep(step.id, { isExternal: true, responsibleRole: '' })}
-                        className={`text-[8px] px-1 py-0.5 rounded transition-all font-bold ${step.isExternal ? 'bg-white text-brand-black shadow-sm' : 'text-brand-gray'}`}
+                        className={`text-[10px] px-1 py-0.5 rounded transition-all font-bold ${step.isExternal ? 'bg-white text-brand-black shadow-sm' : 'text-brand-gray'}`}
                       >
                         EXT
                       </button>
@@ -435,7 +435,7 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ steps, onChang
                 {/* SLA and Step Requirements Input */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3 border-t border-brand-gray/10">
                   <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-green-600 uppercase tracking-widest">SLA Duration ({step.slaUnit})</label>
+                    <label className="text-[10.5px] font-bold text-green-600 uppercase tracking-widest">SLA Duration ({step.slaUnit})</label>
                     <input
                       type="number"
                       value={step.sla ?? ''}
@@ -462,7 +462,7 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ steps, onChang
 
                 {step.hasRequirements && (
                   <div className="pt-2">
-                    <label className="text-[9px] font-bold text-brand-gray uppercase tracking-widest block mb-1">Required Inputs/Requirements</label>
+                    <label className="text-[10.5px] font-bold text-brand-gray uppercase tracking-widest block mb-1">Required Inputs/Requirements</label>
                     <textarea
                       value={step.requirements || ''}
                       onChange={(e) => updateStep(step.id, { requirements: e.target.value })}
@@ -525,7 +525,7 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ steps, onChang
                   {step.isDecision && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-brand-gray/5 p-3 rounded-xl border border-brand-gray/10">
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-brand-gray uppercase tracking-widest">Question</label>
+                        <label className="text-[10.5px] font-bold text-brand-gray uppercase tracking-widest">Question</label>
                         <input
                           type="text"
                           value={step.decisionQuestion || ''}
@@ -534,7 +534,7 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ steps, onChang
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-brand-gray uppercase tracking-widest">If Yes</label>
+                        <label className="text-[10.5px] font-bold text-brand-gray uppercase tracking-widest">If Yes</label>
                         <select
                           value={step.yesNextStepId || ''}
                           onChange={(e) => updateStep(step.id, { yesNextStepId: e.target.value })}
@@ -545,7 +545,7 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ steps, onChang
                         </select>
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-brand-gray uppercase tracking-widest">If No</label>
+                        <label className="text-[10.5px] font-bold text-brand-gray uppercase tracking-widest">If No</label>
                         <select
                           value={step.noNextStepId || ''}
                           onChange={(e) => updateStep(step.id, { noNextStepId: e.target.value })}

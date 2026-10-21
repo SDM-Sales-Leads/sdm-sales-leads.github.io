@@ -31,7 +31,13 @@ route("POST", "/cron/ingest", async ({ req }) => {
   // the schedule calls this every hour; it only works at 09:00, 12:00 and 15:00 Cairo time, Sunday to Thursday
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).map((p) => [p.type, p.value]));
   if (["Fri", "Sat"].includes(parts.weekday) || ![9, 12, 15].includes(Number(parts.hour))) return { skipped: true, reason: "outside the sync hours" };
-  const m: any = await ingestInbox(25, "Scheduled run").catch((e: any) => ({ mailError: String(e?.message || e).slice(0, 200) }));
+  // 21 Oct 2026: drain the backlog (e.g. Friday and Saturday mail on Sunday morning) in rounds of 25, within about 100 s
+  let m: any = {}; const t0 = Date.now();
+  for (let round = 0; round < 8 && Date.now() - t0 < 100_000; round++) {
+    const r: any = await ingestInbox(25, "Scheduled run").catch((e: any) => ({ mailError: String(e?.message || e).slice(0, 200) }));
+    m = { ...r, rounds: round + 1, created: (m.created || 0) + (r.created || 0) };
+    if (r.mailError || !(Number(r.remaining) > 0)) break;
+  }
   const fb = await syncFacebook({ byUser: "Scheduled run" }).catch(() => ({ fbNew: 0 }));
   return { ...m, ...fb };
 }, { public: true });
@@ -71,7 +77,12 @@ async function handle(req: Request): Promise<Response> {
     if (!m.route.isPublic) {
       c = await getCaller(req);
       const as = req.headers.get("x-view-as");
-      if (as && c.role === "Admin" && !/^\/(users|admin|auth)/.test(path) && as !== c.id) c = await viewAsCaller(c, as);
+      if (as && c.role === "Admin" && !/^\/(users|admin|auth)/.test(path) && as !== c.id) {
+        // 21 Oct 2026: View as is for looking only - a change made while viewing as someone would be recorded in their name
+        if (req.method === "GET") c = await viewAsCaller(c, as);
+        else if (!/^\/(client-issues|client-error|crm\/ids)/.test(path)) return wrap(json({ error: "View as is read-only. Exit View as to make changes." }, 403));
+        // (crash reports from the page are kept, in the administrator's own name)
+      }
     }
     const result = await m.route.handler({ req, c: c as Caller, params: m.params, query: url.searchParams });
     // anything that can change who a person is or what they may do: forget the remembered callers at once

@@ -244,12 +244,22 @@ async function flush(kind: Kind) {
     }
     const out = await res.json();
     const sent = new Map(part.map((r) => [String(r.id), r]));
-    const current = read(kind);
+    let current = read(kind);
+    // the server gave a new id to a row whose id was taken: follow it, so the next save does not create another copy
+    const idMap: Record<string, string> = out.idMap || {};
+    if (Object.keys(idMap).length) current = current.map((r) => (idMap[String(r.id)] ? { ...r, id: idMap[String(r.id)] } : r));
+    for (const [from, to] of Object.entries(idMap)) { const v = sent.get(from); if (v) sent.set(to, { ...v, id: to }); }
     for (const s of out.saved || []) {
-      base.set(String(s.id), stable(sent.get(String(s.id)) || {}));
-      const row = current.find((r) => String(r.id) === String(s.id));
-      if (row) row._rev = s._rev;
+      const i = current.findIndex((r) => String(r.id) === String(s.id));
+      if (i >= 0) {
+        // what the server set by itself (touched, won date, owner name) is taken over, so badges, filters and limits agree with routing
+        const row = { ...current[i], _rev: s._rev };
+        if (s.set) { if (s.set.touched) row.touched = true; if (s.set.wonDate) row.wonDate = s.set.wonDate; if (s.set.assignedSalespersonName !== undefined) row.assignedSalespersonName = s.set.assignedSalespersonName; }
+        current[i] = row;
+        base.set(String(s.id), stable({ ...(sent.get(String(s.id)) || {}), ...(s.set || {}), touched: row.touched }));
+      } else base.set(String(s.id), stable(sent.get(String(s.id)) || {}));
     }
+    current = [...current];
     if (i === 0) for (const d of deletes) if (!(out.rejected || []).some((x: any) => x.id === d)) base.delete(d);
     write(kind, current);
     const bad = [...(out.conflicts || []), ...(out.rejected || []).map((x: any) => x.id)];
@@ -729,8 +739,8 @@ export const crmService = {
         const rows = read('leads');
         const i = rows.findIndex((r) => r.id === leadId);
         if (i === -1) return;
-        rows[i] = out.lead;
-        write('leads', rows);
+        const next = [...rows]; next[i] = out.lead;   // a new list, so screens see the owner change (it used to stay "Unassigned")
+        write('leads', next);
         baseline.leads.set(String(leadId), stable(out.lead));
         changed();
       } catch { /* the lead stays in the queue for a manager */ }

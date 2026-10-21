@@ -332,7 +332,7 @@ export const WorkflowDetail: React.FC<WorkflowDetailProps> = ({
                       <div className="text-[10px] font-bold text-green-600">SLA Duration: {step.sla != null ? `${step.sla} ${step.slaUnit}` : '—'}</div>
                       {step.hasRequirements && step.requirements && (
                         <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg text-xs">
-                          <span className="font-bold text-brand-black text-[9px] uppercase tracking-widest block mb-1">Required Step Inputs:</span>
+                          <span className="font-bold text-brand-black text-[10.5px] uppercase tracking-widest block mb-1">Required Step Inputs:</span>
                           <p className="text-brand-gray font-medium leading-relaxed">{step.requirements}</p>
                         </div>
                       )}

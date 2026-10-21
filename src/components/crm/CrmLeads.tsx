@@ -142,7 +142,7 @@ const SortTh: React.FC<{ field: string; label: string; sortField: string; dir: '
           <button type="button" title={`Sort ${SORT_WORDS[kind][0]}`} onClick={() => onSet('asc')} className={`px-0.5 ${on && dir === 'asc' ? 'text-brand-red' : 'text-brand-gray/40 hover:text-brand-black'}`}><ChevronUp size={11} strokeWidth={3} /></button>
           <button type="button" title={`Sort ${SORT_WORDS[kind][1]}`} onClick={() => onSet('desc')} className={`px-0.5 -mt-1 ${on && dir === 'desc' ? 'text-brand-red' : 'text-brand-gray/40 hover:text-brand-black'}`}><ChevronDown size={11} strokeWidth={3} /></button>
         </span>
-        {on && <span className="text-[9px] font-bold normal-case tracking-normal text-brand-red bg-brand-red/10 rounded px-1 whitespace-nowrap">{SORT_WORDS[kind][dir === 'asc' ? 0 : 1]}</span>}
+        {on && <span className="text-[10.5px] font-bold normal-case tracking-normal text-brand-red bg-brand-red/10 rounded px-1 whitespace-nowrap">{SORT_WORDS[kind][dir === 'asc' ? 0 : 1]}</span>}
       </span>
     </th>
   );
@@ -1404,7 +1404,13 @@ ${user.name || ''}`);
     const onPhone = isPhoneDevice();
     const subject = (emailSubject || emailSubjectFor(selectedLead)).replace(/[\r\n]+/g, ' ').trim();
     // opens a NEW message in the mail program (Outlook) with the recipient, subject and body ready to send
-    window.location.href = `mailto:${encodeURIComponent(String(selectedLead.email || '').replace(/[\r\n]+/g, ' ').trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailTemplateText)}`;
+    const to = encodeURIComponent(String(selectedLead.email || '').replace(/[\r\n]+/g, ' ').trim());
+    const full = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailTemplateText)}`;
+    if (full.length > 1900) {
+      // Outlook on Windows cuts mail links longer than about 2,000 characters (the Arabic text is): the text goes to the clipboard instead
+      void navigator.clipboard?.writeText(emailTemplateText).then(() => toast.success('The message text is copied: paste it into the e-mail (Ctrl+V)')).catch(() => {});
+      window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}`;
+    } else window.location.href = full;
 
     // Create timeline log event
     const timelineEvent: TimelineEvent = {
@@ -1882,7 +1888,7 @@ ${user.name || ''}`);
                   <button type="button" onClick={() => setSelectedLead(l)} className="flex-1 min-w-0 text-left">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-[11px] font-bold text-brand-gray">{l.id}</span>
-                      {cc && <span className={`text-[9px] font-extrabold rounded px-1.5 py-0.5 text-white ${cc.overdue ? 'bg-brand-red' : 'bg-brand-red/75'}`}>CC {cc.overdue ? 'LATE' : '24h'}</span>}
+                      {cc && <span className={`text-[10.5px] font-extrabold rounded px-1.5 py-0.5 text-white ${cc.overdue ? 'bg-brand-red' : 'bg-brand-red/75'}`}>CC {cc.overdue ? 'LATE' : '24h'}</span>}
                       <span className={`ml-auto whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${statusClass(l.status)}`}>{l.status}</span>
                     </div>
                     <div className="mt-1 font-extrabold text-[15px] text-brand-black truncate" dir="auto">{l.customerName || '—'}</div>
@@ -2027,14 +2033,14 @@ ${user.name || ''}`);
                         <div
                           key={dl.id}
                           onClick={() => setSelectedLead(dl)}
-                          className="bg-brand-red text-white text-[8px] font-bold px-1 py-0.5 rounded truncate cursor-pointer block"
+                          className="bg-brand-red text-white text-[10px] font-bold px-1 py-0.5 rounded truncate cursor-pointer block"
                           title={`${dl.customerName} - ${dl.project}`}
                         >
                           {(dl.customerName || '—').split(' ')[0]}
                         </div>
                       ))}
                       {dayLeads.length > 2 && (
-                        <button onClick={() => { setCalDay(item.dateStr); setCalCap(50); }} className="text-[8px] font-bold text-brand-gray/70 hover:text-brand-red">+{dayLeads.length - 2} more</button>
+                        <button onClick={() => { setCalDay(item.dateStr); setCalCap(50); }} className="text-[10px] font-bold text-brand-gray/70 hover:text-brand-red">+{dayLeads.length - 2} more</button>
                       )}
                     </div>
                   )}
@@ -2055,7 +2061,7 @@ ${user.name || ''}`);
                   {list.slice(0, calCap).map((dl) => (
                     <button key={dl.id} onClick={() => setSelectedLead(dl)} className="flex items-center justify-between gap-2 text-left bg-white border border-brand-gray/15 rounded-lg px-2.5 py-1.5 hover:border-brand-red/40">
                       <span className="truncate text-xs"><span className="font-mono font-bold text-brand-red mr-1.5">{dl.id}</span>{dl.customerName}</span>
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap ${statusClass(dl.status)}`}>{dl.status}</span>
+                      <span className={`text-[10.5px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap ${statusClass(dl.status)}`}>{dl.status}</span>
                     </button>
                   ))}
                 </div>
@@ -2541,11 +2547,11 @@ ${user.name || ''}`);
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2.5 border-t border-current/10 text-[11px]">
                       <div>
-                        <span className="font-extrabold uppercase tracking-wider text-[9px] block opacity-70 mb-0.5">Lead Registered:</span>
+                        <span className="font-extrabold uppercase tracking-wider text-[10.5px] block opacity-70 mb-0.5">Lead Registered:</span>
                         <span className="font-mono font-semibold">{formatLeadDateTime(selectedLead.date)}</span>
                       </div>
                       <div>
-                        <span className="font-extrabold uppercase tracking-wider text-[9px] block opacity-70 mb-0.5">SLA Deadline Date & Time:</span>
+                        <span className="font-extrabold uppercase tracking-wider text-[10.5px] block opacity-70 mb-0.5">SLA Deadline Date & Time:</span>
                         <span className="font-mono font-semibold">
                           {selectedLead.slaDeadline ? formatLeadDateTime(selectedLead.slaDeadline) : 'Pending'}
                         </span>
@@ -2556,7 +2562,7 @@ ${user.name || ''}`);
                         const bad = n.state === 'vip-breach' || n.state === 'neglected';
                         return (
                           <div className="sm:col-span-2">
-                            <span className="font-extrabold uppercase tracking-wider text-[9px] block opacity-70 mb-0.5">First-contact SLA (VIP 4h, others 48h):</span>
+                            <span className="font-extrabold uppercase tracking-wider text-[10.5px] block opacity-70 mb-0.5">First-contact SLA (VIP 4h, others 48h):</span>
                             <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${bad ? 'bg-red-200/60 text-red-800 border-red-300' : n.state === 'contacted' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-200'}`}>{n.label}</span>
                           </div>
                         );
@@ -2718,7 +2724,7 @@ ${user.name || ''}`);
                           ) : (
                             <span className="truncate font-semibold text-brand-black" title={att.name}>{att.name}</span>
                           )}
-                          <span className="text-[9px] text-brand-gray font-mono whitespace-nowrap">{att.size}</span>
+                          <span className="text-[10.5px] text-brand-gray font-mono whitespace-nowrap">{att.size}</span>
                         </div>
                         {safeUrl(att.dataUrl) && (
                           <a
@@ -2744,7 +2750,7 @@ ${user.name || ''}`);
                   {visibleComments.map((cmt, cmtIdx) => (
                     <div key={`${cmt.id}-${cmtIdx}`} className={`p-3 rounded-xl border ${cmt.isPrivate ? 'bg-rose-50/50 border-rose-200' : 'bg-brand-gray/5 border-brand-gray/15'}`}>
                       <div className="flex justify-between items-center text-[10px] text-brand-gray font-semibold mb-1">
-                        <span className="font-bold text-brand-black">{cmt.user} {cmt.isPrivate && <span className="bg-rose-200 text-rose-800 text-[8px] px-1 py-0.5 rounded ml-1 font-extrabold">PRIVATE</span>}</span>
+                        <span className="font-bold text-brand-black">{cmt.user} {cmt.isPrivate && <span className="bg-rose-200 text-rose-800 text-[10px] px-1 py-0.5 rounded ml-1 font-extrabold">PRIVATE</span>}</span>
                         <span>{cmt.date} {cmt.time}</span>
                       </div>
                       <p className="text-brand-black font-medium leading-relaxed">{cmt.comment}</p>
@@ -2800,7 +2806,7 @@ ${user.name || ''}`);
                             <span className="font-mono">{new Date(event.timestamp).toLocaleString()}</span>
                           </div>
                           <p className="text-brand-gray mt-0.5">{event.description}</p>
-                          <span className="text-[9px] text-indigo-600 font-bold block mt-0.5">Actor: {event.user}</span>
+                          <span className="text-[10.5px] text-indigo-600 font-bold block mt-0.5">Actor: {event.user}</span>
                         </div>
                       </div>
                     );
@@ -3388,42 +3394,42 @@ ${user.name || ''}`);
                       <div className="flex items-start gap-1.5">
                         <CheckCircle2 size={14} className="text-emerald-600 shrink-0 mt-0.5" />
                         <div>
-                          <span className="text-brand-gray text-[9px] font-bold block">CONTACT NAME</span>
+                          <span className="text-brand-gray text-[10.5px] font-bold block">CONTACT NAME</span>
                           <span className="text-brand-black font-bold">{selectedLead.customerName}</span>
                         </div>
                       </div>
                       <div className="flex items-start gap-1.5">
                         <CheckCircle2 size={14} className="text-emerald-600 shrink-0 mt-0.5" />
                         <div>
-                          <span className="text-brand-gray text-[9px] font-bold block">PHONE NUMBER</span>
+                          <span className="text-brand-gray text-[10.5px] font-bold block">PHONE NUMBER</span>
                           <span className="text-brand-black font-bold font-mono">{selectedLead.phoneNumber}</span>
                         </div>
                       </div>
                       <div className="flex items-start gap-1.5">
                         <CheckCircle2 size={14} className="text-emerald-600 shrink-0 mt-0.5" />
                         <div>
-                          <span className="text-brand-gray text-[9px] font-bold block">EMAIL ADDRESS</span>
+                          <span className="text-brand-gray text-[10.5px] font-bold block">EMAIL ADDRESS</span>
                           <span className="text-brand-black font-bold">{selectedLead.email || 'N/A'}</span>
                         </div>
                       </div>
                       <div className="flex items-start gap-1.5">
                         <CheckCircle2 size={14} className="text-emerald-600 shrink-0 mt-0.5" />
                         <div>
-                          <span className="text-brand-gray text-[9px] font-bold block">PROJECT SITE</span>
+                          <span className="text-brand-gray text-[10.5px] font-bold block">PROJECT SITE</span>
                           <span className="text-brand-black font-bold">{selectedLead.project}</span>
                         </div>
                       </div>
                       <div className="flex items-start gap-1.5">
                         <CheckCircle2 size={14} className="text-emerald-600 shrink-0 mt-0.5" />
                         <div>
-                          <span className="text-brand-gray text-[9px] font-bold block">REQUIRED PLOT SIZE</span>
+                          <span className="text-brand-gray text-[10.5px] font-bold block">REQUIRED PLOT SIZE</span>
                           <span className="text-brand-black font-bold font-mono">{fmtSize(selectedLead.requiredSize)}</span>
                         </div>
                       </div>
                       <div className="flex items-start gap-1.5">
                         <CheckCircle2 size={14} className="text-emerald-600 shrink-0 mt-0.5" />
                         <div>
-                          <span className="text-brand-gray text-[9px] font-bold block">INGESTION SOURCE</span>
+                          <span className="text-brand-gray text-[10.5px] font-bold block">INGESTION SOURCE</span>
                           <span className="text-brand-black font-bold">{selectedLead.source}</span>
                         </div>
                       </div>

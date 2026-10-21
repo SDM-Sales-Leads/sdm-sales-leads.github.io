@@ -189,7 +189,7 @@ export const CrmPlotRecommendations: React.FC<Props> = ({ plots, landBankUrl, le
       {/* Target Project Recommendations */}
       {preferredProjectRecommendations.length > 0 && (
         <div className="space-y-2">
-          <span className="text-[9px] font-extrabold text-brand-red uppercase tracking-wider block">
+          <span className="text-[10.5px] font-extrabold text-brand-red uppercase tracking-wider block">
             Preferred Project: {project}
           </span>
           <div className="grid grid-cols-1 gap-2">
@@ -232,7 +232,7 @@ export const CrmPlotRecommendations: React.FC<Props> = ({ plots, landBankUrl, le
       {/* Alternative Projects Recommendations */}
       {alternativeProjectRecommendations.length > 0 && (
         <div className="space-y-2">
-          <span className="text-[9px] font-extrabold text-brand-gray uppercase tracking-wider block">
+          <span className="text-[10.5px] font-extrabold text-brand-gray uppercase tracking-wider block">
             Alternative Options (Other Projects)
           </span>
           <div className="grid grid-cols-1 gap-2">
@@ -278,7 +278,7 @@ export const CrmPlotRecommendations: React.FC<Props> = ({ plots, landBankUrl, le
       {/* Merged Recommendations */}
       {mergedRecommendations.length > 0 && (
         <div className="space-y-2">
-          <span className="text-[9px] font-extrabold text-brand-black uppercase tracking-wider block">
+          <span className="text-[10.5px] font-extrabold text-brand-black uppercase tracking-wider block">
             Suggested Merged Plots
           </span>
           <p className="text-[10px] text-brand-gray/80 -mt-1 mb-2">No single plot found. We recommend merging these adjacent plots to reach the target size.</p>
@@ -360,7 +360,7 @@ export const CrmPlotRecommendations: React.FC<Props> = ({ plots, landBankUrl, le
                   </div>
                   <div className="bg-brand-light border border-black/5 rounded-2xl p-4 text-center">
                     <span className="text-[10px] font-bold text-brand-gray uppercase tracking-wider block">Total Area</span>
-                    <div className="text-[9px] text-brand-gray/80 mt-1 font-mono">
+                    <div className="text-[10.5px] text-brand-gray/80 mt-1 font-mono">
                       {(selectedPlot.areaSqM / 4200).toFixed(2)} Feddan | {(selectedPlot.areaSqM / 10000).toFixed(2)} Hectare
                     </div>
                     <span className="text-base font-mono font-black text-brand-black block mt-1">
@@ -473,7 +473,7 @@ export const CrmPlotRecommendations: React.FC<Props> = ({ plots, landBankUrl, le
                   </div>
                   <div className="bg-brand-light border border-black/5 rounded-2xl p-4 text-center">
                     <span className="text-[10px] font-bold text-brand-gray uppercase tracking-wider block">Total Area</span>
-                    <div className="text-[9px] text-brand-gray/80 mt-1 font-mono">
+                    <div className="text-[10.5px] text-brand-gray/80 mt-1 font-mono">
                       {(selectedMergedPlot.totalAreaSqM / 4200).toFixed(2)} Feddan | {(selectedMergedPlot.totalAreaSqM / 10000).toFixed(2)} Hectare
                     </div>
                     <span className="text-base font-mono font-black text-brand-black block mt-1">

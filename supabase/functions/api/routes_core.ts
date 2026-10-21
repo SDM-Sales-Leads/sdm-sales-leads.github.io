@@ -64,6 +64,13 @@ async function roleExists(role: string) {
   const { data } = await admin.from("role_permissions").select("role").eq("role", role).maybeSingle();
   return !!data;
 }
+/** a role with real power (admin panel, cash, distribution, routing): only an administrator gives it, resets it or changes it (21 Oct 2026) */
+async function privileged(role: string) {
+  if (!role) return false; if (role === "Admin") return true;
+  const { data } = await admin.from("role_permissions").select("perms").eq("role", role).maybeSingle();
+  const p: any = data?.perms || {};
+  return p.canViewAdminPanel === true || p.canConfirmCash === true || p.canDistributeLeads === true || p.canViewSalesRules === true;
+}
 async function otherActiveAdmins(exceptId: string) {
   const { count } = await admin.from("app_users").select("id", { count: "exact", head: true }).eq("role", "Admin").eq("active", true).neq("id", exceptId);
   return count || 0;
@@ -78,7 +85,7 @@ route("POST", "/users", async ({ req, c }) => {
   if (!name) throw bad("Name is required");
   if (!isEmail(email)) throw bad("A valid e-mail is required");
   if (!(await roleExists(role))) throw bad("Unknown role");
-  if (role === "Admin" && !isAdmin(c)) throw forbidden("Only an administrator can create administrators");
+  if (!isAdmin(c) && (await privileged(role))) throw forbidden("Only an administrator can create users with this role");
   const tl = b.teamLeaderId ? asUuid(b.teamLeaderId) : null;
   if (b.teamLeaderId && !tl) throw bad("Invalid team leader");
   let password = str(b.password, 72);
@@ -169,7 +176,7 @@ route("PUT", "/users/:id", async ({ req, c, params }) => {
   if (b.role !== undefined) {
     const role = str(b.role, 60);
     if (!(await roleExists(role))) throw bad("Unknown role");
-    if ((role === "Admin" || cur.role === "Admin") && !isAdmin(c)) throw forbidden("Only an administrator can change administrator roles");
+    if (!isAdmin(c) && (cur.id === c.id || (await privileged(role)) || (await privileged(cur.role)))) throw forbidden("Only an administrator can give or change this role (or your own)");
     if (cur.role === "Admin" && role !== "Admin" && (await otherActiveAdmins(cur.id)) === 0) throw bad("This is the last administrator");
     upd.role = role;
   }
@@ -184,7 +191,7 @@ route("PUT", "/users/:id", async ({ req, c, params }) => {
     const email = str(b.email, 254).toLowerCase();
     if (!isEmail(email)) throw bad("A valid e-mail is required");
     if (email !== cur.email) {
-      if (cur.role === "Admin" && !isAdmin(c)) throw forbidden();
+      if (!isAdmin(c) && (cur.id === c.id || (await privileged(cur.role)))) throw forbidden("Only an administrator can change this e-mail");
       const r = await admin.auth.admin.updateUserById(cur.id, { email, email_confirm: true });
       if (r.error) throw bad("Could not change the e-mail (already used?)");
       upd.email = email;
@@ -194,12 +201,12 @@ route("PUT", "/users/:id", async ({ req, c, params }) => {
   if (b.password) {
     const p = str(b.password, 72);
     if (!strongPassword(p)) throw bad("Password needs at least 10 characters, with letters and digits");
-    if (cur.role === "Admin" && !isAdmin(c)) throw forbidden();
+    if (!isAdmin(c) && cur.id !== c.id && (await privileged(cur.role))) throw forbidden("Only an administrator can set this password");
     const r = await admin.auth.admin.updateUserById(cur.id, { password: p });
     if (r.error) throw bad("Could not change the password");
     upd.must_change_password = cur.id !== c.id;
   } else if (b.resetPassword === true) {
-    if (cur.role === "Admin" && !isAdmin(c)) throw forbidden();
+    if (!isAdmin(c) && (cur.id === c.id || (await privileged(cur.role)))) throw forbidden("Only an administrator can reset this password");
     temporaryPassword = randomPassword();
     await admin.auth.admin.updateUserById(cur.id, { password: temporaryPassword });
     upd.must_change_password = true;
@@ -215,7 +222,7 @@ route("PUT", "/users/:id", async ({ req, c, params }) => {
 });
 
 route("DELETE", "/users/:id", async ({ c, params }) => {
-  need(c, "canViewAdminPanel");
+  needAdmin(c);   // 21 Oct 2026: deleting a login removes its history - administrators only (others disable the account)
   if (!UUID_RE.test(params.id)) throw bad("Invalid user id");
   if (params.id === c.id) throw bad("You cannot delete your own account");
   const { data: cur } = await admin.from("app_users").select("*").eq("id", params.id).maybeSingle();

@@ -365,7 +365,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSuccess }) => {
                               <div className="flex flex-col gap-0.5">
                                 <span className="text-xs">{step.sla != null ? `${step.sla} ${step.slaUnit === 'Days' ? 'd' : 'h'}` : 'n/a'}</span>
                                 {step.hasRequirements && step.requirements && (
-                                  <span className="text-[9px] text-[#A6192E] font-medium block truncate max-w-[120px]" title={step.requirements}>
+                                  <span className="text-[10.5px] text-[#A6192E] font-medium block truncate max-w-[120px]" title={step.requirements}>
                                     Req: {step.requirements}
                                   </span>
                                 )}
@@ -480,7 +480,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSuccess }) => {
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-brand-light text-brand-gray px-1">
                       <Paperclip size={20} />
-                      <span className="text-[9px] font-medium break-all line-clamp-2 text-center">{at.name}</span>
+                      <span className="text-[10.5px] font-medium break-all line-clamp-2 text-center">{at.name}</span>
                     </div>
                   )}
                   <button 

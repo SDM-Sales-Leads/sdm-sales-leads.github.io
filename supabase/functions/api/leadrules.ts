@@ -19,7 +19,7 @@ export const PROTECTED_FOR_REPS = ["source", "channel", "phoneNumber", "email", 
 /** fields only accounts receivable (or operations) may change */
 const CASH_FIELDS = ["cashStatus", "cashBy", "cashDate"];
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo" }).format(new Date());   // Cairo date (was UTC)
 
 const PLOT_STATUS = new Set(["available", "reserved", "sold", "eoi", "hold", "nfs", "unknown"]);
 const cs = (v: any, n: number) => (v === undefined || v === null ? "" : String(v).trim().slice(0, n));
@@ -76,7 +76,7 @@ export function sanitizeLead(d: any, ex: any | null, c: Caller, scope: CrmScope,
     const added = [...now].filter((k) => !was.has(k)), removed = [...was].filter((k) => !now.has(k));
     audits.push({ action: "plots", from: removed.join(", ").slice(0, 300) || undefined, to: added.join(", ").slice(0, 300) || undefined, note: "assigned plots" });
   }
-  const canCash = scope === "all" || c.perms.canConfirmCash === true;
+  const canCash = c.perms.canConfirmCash === true;   // 21 Oct 2026: only accounts receivable (and Admin) - "sees all" no longer brings cash with it
 
   if (ex) {
     const old = ex.data || {};

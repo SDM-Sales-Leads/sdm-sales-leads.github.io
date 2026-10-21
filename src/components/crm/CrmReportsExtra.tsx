@@ -241,7 +241,7 @@ export const ChannelsTab: React.FC<{ c: ReportCtx }> = ({ c }) => {
                 {R.rows.map((ch) => (
                   <React.Fragment key={ch.key}>
                     <tr className="border-t border-brand-gray/15 bg-brand-gray/5 hover:bg-brand-gray/10 cursor-pointer" onClick={() => toggle(ch.key)}>
-                      <td className="py-2 px-2 font-extrabold whitespace-nowrap"><span className="inline-flex items-center gap-1">{open.has(ch.key) ? <ChevronDown size={13} /> : <ChevronRight size={13} />}{ch.key}<span className="text-[9px] text-brand-gray font-bold">({ch.sources.length} sources)</span></span></td>
+                      <td className="py-2 px-2 font-extrabold whitespace-nowrap"><span className="inline-flex items-center gap-1">{open.has(ch.key) ? <ChevronDown size={13} /> : <ChevronRight size={13} />}{ch.key}<span className="text-[10.5px] text-brand-gray font-bold">({ch.sources.length} sources)</span></span></td>
                       {cells(ch.t, total)}
                     </tr>
                     {open.has(ch.key) && ch.sources.map((s) => (

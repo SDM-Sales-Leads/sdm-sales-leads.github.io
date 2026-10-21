@@ -122,7 +122,7 @@ export const WorkflowExportTemplate: React.FC<WorkflowExportTemplateProps> = ({
                           <span className="text-[10px] font-black text-[#A6192E] uppercase leading-none mb-1.5 tracking-wider">
                             {step.responsibleRole || 'Unassigned'}
                           </span>
-                          <div className="flex items-center gap-1 bg-white px-2 py-0.5 rounded-md border border-[#E5E5E5] text-[9px] font-bold shadow-sm">
+                          <div className="flex items-center gap-1 bg-white px-2 py-0.5 rounded-md border border-[#E5E5E5] text-[10.5px] font-bold shadow-sm">
                             <Clock size={10} className="text-[#A6192E] flex-shrink-0" />
                             <span className="text-[#2D2926] uppercase leading-none">{step.sla != null ? `${step.sla} ${step.slaUnit === 'Days' ? 'Days' : 'Hrs'}` : '—'}</span>
                           </div>
@@ -137,7 +137,7 @@ export const WorkflowExportTemplate: React.FC<WorkflowExportTemplateProps> = ({
                         {/* Step Requirements */}
                         {step.hasRequirements && step.requirements && (
                           <div className="p-2 bg-amber-50/90 border border-amber-200/60 rounded-xl">
-                            <span className="text-[8px] font-black text-amber-800 uppercase tracking-widest block mb-1">Required Inputs</span>
+                            <span className="text-[10px] font-black text-amber-800 uppercase tracking-widest block mb-1">Required Inputs</span>
                             <p className="text-[10px] font-bold text-amber-950 leading-snug line-clamp-2">
                               {step.requirements}
                             </p>
@@ -147,10 +147,10 @@ export const WorkflowExportTemplate: React.FC<WorkflowExportTemplateProps> = ({
                         {/* Prerequisites */}
                         {(step.prerequisiteStepIds || []).length > 0 && (
                           <div className="flex flex-wrap gap-1.5">
-                            <span className="text-[8px] font-bold text-[#767676] uppercase tracking-widest w-full">Prerequisites</span>
+                            <span className="text-[10px] font-bold text-[#767676] uppercase tracking-widest w-full">Prerequisites</span>
                             {step.prerequisiteStepIds?.slice(0, 2).map(preId => {
                               return (
-                                <div key={preId} className="flex items-center gap-1 bg-white px-2 py-0.5 rounded text-[9px] font-bold text-[#2D2926] border border-[#E5E5E5]">
+                                <div key={preId} className="flex items-center gap-1 bg-white px-2 py-0.5 rounded text-[10.5px] font-bold text-[#2D2926] border border-[#E5E5E5]">
                                   Step {stepNo(preId)}
                                 </div>
                               );
@@ -160,18 +160,18 @@ export const WorkflowExportTemplate: React.FC<WorkflowExportTemplateProps> = ({
 
                         {step.isDecision ? (
                           <div className="space-y-1 bg-[#A6192E]/5 p-2 rounded-xl border border-[#A6192E]/10">
-                            <div className="flex items-center gap-1 text-[#A6192E] font-bold italic text-[9px]">
+                            <div className="flex items-center gap-1 text-[#A6192E] font-bold italic text-[10.5px]">
                               <GitBranch size={10} className="flex-shrink-0" />
                               <span className="truncate leading-none">{step.decisionQuestion || 'Decision Point'}</span>
                             </div>
-                            <div className="flex gap-1.5 text-[9px] font-black uppercase text-white">
+                            <div className="flex gap-1.5 text-[10.5px] font-black uppercase text-white">
                               <span className="bg-[#22c55e] px-1.5 py-0.5 rounded">Yes: Step {step.yesNextStepId ? stepNo(step.yesNextStepId) : 'Next'}</span>
                               <span className="bg-[#A6192E] px-1.5 py-0.5 rounded">No: Step {step.noNextStepId ? stepNo(step.noNextStepId) : 'End'}</span>
                             </div>
                           </div>
                         ) : (
                           step.nextStepId && (
-                            <div className="pt-2 border-t border-[#E5E5E5]/50 flex items-center gap-1 text-[#A6192E] font-bold text-[9px] uppercase tracking-wider">
+                            <div className="pt-2 border-t border-[#E5E5E5]/50 flex items-center gap-1 text-[#A6192E] font-bold text-[10.5px] uppercase tracking-wider">
                               <ArrowRight size={10} />
                               Next: Step {stepNo(step.nextStepId)}
                             </div>
@@ -193,7 +193,7 @@ export const WorkflowExportTemplate: React.FC<WorkflowExportTemplateProps> = ({
           <div className="text-[10px] font-bold text-[#767676] uppercase tracking-[0.2em]">
             SDM Service Desk • Standard Operating Procedure • {new Date().getFullYear()}
           </div>
-          <div className="text-[9px] font-medium text-[#999999] uppercase tracking-widest">
+          <div className="text-[10.5px] font-medium text-[#999999] uppercase tracking-widest">
             Detailed Step Analysis
           </div>
         </div>

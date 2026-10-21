@@ -60,7 +60,7 @@ export async function fillPool(limit = 300, force = false) {
     const picks: { r: any; agent: { id: string; name: string } }[] = [];
     for (const r of part) {
       const agent = await chooseAgent(r.data, q, { ignoreDaily: true, noBackup: true });
-      if (!agent) { stop = true; break; }
+      if (!agent) continue;   // 21 Oct 2026: a lead too big for anyone is skipped, it no longer stops the whole pool
       picks.push({ r, agent });
     }
     const now = nowIso();

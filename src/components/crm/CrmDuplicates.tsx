@@ -302,7 +302,7 @@ export const CrmDuplicates: React.FC<Props> = ({ leads, onLeadsUpdated, currentR
                       <tr key={l.id} className="border-t border-brand-gray/10">
                         <td className="px-4 py-2">
                           <button type="button" className="font-mono underline decoration-dotted underline-offset-2 hover:text-brand-red" title="Open this lead" onClick={() => crmNav.lead(l.id)}>{l.id}</button>{' '}
-                          {l.id === win.lead.id && <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-extrabold">KEEP: {win.why}</span>}
+                          {l.id === win.lead.id && <span className="text-[10.5px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-extrabold">KEEP: {win.why}</span>}
                           <div className="text-brand-gray">{l.customerName}{l.companyName ? ` · ${l.companyName}` : ''}</div>
                         </td>
                         <td className="px-2 py-2">{l.assignedSalespersonName || l.legacyOwnerName || <span className="text-brand-gray/60">Unassigned</span>}</td>

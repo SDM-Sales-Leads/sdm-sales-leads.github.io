@@ -528,7 +528,7 @@ export const TicketDetail: React.FC<TicketDetailProps> = ({ ticket, onBack, onUp
               </div>
               {localTicket.crmContactName && (
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-6 h-6 rounded bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700 font-bold text-[9px] shrink-0">
+                  <div className="w-6 h-6 rounded bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700 font-bold text-[10.5px] shrink-0">
                     CRM
                   </div>
                   <div className="min-w-0">
@@ -653,7 +653,7 @@ export const TicketDetail: React.FC<TicketDetailProps> = ({ ticket, onBack, onUp
                           
                           {step.completedAt && (
                             <div className="mt-2 pt-2 border-t border-emerald-100">
-                              <div className="flex justify-between text-[9px] text-emerald-600 font-bold uppercase tracking-wider mb-1">
+                              <div className="flex justify-between text-[10.5px] text-emerald-600 font-bold uppercase tracking-wider mb-1">
                                 <span>Completed by {step.completedBy}</span>
                                 <span>{new Date(step.completedAt).toLocaleString()}</span>
                               </div>
@@ -875,7 +875,7 @@ export const TicketDetail: React.FC<TicketDetailProps> = ({ ticket, onBack, onUp
                       )}
                       <button 
                         onClick={() => setUpdateAttachments(prev => prev.filter((_, idx) => idx !== i))}
-                        className="absolute inset-0 bg-brand-red/80 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center text-[8px] font-bold"
+                        className="absolute inset-0 bg-brand-red/80 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center text-[10px] font-bold"
                       >
                         REMOVE
                       </button>
@@ -1157,7 +1157,7 @@ export const TicketDetail: React.FC<TicketDetailProps> = ({ ticket, onBack, onUp
                             <span className="font-mono font-bold text-brand-red">{l.id}</span>
                             <span className="text-brand-gray ml-2 text-[10px]">{l.project}</span>
                           </div>
-                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${sColor}`}>{l.status}</span>
+                          <span className={`px-2 py-0.5 rounded text-[10.5px] font-bold ${sColor}`}>{l.status}</span>
                         </div>
                       );
                     })}

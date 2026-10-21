@@ -193,17 +193,17 @@ export const TicketList: React.FC<TicketListProps> = ({ tickets, onSelect }) => 
                       <div className="flex items-center gap-2 mb-1">
                         <p className="font-bold text-brand-red text-xs">{t.id}</p>
                         {t.workflowId && (
-                          <span className="px-1.5 py-0.5 rounded bg-brand-red/5 text-brand-red text-[9px] font-bold border border-brand-red/10 flex items-center gap-1">
+                          <span className="px-1.5 py-0.5 rounded bg-brand-red/5 text-brand-red text-[10.5px] font-bold border border-brand-red/10 flex items-center gap-1">
                             <GitBranch size={8} /> WORKFLOW
                           </span>
                         )}
                         {t.department && (
-                          <span className="px-1.5 py-0.5 rounded bg-brand-black/5 text-brand-black text-[9px] font-bold border border-black/10">
+                          <span className="px-1.5 py-0.5 rounded bg-brand-black/5 text-brand-black text-[10.5px] font-bold border border-black/10">
                             {t.department}
                           </span>
                         )}
                         {t.crmContactName && (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[9px] font-bold border border-amber-200">
+                          <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[10.5px] font-bold border border-amber-200">
                             CRM: {t.crmContactName}
                           </span>
                         )}

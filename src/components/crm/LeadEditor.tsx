@@ -1,5 +1,6 @@
 // The lead detail form: every field of the sales team's previous CRM, with its required-field rules (spec_A 2.4, 4.1-4.7).
 // Field enabling is a convenience; the server decides and its refusal is shown as a toast by crmService.
+import { cairoDateISO } from '../../lib/cairoTime';
 import { StatusPicker } from './StatusPicker';
 import { Collapse } from './Collapse';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -8,7 +9,7 @@ import { toast } from 'sonner';
 import type { Lead } from './types';
 import {
   INDUSTRIES, LOST_CATEGORIES, LOST_REASONS_TEAM, PRIORITIES, PROJECTS, QUALIFICATIONS, REQ_DATETIME, REQ_FOLLOWUP, SOURCES,
-  TEMPERATURES, CHANNELS, closingDate, isOpenStatus, normSource,
+  TEMPERATURES, CHANNELS, closingDate, isOpenStatus, normSource, wonDateFor,
 } from './leadConfig';
 import { EDITABLE_KEYS, LeadAuth, fieldRights, prioKey, statusOptions, validateLead, withSideEffects, addDaysISO } from './leadRules';
 import { crmService } from './crmService';
@@ -117,7 +118,7 @@ export const LeadEditor: React.FC<Props> = ({ lead, auth, actorName, actorId, on
     }
     const patch: Partial<Lead> = {};
     for (const k of dirtyKeys) (patch as any)[k] = (next as any)[k];
-    if (patch.status === 'Won' && lead.status !== 'Won' && !patch.wonDate) patch.wonDate = closingDate(next);
+    if (patch.status === 'Won' && lead.status !== 'Won' && !patch.wonDate) patch.wonDate = wonDateFor(next, cairoDateISO(new Date()));
     let updated: Lead;
     try { updated = crmService.updateLead(lead.id, patch, actorName, { userId: actorId }); }
     catch (e: any) { setErr(e?.message || 'The lead could not be saved.'); return; }
@@ -338,7 +339,7 @@ export const LeadEditor: React.FC<Props> = ({ lead, auth, actorName, actorId, on
           {status === 'Won' && (
             <Field label="Deal won on (counts in reports)">
               <input type="date" value={d.wonDate} onChange={(e) => set('wonDate', e.target.value)} className={inputCls} placeholder={closingDate(buildNext())} />
-              {!d.wonDate && <span className="text-[9px] text-brand-gray">Empty = {closingDate(withSideEffects(null, buildNext())) || '—'} (EOI / reservation / contract date)</span>}
+              {!d.wonDate && <span className="text-[10.5px] text-brand-gray">Empty = {closingDate(withSideEffects(null, buildNext())) || '—'} (EOI / reservation / contract date)</span>}
             </Field>
           )}
         </div>

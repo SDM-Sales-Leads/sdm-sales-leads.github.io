@@ -370,7 +370,7 @@ export const CrmLeadQueue: React.FC<CrmLeadQueueProps> = ({ logs, leads, onLogsU
               className={`flex-1 md:flex-none text-left px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between gap-2 shrink-0 ${webmailTab === 'inbox' ? 'bg-brand-red/10 text-brand-red' : 'text-brand-gray hover:bg-brand-gray/5'}`}
             >
               <span>Inbox</span>
-              <span className="bg-brand-red text-white px-2 py-0.5 rounded-full text-[9px]">
+              <span className="bg-brand-red text-white px-2 py-0.5 rounded-full text-[10.5px]">
                 {(() => {
                   const seen = new Set<string>();
                   return webmailEmails.filter(e => {
@@ -429,7 +429,7 @@ export const CrmLeadQueue: React.FC<CrmLeadQueueProps> = ({ logs, leads, onLogsU
                           </div>
                         );
                       })()}
-                      {email.isSimulated && <span className="inline-block mt-2 text-[9px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded">Simulated Fallback</span>}
+                      {email.isSimulated && <span className="inline-block mt-2 text-[10.5px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded">Simulated Fallback</span>}
                     </div>
                   ))}
                 </div>
@@ -575,7 +575,7 @@ export const CrmLeadQueue: React.FC<CrmLeadQueueProps> = ({ logs, leads, onLogsU
                       </div>
                       <h5 className="font-bold text-brand-black text-xs truncate mt-1">{log.subject}</h5>
                       {(log as any).syncedAt && <p className="text-[10px] text-brand-gray mt-0.5">Synced {new Date((log as any).syncedAt).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>}
-                      <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-brand-gray/10 text-[9px] font-bold">
+                      <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-brand-gray/10 text-[10.5px] font-bold">
                         <span className={isSuccess ? 'text-emerald-700' : isDeleted ? 'text-amber-600' : 'text-rose-600'}>
                           {isSuccess ? 'CREATED' : isDeleted ? 'DELETED' : log.status === 'Duplicate' ? 'DUPLICATE · NOT CREATED' : 'NOT CREATED'}
                         </span>
@@ -708,7 +708,7 @@ export const CrmLeadQueue: React.FC<CrmLeadQueueProps> = ({ logs, leads, onLogsU
                           <span className="text-indigo-600 underline font-extrabold group-hover:text-indigo-700">{lead.id}</span>
                           <span className="text-brand-black font-semibold truncate">({lead.name})</span>
                         </span>
-                        <span className="text-[9px] text-indigo-400 group-hover:text-indigo-600 transition-colors shrink-0">View Lead &rarr;</span>
+                        <span className="text-[10.5px] text-indigo-400 group-hover:text-indigo-600 transition-colors shrink-0">View Lead &rarr;</span>
                       </button>
                     ));
                 })()}

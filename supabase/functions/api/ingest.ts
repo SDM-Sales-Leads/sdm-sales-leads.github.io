@@ -306,7 +306,7 @@ export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?:
     const today: Record<string, number> = {};
     const sqm: Record<string, number> = {};
     const openT: Record<string, number> = {}, openU: Record<string, number> = {}, cc: Record<string, number> = {}, ccSqm: Record<string, number> = {};
-    const day0 = new Date(); day0.setUTCHours(0, 0, 0, 0);
+    const day0 = (() => { const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).map((x) => [x.type, x.value])); return new Date(Date.now() - ((+p.hour * 60 + +p.minute) * 60 + +p.second) * 1000 - new Date().getMilliseconds()); })();   // 21 Oct 2026: the daily cap starts at midnight Cairo time, not UTC
     for (const r of rows || []) {
       const k = r.assigned_to as string;
       total[k] = (total[k] || 0) + 1;
@@ -324,6 +324,8 @@ export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?:
     if (opts?.sim) { st = { ...st, open: { ...open }, total: { ...total }, today: { ...today }, sqm: { ...sqm }, openT: { ...openT }, openU: { ...openU }, cc: { ...cc }, ccSqm: { ...ccSqm } }; opts.sim.st = st; }
     else { ROUTE_STATS.set(statsKey, st); if (ROUTE_STATS.size > 5) ROUTE_STATS.delete(ROUTE_STATS.keys().next().value as string); }
   }
+  // 21 Oct 2026: a preview ("who gets the next lead") works on its own copy - it used to add its pretend leads to the real counts
+  if (opts?.sim && opts.sim.st !== st) { st = { ...st, open: { ...st.open }, total: { ...st.total }, today: { ...st.today }, sqm: { ...st.sqm }, openT: { ...st.openT }, openU: { ...st.openU }, cc: { ...st.cc }, ccSqm: { ...st.ccSqm } }; opts.sim.st = st; }
   const { open, total, today, sqm, openT, openU, cc, ccSqm } = st;
   const leadSize = effectiveSqm(lead?.requiredSize, q);
   const maxSqm = /call center/i.test(String(lead?.channel || "")) ? 0 : Number(q.maxSqmPerSalesperson) || 0;

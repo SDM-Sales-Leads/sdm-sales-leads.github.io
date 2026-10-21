@@ -42,7 +42,7 @@ export const LeadRow = React.memo(({ lead: l, selected, cols, canAssign, winRate
       </td>
       {has('id') && (
         <td className="py-3.5 px-3">
-          <span className="font-mono font-bold text-[11px] text-brand-black hover:underline cursor-pointer whitespace-nowrap" onClick={() => onOpen(l)}>{l.id}</span>{cc && <span className={`ml-1 text-[8px] font-extrabold rounded px-1 py-0.5 text-white whitespace-nowrap ${cc.overdue ? 'bg-brand-red' : 'bg-brand-red/75'}`} title="Call center lead: first contact within 24 hours">CC {cc.overdue ? 'LATE' : '24h'}</span>}
+          <span className="font-mono font-bold text-[11px] text-brand-black hover:underline cursor-pointer whitespace-nowrap" onClick={() => onOpen(l)}>{l.id}</span>{cc && <span className={`ml-1 text-[10px] font-extrabold rounded px-1 py-0.5 text-white whitespace-nowrap ${cc.overdue ? 'bg-brand-red' : 'bg-brand-red/75'}`} title="Call center lead: first contact within 24 hours">CC {cc.overdue ? 'LATE' : '24h'}</span>}
         </td>
       )}
       {has('date') && <td className="py-3.5 px-3 text-brand-gray whitespace-nowrap font-mono">{formatLeadDateTime(l.date)}</td>}
@@ -131,7 +131,7 @@ export const KanbanCard = React.memo(({ lead: l, tone, winRate, canRoute, onOpen
     <div onClick={() => onOpen(l)} className={cardClass}>
       <div className="flex justify-between items-start gap-2">
         <span className="font-mono text-[10px] font-bold text-brand-red">{l.id}</span>
-        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${statusClass(l.status)}`}>{l.status}</span>
+        <span className={`text-[10.5px] px-1.5 py-0.5 rounded font-bold ${statusClass(l.status)}`}>{l.status}</span>
       </div>
       <div>
         <h5 className="font-bold text-brand-black text-xs leading-snug">{l.customerName}</h5>
@@ -142,7 +142,7 @@ export const KanbanCard = React.memo(({ lead: l, tone, winRate, canRoute, onOpen
         )}
       </div>
       <div className="flex items-center gap-1.5 flex-wrap">
-        <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${priorityClass(l.priority)}`}>{prioKey(l.priority) || '—'}</span>
+        <span className={`px-1.5 py-0.5 rounded-full text-[10.5px] font-bold ${priorityClass(l.priority)}`}>{prioKey(l.priority) || '—'}</span>
         <LeadScoreChip lead={l} winRate={winRate} />
       </div>
       {l.slaDeadline && (
@@ -163,7 +163,7 @@ export const KanbanCard = React.memo(({ lead: l, tone, winRate, canRoute, onOpen
       </div>
       {canRoute && !l.assignedSalespersonName && (
         <div className="flex justify-end gap-1 pt-1">
-          <button onClick={(e) => { e.stopPropagation(); onAssign(l); }} className="text-[9px] bg-brand-black text-white px-2 py-1 rounded font-bold hover:scale-105 transition-all">Route Agent</button>
+          <button onClick={(e) => { e.stopPropagation(); onAssign(l); }} className="text-[10.5px] bg-brand-black text-white px-2 py-1 rounded font-bold hover:scale-105 transition-all">Route Agent</button>
         </div>
       )}
     </div>

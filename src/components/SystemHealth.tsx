@@ -333,7 +333,7 @@ export const SystemHealth: React.FC = () => {
                       )}
                     </Row>
                     {d?.environment.aiError && (
-                      <div className="p-2 bg-red-50 border border-red-100 rounded text-[9px] text-red-600 font-mono overflow-auto max-h-20">{d.environment.aiError}</div>
+                      <div className="p-2 bg-red-50 border border-red-100 rounded text-[10.5px] text-red-600 font-mono overflow-auto max-h-20">{d.environment.aiError}</div>
                     )}
                   </>
                 )}
@@ -368,7 +368,7 @@ export const SystemHealth: React.FC = () => {
                 <Row label="Leads created from mail, last 24 h">{V(num(ing?.leadsFromMail24h))}</Row>
               </div>
               {d?.email.error && (
-                <div className="mt-4 p-2 bg-red-50 border border-red-100 rounded text-[9px] text-red-600 font-mono overflow-auto max-h-20">{d.email.error}</div>
+                <div className="mt-4 p-2 bg-red-50 border border-red-100 rounded text-[10.5px] text-red-600 font-mono overflow-auto max-h-20">{d.email.error}</div>
               )}
             </div>
 

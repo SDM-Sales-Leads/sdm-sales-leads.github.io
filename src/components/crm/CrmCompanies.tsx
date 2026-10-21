@@ -556,7 +556,7 @@ export const CrmCompanies: React.FC<CrmCompaniesProps> = ({
                           </button>
                           <span className="text-brand-gray ml-2 text-[10px]">{l.project} ({typeof l.requiredSize === 'number' ? l.requiredSize.toLocaleString() : l.requiredSize} sqm)</span>
                         </div>
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${sColor}`}>{l.status}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10.5px] font-bold ${sColor}`}>{l.status}</span>
                       </div>
                     );
                   })}
@@ -577,7 +577,7 @@ export const CrmCompanies: React.FC<CrmCompaniesProps> = ({
                         <div className="space-y-0.5">
                           <h6 className="font-bold text-brand-black">{c.name}</h6>
                           <p className="text-[10px] text-brand-gray font-semibold">{c.jobTitle || 'Representative'} ({c.department || 'N/A'})</p>
-                          <p className="text-[9px] font-mono text-brand-gray">{c.phoneNumber}</p>
+                          <p className="text-[10.5px] font-mono text-brand-gray">{c.phoneNumber}</p>
                         </div>
                         <button
                           onClick={() => {

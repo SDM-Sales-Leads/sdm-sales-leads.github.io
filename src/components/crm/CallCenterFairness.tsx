@@ -27,7 +27,7 @@ export const CallCenterFairness: React.FC = () => {
           <tbody>
             {d.people.map((p) => (
               <tr key={p.id} className="border-t border-brand-gray/10">
-                <td className="py-1.5 pr-3 font-semibold">{p.name}{p.name === d.nextName ? <span className="ml-2 text-[9px] font-bold text-brand-red">NEXT</span> : null}</td>
+                <td className="py-1.5 pr-3 font-semibold">{p.name}{p.name === d.nextName ? <span className="ml-2 text-[10.5px] font-bold text-brand-red">NEXT</span> : null}</td>
                 <td className="py-1.5 pr-3"><div className="flex items-center gap-2"><div className="h-2 rounded-full bg-brand-red" style={{ width: `${Math.round((p.leads / maxLeads) * 100)}%`, minWidth: p.leads ? 4 : 0 }} /><span className="font-mono">{p.leads}</span></div></td>
                 <td className="py-1.5 pr-3 font-mono">{p.sharePct === null ? '—' : `${p.sharePct}%`}</td>
                 <td className="py-1.5 pr-3 font-mono">{fmt(p.sqm)}</td>

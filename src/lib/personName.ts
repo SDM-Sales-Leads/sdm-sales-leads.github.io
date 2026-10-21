@@ -22,4 +22,10 @@ export function cleanPersonName(raw?: string | null): string {
   const out = words.join(' ').trim();
   return out || t;
 }
-export const firstNameOf = (raw?: string | null): string => cleanPersonName(raw).split(/\s+/)[0] || '';
+/** first name, keeping compound names whole: "Abdel Rahman", "عبد الرحمن", "أبو بكر", "Abu Bakr" (21 Oct 2026) */
+const COMPOUND = new Set(['abd', 'abdel', 'abdul', 'abdal', 'abu', 'abou', 'عبد', 'ابو', 'أبو', 'عبدال']);
+export const firstNameOf = (raw?: string | null): string => {
+  const w = cleanPersonName(raw).split(/\s+/).filter(Boolean);
+  if (!w.length) return '';
+  return w.length > 1 && COMPOUND.has(w[0].toLowerCase().replace(/[-.]$/, '')) ? `${w[0]} ${w[1]}` : w[0];
+};

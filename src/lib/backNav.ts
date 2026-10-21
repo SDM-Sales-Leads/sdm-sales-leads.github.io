@@ -7,11 +7,13 @@ const layers: Layer[] = [];
 let seq = 0;
 let installed = false;
 let navHandler: ((state: any) => void) | null = null;
+let selfPop = 0;   // history.back() calls made by us (a card closed with its X): their popstate is not a user's Back
 
 function install() {
   if (installed) return;
   installed = true;
   window.addEventListener('popstate', (e) => {
+    if (selfPop > 0) { selfPop--; return; }
     const st: any = e.state || {};
     const top = layers[layers.length - 1];
     if (top && st.sdmLayer !== top.id) { top.popped = true; layers.pop(); top.close(); return; }       // back closes the topmost card / window
@@ -33,7 +35,7 @@ export function useBackClose(open: boolean, close: () => void) {
       const i = layers.indexOf(layer);
       if (i >= 0) layers.splice(i, 1);
       // closed with the X button: remove the history entry that was added for it
-      if (!layer.popped && (history.state as any)?.sdmLayer === layer.id) { try { history.back(); } catch { /* ignore */ } }
+      if (!layer.popped && (history.state as any)?.sdmLayer === layer.id) { try { selfPop++; history.back(); } catch { selfPop = Math.max(0, selfPop - 1); } }
     };
   }, [open]);
 }
@@ -41,6 +43,7 @@ export function useBackClose(open: boolean, close: () => void) {
 /** the App tells here which page is open; Back calls onBack with the page that was stored in that history entry */
 export function usePageHistory(page: { tab: string; sub: string }, enabled: boolean, onBack: (p: { tab: string; sub: string }) => void) {
   const last = useRef<{ tab: string; sub: string } | null>(null);
+  const lastAt = useRef(0), firstAt = useRef(0);
   const fromBack = useRef(false);
   const cb = useRef(onBack); cb.current = onBack;
   useEffect(() => {
@@ -55,8 +58,12 @@ export function usePageHistory(page: { tab: string; sub: string }, enabled: bool
     const prev = last.current;
     if (prev && prev.tab === page.tab && prev.sub === page.sub) return;
     last.current = { ...page };
+    // a page that only redirects to another (my-day -> Home, the start page chosen after sign-in) replaces its entry, so Back is not trapped
+    const now = Date.now(), quick = now - lastAt.current < (firstAt.current && now - firstAt.current < 2500 ? 2500 : 450);
+    if (!prev) firstAt.current = now;
+    lastAt.current = now;
     try {
-      if (!prev) history.replaceState({ ...(history.state || {}), sdmNav: { ...page } }, '');
+      if (!prev || quick) history.replaceState({ ...(history.state || {}), sdmNav: { ...page } }, '');
       else history.pushState({ sdmNav: { ...page } }, '');
     } catch { /* ignore */ }
   }, [page.tab, page.sub, enabled]); // eslint-disable-line react-hooks/exhaustive-deps

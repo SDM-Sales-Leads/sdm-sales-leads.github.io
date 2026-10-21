@@ -21,16 +21,12 @@ async function flushUsage() {
   await setConfig(`usage:${cur.day}:${ISO}`, cur.data).catch(() => {});
 }
 
-/** called for every answer: path without /api, the bytes that leave the server */
+/** called for every answer: path without /api, the bytes that leave the server.
+ *  21 Oct 2026: counted in the database (usage_counter, one atomic add per answer, done after the answer is sent). Each request runs in
+ *  a short-lived server copy, so the old in-memory count was lost before it was saved (93 calls counted in a month). */
 export function recordUsage(path: string, bytes: number) {
-  const day = cairoDay();
-  if (cur.day !== day) { void flushUsage(); cur.day = day; cur.data = { calls: 0, bytes: 0, routes: {} }; }
-  const k = label(path);
-  cur.data.calls++; cur.data.bytes += bytes;
-  const r = cur.data.routes[k] || (cur.data.routes[k] = [0, 0]); r[0]++; r[1] += bytes;
-  if (Object.keys(cur.data.routes).length > 60) { const keep = Object.entries(cur.data.routes).sort((a, b) => b[1][1] - a[1][1]).slice(0, 40); cur.data.routes = Object.fromEntries(keep); }
-  cur.dirty++;
-  if (cur.dirty >= 30 || Date.now() - cur.at > 60_000) void flushUsage();
+  const p = admin.rpc("usage_hit", { p_day: cairoDay(), p_route: label(path), p_bytes: Math.max(0, Math.round(bytes || 0)) }).then(() => {}, () => {});
+  try { (globalThis as any).EdgeRuntime?.waitUntil?.(p); } catch { /* older runtime: the add still runs */ }
 }
 
 /** the billing month that contains `now`: from the 11th to the 11th */
@@ -45,7 +41,7 @@ export async function usageSummary() {
   await flushUsage();
   const cy = cycle();
   const since = cairoDay(cy.start);
-  const { data } = await admin.from("system_config").select("key,value").like("key", "usage:%").gte("key", `usage:${since}`).limit(2000);
+  const { data } = await admin.from("system_config").select("key,value").like("key", "usage:%").gte("key", `usage:${since}`).limit(20000);
   const days: Record<string, Day> = {};
   for (const r of data || []) {
     const day = String(r.key).split(":")[1];
@@ -53,6 +49,13 @@ export async function usageSummary() {
     const v: Day = r.value || { calls: 0, bytes: 0, routes: {} };
     d.calls += v.calls || 0; d.bytes += v.bytes || 0;
     for (const [k, [n, b]] of Object.entries(v.routes || {})) { const x = d.routes[k] || (d.routes[k] = [0, 0]); x[0] += n; x[1] += b; }
+  }
+  // the database counter (from 21 Oct 2026) is added to the old per-copy rows
+  const { data: cnt } = await admin.from("usage_counter").select("day,route,calls,bytes").gte("day", since).limit(20000);
+  for (const r of cnt || []) {
+    const day = String(r.day); const d = days[day] || (days[day] = { calls: 0, bytes: 0, routes: {} });
+    d.calls += Number(r.calls) || 0; d.bytes += Number(r.bytes) || 0;
+    const x = d.routes[r.route] || (d.routes[r.route] = [0, 0]); x[0] += Number(r.calls) || 0; x[1] += Number(r.bytes) || 0;
   }
   const tot = Object.values(days).reduce((a, d) => ({ calls: a.calls + d.calls, bytes: a.bytes + d.bytes }), { calls: 0, bytes: 0 });
   const routes: Record<string, [number, number]> = {};

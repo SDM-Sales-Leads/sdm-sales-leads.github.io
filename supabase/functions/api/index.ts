@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 // SDM Sales Leads — the one API edge function. All routes live in routes_*.ts.
-import { admin, Caller, corsHeaders, dropCallerCache, getCaller, getSecret, viewAsCaller, HttpError, json, safeEqual } from "./lib.ts";
+import { admin, Caller, corsHeaders, dropCallerCache, getCaller, getSecret, setConfig, nowIso, viewAsCaller, HttpError, json, safeEqual } from "./lib.ts";
 import { match, pathExists } from "./router.ts";
 import "./routes_core.ts";
 import "./routes_tickets.ts";
@@ -26,11 +26,20 @@ route("POST", "/cron/ingest", async ({ req }) => {
   const given = req.headers.get("x-cron-secret") || "";
   const want = await getSecret("cron_secret");
   if (!want || !safeEqual(given, want)) throw new HttpError(401, "Not allowed");
+  // Facebook leads arrive day and night, also on Friday and Saturday: they are synced on EVERY hourly call, not only in the mailbox hours below
+  // (before 21 Oct 2026 they shared the mail schedule and a lead could wait a whole weekend). A failure is stored so it can be seen, never silent.
+  const fbRun = async () => {
+    try { return await syncFacebook({ byUser: "Scheduled run" }); }
+    catch (e: any) {
+      await setConfig("fb_sheet_error", { at: nowIso(), error: String(e?.message || e).slice(0, 300) }).catch(() => {});
+      return { fbNew: 0, fbError: String(e?.message || e).slice(0, 200) };
+    }
+  };
   const { data } = await admin.from("system_config").select("value").eq("key", "ingest_auto").maybeSingle();
-  if (data?.value !== true) return { skipped: true, reason: "automatic ingestion is off" };
+  if (data?.value !== true) return { skipped: true, reason: "automatic mail ingestion is off", ...(await fbRun()) };
   // the schedule calls this every hour; it only works at 09:00, 12:00 and 15:00 Cairo time, Sunday to Thursday
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).map((p) => [p.type, p.value]));
-  if (["Fri", "Sat"].includes(parts.weekday) || ![9, 12, 15].includes(Number(parts.hour))) return { skipped: true, reason: "outside the sync hours" };
+  if (["Fri", "Sat"].includes(parts.weekday) || ![9, 12, 15].includes(Number(parts.hour))) return { skipped: true, reason: "outside the mail sync hours", ...(await fbRun()) };
   // 21 Oct 2026: drain the backlog (e.g. Friday and Saturday mail on Sunday morning) in rounds of 25, within about 100 s
   let m: any = {}; const t0 = Date.now();
   for (let round = 0; round < 8 && Date.now() - t0 < 100_000; round++) {
@@ -38,8 +47,7 @@ route("POST", "/cron/ingest", async ({ req }) => {
     m = { ...r, rounds: round + 1, created: (m.created || 0) + (r.created || 0) };
     if (r.mailError || !(Number(r.remaining) > 0)) break;
   }
-  const fb = await syncFacebook({ byUser: "Scheduled run" }).catch(() => ({ fbNew: 0 }));
-  return { ...m, ...fb };
+  return { ...m, ...(await fbRun()) };
 }, { public: true });
 
 /** Big JSON answers (the lead, contact and company lists are several MB) are sent gzip-compressed: about 8 times less data out,

@@ -3,6 +3,7 @@ import { useAuth } from '../services/AuthContext';
 import { Logo } from '../constants';
 import { motion } from 'motion/react';
 import { AnimatedBackground } from './AnimatedBackground';
+import { AUTO_LOGOUT_FLAG } from '../lib/idleLogout';
 
 type Mode = 'login' | 'forgot' | 'code' | 'done';
 
@@ -17,6 +18,8 @@ export const Login: React.FC = () => {
   const [info, setInfo] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
+  // shown when the last sign-out was the automatic one (1 hour without activity); cleared when the person signs in again
+  const [autoOut] = useState(() => { try { return !!localStorage.getItem(AUTO_LOGOUT_FLAG); } catch { return false; } });
 
   // the link in the reset e-mail (#reset=name@company.com) opens the code step with the e-mail filled in
   useEffect(() => {
@@ -32,6 +35,7 @@ export const Login: React.FC = () => {
     setIsLoading(true);
     try {
       await login(email, password);
+      try { localStorage.removeItem(AUTO_LOGOUT_FLAG); } catch { /* ignore */ }
     } catch (err: any) {
       const m = String(err?.message || '');
       setError(m === 'PROFILE_BUSY' ? 'You signed in correctly, but the system is busy and could not load your profile. Please try again in a moment.'
@@ -87,6 +91,7 @@ export const Login: React.FC = () => {
 
         {mode === 'login' && (
           <form onSubmit={handleSubmit} className="space-y-6">
+            {autoOut && <p role="status" className="text-sm text-center rounded-lg border border-amber-300 bg-amber-50 text-amber-900 px-3 py-2">You were signed out automatically because there was no activity for 1 hour.</p>}
             <div>
               <label className="block text-sm font-medium text-brand-black mb-1">Email Address</label>
               <input type="email" required className="input-field" placeholder="name@company.com" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />

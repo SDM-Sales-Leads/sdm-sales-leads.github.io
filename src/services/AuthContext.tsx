@@ -4,6 +4,7 @@ import { User, RolePermissions } from '../types';
 import { supabase } from '../lib/supabase';
 import { wipeCrmCache } from '../lib/storageGuard';
 import { fetchWithTimeout } from '../lib/fetchUtils';
+import { startIdleWatch } from '../lib/idleLogout';
 
 interface AuthContextType {
   user: User | null;
@@ -77,6 +78,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const refreshPermissions = async () => { await loadMe(); };
+
+  // signed in and nobody touching the screen for 1 hour (any tab): sign out, so a browser left open overnight stops using the server
+  useEffect(() => {
+    if (!user) return;
+    return startIdleWatch(async () => { try { await supabase.auth.signOut(); } finally { clear(); } });
+  }, [user?.id, clear]);
 
   useEffect(() => {
     let alive = true;

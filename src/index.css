@@ -250,3 +250,11 @@ input[type="date"], input[type="time"], input[type="datetime-local"] { min-width
   .fixed.inset-0.flex[class*="z-50"] textarea { min-height: 0; }
   .fixed.inset-0.flex[class*="z-50"] input:not([type=checkbox]):not([type=radio]), .fixed.inset-0.flex[class*="z-50"] select { padding-top: 7px; padding-bottom: 7px; }
 }
+
+/* 21 Oct 2026 (full test): on touch screens small buttons get a bigger invisible tap area (the look does not change) */
+@media (pointer: coarse) {
+  main button:not(.glass-bg), main [role="button"] { position: relative; }
+  main button:not(.glass-bg)::after, main [role="button"]::after { content: ""; position: absolute; inset: -7px; }
+  main button[aria-label^="How this is"]::after, main button[aria-label="Collapse"]::after, main button[aria-label="Expand"]::after { inset: -12px; }
+  main input[type="checkbox"] { min-width: 20px; min-height: 20px; }
+}

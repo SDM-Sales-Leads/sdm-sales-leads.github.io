@@ -151,7 +151,8 @@ route("POST", "/cron/reminders", async ({ req }) => {
   if (hourNow < 7 || hourNow >= 22) return { skipped: true, reason: "night" };
   const T: Record<string, number> = {}; const lap = async <X,>(k: string, f: () => Promise<X>): Promise<X> => { const t0 = Date.now(); try { return await f(); } finally { T[k] = Date.now() - t0; } };
   const r = await lap("reminders", () => runReminders());
-  let cc: any = {}; try { cc = await lap("callcenter", () => escalateCallCenter()); } catch (e: any) { cc = { ccError: String(e?.message || e).slice(0, 120) }; }
+  // the 24-hour call-center limits do not need a look every 5 minutes: every half hour is plenty (it reads the last 3 days of call-center leads)
+  let cc: any = {}; if (new Date().getMinutes() % 30 < 5) { try { cc = await lap("callcenter", () => escalateCallCenter()); } catch (e: any) { cc = { ccError: String(e?.message || e).slice(0, 120) }; } } else cc = { ccSkipped: "every 30 min" };
   let pool: any = {}; try { pool = await lap("pool", () => fillPool(300)); } catch (e: any) { pool = { poolError: String(e?.message || e).slice(0, 120) }; }
   let dg: any = {}; try { dg = await lap("digest", () => sendAssignDigest()); } catch (e: any) { dg = { digestError: String(e?.message || e).slice(0, 120) }; }
   let ug: any = {}; try { if (+new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", hourCycle: "h23" }).format(new Date()) >= 8) ug = await lap("usage", () => usageGuard()); } catch { /* ignore */ }

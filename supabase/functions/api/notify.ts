@@ -151,11 +151,15 @@ export async function runReminders() {
     due.push({ key: `task:${t.id}:${s}`, userId: t.owner_id, kind: "Task", title: d.title || "Task", when, leadId: d.leadId, details: [["Task", d.title], ["Details", d.description], ["Priority", d.priority]] });
   }
   // leads: meeting / site visit slot and the next follow-up date
-  const base = admin.from("crm_leads").select("id,assigned_to,data").is("deleted_at", null).not("assigned_to", "is", null);
-  const [mt, fu] = await Promise.all([
-    base.gte("data->>meetingDate", d0).lte("data->>meetingDate", d1).order("id").limit(5000),
-    admin.from("crm_leads").select("id,assigned_to,data").is("deleted_at", null).not("assigned_to", "is", null).gte("data->>nextFollowUpDate", d0).lte("data->>nextFollowUpDate", d1).order("id").limit(5000),
+  // 24 Oct 2026: only the few fields a reminder needs are read (the whole lead with its history was read every 5 minutes, even at night-time traffic of zero)
+  const SLIM = "id,assigned_to,customerName:data->>customerName,companyName:data->>companyName,phoneNumber:data->>phoneNumber,project:data->>project,status:data->>status,meetingDate:data->>meetingDate,meetingTime:data->>meetingTime,nextFollowUpDate:data->>nextFollowUpDate";
+  const fatten = (r: any) => ({ id: r.id, assigned_to: r.assigned_to, data: { customerName: r.customerName, companyName: r.companyName, phoneNumber: r.phoneNumber, project: r.project, status: r.status, meetingDate: r.meetingDate, meetingTime: r.meetingTime, nextFollowUpDate: r.nextFollowUpDate } });
+  const base = admin.from("crm_leads").select(SLIM).is("deleted_at", null).not("assigned_to", "is", null);
+  const [mt0, fu0] = await Promise.all([
+    base.gte("data->>meetingDate", d0).lte("data->>meetingDate", d1).limit(5000),
+    admin.from("crm_leads").select(SLIM).is("deleted_at", null).not("assigned_to", "is", null).gte("data->>nextFollowUpDate", d0).lte("data->>nextFollowUpDate", d1).limit(5000),
   ]);
+  const mt = { data: (mt0.data || []).map(fatten) }, fu = { data: (fu0.data || []).map(fatten) };
   const closed = new Set(["Won", "Lost", "Not Interested", "Low Budget", "Duplicate", "Closed", "Invalid", "Wrong Number"]);
   const leadDetails = (l: any): [string, string | undefined][] => [["Lead", l.data?.customerName], ["Company", l.data?.companyName], ["Phone", l.data?.phoneNumber], ["Project", l.data?.project], ["Status", l.data?.status]];
   for (const l of mt.data || []) {

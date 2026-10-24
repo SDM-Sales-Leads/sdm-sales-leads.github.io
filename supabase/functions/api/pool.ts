@@ -55,14 +55,17 @@ export async function fillPool(limit = 300, force = false) {
     .sort((x: any, y: any) => Number(isCC(y.data)) - Number(isCC(x.data)) || String(x.data?.date || "").localeCompare(String(y.data?.date || "")) || String(x.id).localeCompare(String(y.id)));
   const per: Record<string, { name: string; n: number }> = {};
   let assigned = 0, stop = false;
+  let misses = 0;   // 24 Oct 2026: when nobody can take 15 leads in a row, nobody has a free place: stop (it used to try all 300, 16 seconds)
   for (const part of chunks(pool.slice(0, limit), 40)) {
     if (stop) break;
     const picks: { r: any; agent: { id: string; name: string } }[] = [];
     for (const r of part) {
+      if (misses >= 15 && !picks.length && !assigned) break;
       const agent = await chooseAgent(r.data, q, { ignoreDaily: true, noBackup: true });
-      if (!agent) continue;   // 21 Oct 2026: a lead too big for anyone is skipped, it no longer stops the whole pool
-      picks.push({ r, agent });
+      if (!agent) { misses++; continue; }   // 21 Oct 2026: a lead too big for anyone is skipped, it no longer stops the whole pool
+      misses = 0; picks.push({ r, agent });
     }
+    if (misses >= 15 && !picks.length && !assigned) break;
     const now = nowIso();
     await Promise.all(picks.map(async ({ r, agent }) => {
       const d = { ...r.data, assignedSalespersonId: agent.id, assignedSalespersonName: agent.name, assignedDate: now, lastUpdated: now,

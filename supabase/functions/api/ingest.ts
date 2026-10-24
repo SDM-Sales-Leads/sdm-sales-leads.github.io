@@ -287,10 +287,13 @@ export async function loadQueue() {
 type RStats = { at: number; open: Record<string, number>; total: Record<string, number>; today: Record<string, number>; sqm: Record<string, number>; openT: Record<string, number>; openU: Record<string, number>; cc: Record<string, number>; ccSqm: Record<string, number> };
 const ROUTE_STATS = new Map<string, RStats>();
 /** opts.sim: a dry run. Nothing is saved or cached; the same object carries the pretend state from one lead to the next. */
+let USERS_CACHE: { at: number; rows: any[] } | null = null;
 export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?: any[]; ignoreDaily?: boolean; noBackup?: boolean }): Promise<{ id: string; name: string } | null> {
   if (q.assignmentMethod === "Manual Assignment Only") return null;
 
-  const { data: users } = await admin.from("app_users").select("id,name,role,active,on_leave").in("role", SALES_ROLES);
+  // 24 Oct 2026: the sales users are read once a minute, not once per lead (handing out 300 pool leads made 300 identical reads)
+  let users: any[] | null = USERS_CACHE && Date.now() - USERS_CACHE.at < 60_000 ? USERS_CACHE.rows : null;
+  if (!users) { users = (await admin.from("app_users").select("id,name,role,active,on_leave").in("role", SALES_ROLES)).data || []; USERS_CACHE = { at: Date.now(), rows: users }; }
   let pool = (users || []).filter((u: any) => u.active !== false);
   if (q.skipUsersOnLeave !== false) pool = pool.filter((u: any) => !u.on_leave);
   if (!pool.length) return null;

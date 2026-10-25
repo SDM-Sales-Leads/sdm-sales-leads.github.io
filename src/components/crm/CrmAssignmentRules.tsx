@@ -91,7 +91,7 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
     return { byId, unassigned, last: assigned.slice(0, 12) };
   }, [leads]);
 
-  const agents = useMemo(() => people.map((s: any) => {
+  const agents = useMemo(() => people.filter((s: any) => s.role !== 'Business Development').map((s: any) => {
     const f = fairness.byId.get(String(s.id)) || { open: 0, total: 0, untouched: 0, today: 0, sqm: 0 };
     return {
       id: String(s.id),

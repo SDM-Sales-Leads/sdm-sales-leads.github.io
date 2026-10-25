@@ -26,7 +26,9 @@ const chunks = <T>(a: T[], n: number) => { const o: T[][] = []; for (let i = 0; 
 /** one-off: leads brought from the old CRM that nobody touched go back to the pool (their follow-up date was only a default) */
 export async function unassignUntouched(dryRun: boolean, everyLead = false) {
   const rows = await pageAll((a, b) => { let q: any = admin.from("crm_leads").select("id,assigned_to,data").is("deleted_at", null).not("assigned_to", "is", null).eq("status", "New"); if (!everyLead) q = q.not("data->>legacyId", "is", null); return q.order("id").range(a, b); }, 20000);
-  const hit = (rows || []).filter((r: any) => isUntouched(r.data));
+  // Business Development gets leads only by hand: never taken back to the pool automatically
+  const bdIds = new Set(((await admin.from("app_users").select("id").eq("role", "Business Development")).data || []).map((u: any) => u.id));
+  const hit = (rows || []).filter((r: any) => isUntouched(r.data) && !bdIds.has(r.assigned_to));
   const byOwner: Record<string, number> = {};
   for (const r of hit) { const n = r.data?.assignedSalespersonName || "?"; byOwner[n] = (byOwner[n] || 0) + 1; }
   if (dryRun) return { scanned: (rows || []).length, toPool: hit.length, byOwner };

@@ -2291,7 +2291,7 @@ ${user.name || ''}`);
                   <option value="">Select salesperson...</option>
                   {salespeople.map((s: any) => (
                     <option key={s.id} value={s.id}>
-                      {s.name} ({s.activeLeads} active leads / {s.leave ? 'On Leave' : 'Online'})
+                      {s.name} ({s.role === 'Business Development' ? 'Business Development · manual only · ' : ''}{s.activeLeads} active leads / {s.leave ? 'On Leave' : 'Online'})
                     </option>
                   ))}
                 </select>

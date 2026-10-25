@@ -59,7 +59,7 @@ route("POST", "/auth/forgot", async ({ req }) => {
   await rateLimit(`forgot:${email}`, 3600, 4);
   await rateLimit("forgot:all", 3600, 120);
   const { data: u } = await admin.from("app_users").select("id,name,email,active").ilike("email", email.replace(/[%_\\]/g, (m) => "\\" + m)).limit(1).maybeSingle();
-  if (!u || u.active === false || normEmail(u.email) !== email) return generic;
+  if (!u || u.active === false || normEmail(u.email) !== email) { await logActivity(null, "Password reset: no active account", `${email} asked for a code but no active account has this e-mail`, "security").catch(() => {}); return generic; }
   const code = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
   await admin.from("pw_resets").upsert({ email, code_hash: await sha(`${code}:${email}:${pepper()}`), expires_at: new Date(Date.now() + CODE_MINUTES * 60_000).toISOString(), tries: 0, created_at: nowIso() });
   try {
@@ -74,7 +74,11 @@ route("POST", "/auth/forgot", async ({ req }) => {
 <p><a href="${escHtml(base)}#reset=${encodeURIComponent(email)}" style="color:#A6192E;font-weight:700">Open the reset page</a> and enter the code there.</p>
 <p style="color:#888;font-size:13px">If you did not ask for this, ignore this e-mail: your password stays as it is.</p></div></div>`,
     });
-  } catch { /* the user simply gets no mail; the answer stays the same */ }
+    await logActivity(null, "Password reset code sent", `${email}`, "security").catch(() => {});
+  } catch (e: any) {
+    // the user still gets the same answer, but the admin can now see why no mail arrived (Settings > activity log)
+    await logActivity(null, "Password reset mail FAILED", `${email}: ${String(e?.message || e).slice(0, 220)}`, "error").catch(() => {});
+  }
   return generic;
 }, { public: true });
 

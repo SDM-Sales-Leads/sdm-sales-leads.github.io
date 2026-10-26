@@ -62,7 +62,7 @@ export const PRIORITY_ORDER: Record<string, number> = { VIP: 0, Urgent: 0, High:
 
 export const SOURCES = ['Website', 'Billboard', 'Google SEM', 'Facebook', 'Instagram', 'LinkedIn', 'YouTube', 'Radio', 'Mobile App', 'Event / Exhibition', 'Management', 'Referral', 'Personal', 'Walk-In', 'BD Research'];
 // Marketing CHANNEL (main) versus lead SOURCE (sub). The channel is where the lead reached us; the source is what the customer says brought them.
-export const CHANNELS = ['Mobile App', 'Call Center', 'Facebook Leads', 'Walk-in'] as const;
+export const CHANNELS = ['Mobile App', 'Call Center', 'Facebook Leads', 'Website', 'Walk-in'] as const;
 export const NO_CHANNEL = 'Not set';
 export function channelOf(l: { channel?: string; source?: string }): string {
   const c = (l.channel || '').trim();
@@ -70,6 +70,7 @@ export function channelOf(l: { channel?: string; source?: string }): string {
   const s = (l.source || '').trim().toLowerCase();
   if (s === 'walk-in' || s === 'walk in') return 'Walk-in';
   if (s === 'mobile app') return 'Mobile App';
+  if (s === 'website') return 'Website';   // web-form leads (the website mails "New submission from ..."); a channel set on the lead wins
   if (s === 'facebook' || s === 'instagram') return 'Facebook Leads';   // the old system's Facebook / Instagram leads came from the Facebook lead forms
   return NO_CHANNEL;
 }

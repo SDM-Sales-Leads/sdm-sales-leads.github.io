@@ -429,6 +429,8 @@ export function channelFromMail(h: { sender?: string; subject?: string }): strin
   const s = `${h.sender || ""} ${h.subject || ""}`.toLowerCase();
   if (s.includes("mobile app")) return "Mobile App";
   if (s.includes("rayacx") || s.includes("call center") || /sdm sales lead\s*\|/.test(s)) return "Call Center";
+  // the website form mails come from web@elsewedydevelopment.com with the subject "New submission from <form name>"
+  if (s.includes("web@elsewedydevelopment.com") || /new submission from/.test(s)) return "Website";
   return "";
 }
 

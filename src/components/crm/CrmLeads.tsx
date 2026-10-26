@@ -1588,10 +1588,11 @@ ${user.name || ''}`);
 
   // Export to CSV helper
   const exportToCSV = () => {
-    const headers = ['Lead ID', 'Date', 'Source', 'Project', 'Customer', 'Phone', 'Email', 'Company', 'Size (sqm)', 'SLA Status', 'Priority', 'Status', 'Salesperson', 'SLA Deadline', 'Lost Reason', 'Lost Comment'];
+    const headers = ['Lead ID', 'Date', 'Channel', 'Source', 'Project', 'Customer', 'Phone', 'Email', 'Company', 'Size (sqm)', 'SLA Status', 'Priority', 'Status', 'Salesperson', 'SLA Deadline', 'Lost Reason', 'Lost Comment'];
     const rows = filteredLeads.map(l => [
       l.id,
       l.date,
+      channelOf(l) === NO_CHANNEL ? '' : channelOf(l),
       l.source,
       l.project,
       l.customerName,
@@ -1767,15 +1768,18 @@ ${user.name || ''}`);
             onChange={setVisibleColumns}
           />
 
+          {(isAdmin || permissions?.canExportLeads === true) && (
+            <button
+              onClick={exportToCSV}
+              className="bg-white hover:bg-brand-gray/5 border border-brand-gray/25 text-brand-black px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
+              title="Download the leads you see now (with the filters you set) as a CSV file"
+            >
+              <Download size={14} />
+              <span>Export</span>
+            </button>
+          )}
           {isAdmin && (
             <>
-              <button
-                onClick={exportToCSV}
-                className="bg-white hover:bg-brand-gray/5 border border-brand-gray/25 text-brand-black px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
-              >
-                <Download size={14} />
-                <span>Export</span>
-              </button>
               <button
                 onClick={handlePurgeAllDatabaseLeads}
                 className="bg-red-50 hover:bg-red-100 text-brand-red border border-red-200 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"

@@ -195,6 +195,7 @@ export interface RolePermissions {
   canViewAllLeads?: boolean;
   canEditLeadIdentity?: boolean;
   canDistributeLeads?: boolean;
+  canExportLeads?: boolean;
 };
 
 export interface EmailImportLog {

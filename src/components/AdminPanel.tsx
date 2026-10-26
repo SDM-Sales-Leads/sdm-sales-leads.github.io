@@ -888,6 +888,7 @@ export const AdminPanel: React.FC = () => {
                           <PermissionToggle label="See ALL leads (read-only)" active={!!rolePermissions[selectedRoleIndex].canViewAllLeads} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewAllLeads', val)} />
                           <PermissionToggle label="Edit lead contact details / add unassigned leads (marketing)" active={!!rolePermissions[selectedRoleIndex].canEditLeadIdentity} onChange={(val) => updatePermission(selectedRoleIndex, 'canEditLeadIdentity', val)} />
                           <PermissionToggle label="Distribute leads (all leads, reassign)" active={!!rolePermissions[selectedRoleIndex].canDistributeLeads} onChange={(val) => updatePermission(selectedRoleIndex, 'canDistributeLeads', val)} />
+                          <PermissionToggle label="Export the leads list to CSV (follows the filters)" active={!!rolePermissions[selectedRoleIndex].canExportLeads} onChange={(val) => updatePermission(selectedRoleIndex, 'canExportLeads', val)} />
                         </div>
                       )}
                     </div>

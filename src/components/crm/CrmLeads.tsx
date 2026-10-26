@@ -919,6 +919,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
         ...(industry ? { industry } : {}),
         ...(nationality.trim() ? { nationality: nationality.trim() } : {}),
         source: normSource(newLeadForm.source) || newLeadForm.source,
+        channel: 'Personal',   // registered by hand with the Inbound Lead button
         customerName: name,
         // size is optional: when not stated it is stored as 'n/a' instead of an invented number
         requiredSize: size > 0 ? size : 'n/a'

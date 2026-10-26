@@ -129,10 +129,10 @@ interface CrmLeadsProps {
 
 /** table columns in display order, with the share of the width each gets by default */
 const COL_ORDER = ['id', 'date', 'customer', 'project', 'size', 'slaStatus', 'priority', 'score', 'touch', 'status', 'assigned', 'channel', 'leadSource', 'customerId'] as const;
-const COL_DEFAULT_W: Record<string, number> = { id: 10, date: 10, customer: 19, project: 13, size: 8, slaStatus: 11, priority: 7, score: 6, touch: 8, status: 9, assigned: 12, channel: 8, leadSource: 10, customerId: 9 };
-const COL_MIN: Record<string, number> = { id: 62, date: 80, customer: 92, project: 68, size: 50, slaStatus: 64, priority: 64, score: 48, touch: 72, status: 68, assigned: 70, channel: 62, leadSource: 76, customerId: 70 };
+const COL_DEFAULT_W: Record<string, number> = { id: 10, date: 10, customer: 19, project: 13, size: 8, slaStatus: 11, priority: 7, score: 6, touch: 8, status: 13, assigned: 12, channel: 8, leadSource: 10, customerId: 9 };
+const COL_MIN: Record<string, number> = { id: 62, date: 84, customer: 92, project: 68, size: 50, slaStatus: 64, priority: 64, score: 48, touch: 72, status: 100, assigned: 80, channel: 70, leadSource: 76, customerId: 70 };
 /** when the screen is too narrow for every chosen column, these go first (the Columns menu still lists them) */
-const COL_DROP_FIRST = ['customerId', 'channel', 'score', 'touch', 'leadSource', 'priority'];
+const COL_DROP_FIRST = ['customerId', 'channel', 'touch', 'score', 'leadSource', 'priority'];
 const COL_W_KEY = 'sdm-crm-leads-colw';
 const SEL_W = 32;
 const ACT_W = 66;
@@ -164,7 +164,7 @@ const SortTh: React.FC<{ field: string; label: string; sortField: string; dir: '
           <button type="button" title={`Sort ${SORT_WORDS[kind][0]}`} onClick={() => onSet('asc')} className={`px-0.5 ${on && dir === 'asc' ? 'text-brand-red' : 'text-brand-gray/40 hover:text-brand-black'}`}><ChevronUp size={11} strokeWidth={3} /></button>
           <button type="button" title={`Sort ${SORT_WORDS[kind][1]}`} onClick={() => onSet('desc')} className={`px-0.5 -mt-1 ${on && dir === 'desc' ? 'text-brand-red' : 'text-brand-gray/40 hover:text-brand-black'}`}><ChevronDown size={11} strokeWidth={3} /></button>
         </span>
-        {on && <span className="text-[10.5px] font-bold normal-case tracking-normal text-brand-red bg-brand-red/10 rounded px-1 whitespace-nowrap">{SORT_WORDS[kind][dir === 'asc' ? 0 : 1]}</span>}
+        {on && <span className="text-[10.5px] font-bold normal-case tracking-normal text-brand-red bg-brand-red/10 rounded px-1 leading-tight">{SORT_WORDS[kind][dir === 'asc' ? 0 : 1]}</span>}
       </span>
       {handle}
     </th>

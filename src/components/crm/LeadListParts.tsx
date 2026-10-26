@@ -59,7 +59,7 @@ export const LeadRow = React.memo(({ lead: l, selected, cols, canAssign, winRate
       {has('slaStatus') && (
         <td className="py-3.5 pl-2 pr-2">
           {sla ? (
-            <span className={`inline-block px-1.5 py-0.5 rounded-full text-center text-[10px] font-bold ${sla.isViolated ? 'bg-rose-100 text-rose-800 border border-rose-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'}`}>
+            <span className={`inline-block px-2 py-0.5 rounded-lg text-center leading-snug text-[10px] font-bold ${sla.isViolated ? 'bg-rose-100 text-rose-800 border border-rose-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'}`}>
               {sla.isViolated ? `Violated (${sla.remainingText})` : sla.remainingText}
             </span>
           ) : (
@@ -69,18 +69,18 @@ export const LeadRow = React.memo(({ lead: l, selected, cols, canAssign, winRate
       )}
       {has('priority') && (
         <td className="py-3.5 pl-2 pr-2">
-          <span className={`inline-block px-1.5 py-0.5 rounded-full text-center text-[10px] font-semibold ${priorityClass(l.priority)}`}>{prioKey(l.priority) || '—'}</span>
+          <span className={`inline-block px-2 py-0.5 rounded-lg text-center leading-snug text-[10px] font-semibold ${priorityClass(l.priority)}`}>{prioKey(l.priority) || '—'}</span>
         </td>
       )}
       {has('score') && <td className="py-3.5 pl-2 pr-2"><LeadScoreChip lead={l} winRate={winRate} /></td>}
       {has('touch') && (
         <td className="py-3.5 pl-2 pr-2">
-          <span className={`inline-block px-1.5 py-0.5 rounded-full text-center text-[10px] font-bold ${isTouchedLead(l) ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{isTouchedLead(l) ? 'Touched' : 'Untouched'}</span>
+          <span className={`inline-block px-2 py-0.5 rounded-lg text-center leading-snug text-[10px] font-bold ${isTouchedLead(l) ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{isTouchedLead(l) ? 'Touched' : 'Untouched'}</span>
         </td>
       )}
       {has('status') && (
         <td className="py-3.5 pl-2 pr-2">
-          <span className={`inline-block px-1.5 py-0.5 rounded-full text-center text-[10px] font-bold ${statusClass(l.status)}`}>{l.status}</span>
+          <span className={`inline-block px-2 py-0.5 rounded-lg text-center leading-snug text-[10px] font-bold ${statusClass(l.status)}`}>{l.status}</span>
         </td>
       )}
       {has('assigned') && (

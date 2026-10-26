@@ -35,31 +35,31 @@ export const LeadRow = React.memo(({ lead: l, selected, cols, canAssign, winRate
       className={`hover:bg-brand-gray/5 transition-all cursor-pointer ${cc ? 'bg-brand-red/5 shadow-[inset_4px_0_0_#A6192E]' : selected ? 'bg-brand-red/5' : ''}`}
       onClick={(e) => { if ((e.target as HTMLElement).closest('button,a,input,select,textarea,label')) return; onOpen(l); }}
     >
-      <td className="py-3.5 px-4">
+      <td className="py-3.5 pl-2 pr-2">
         <button onClick={() => onSelect(l.id)} aria-label={`Select lead ${l.id}`} className="focus:outline-none">
           {selected ? <CheckSquare size={16} className="text-brand-red" /> : <Square size={16} className="text-brand-gray/60" />}
         </button>
       </td>
       {has('id') && (
-        <td className="py-3.5 px-3">
-          <span className="font-mono font-bold text-[11px] text-brand-black hover:underline cursor-pointer whitespace-nowrap" onClick={() => onOpen(l)}>{l.id}</span>{cc && <span className={`ml-1 text-[10px] font-extrabold rounded px-1 py-0.5 text-white whitespace-nowrap ${cc.overdue ? 'bg-brand-red' : 'bg-brand-red/75'}`} title="Call center lead: first contact within 24 hours">CC {cc.overdue ? 'LATE' : '24h'}</span>}
+        <td className="py-3.5 pl-2 pr-2">
+          <span className="font-mono font-bold text-[11px] text-brand-black hover:underline cursor-pointer whitespace-nowrap" onClick={() => onOpen(l)}>{l.id}</span>{cc && <span className={`block w-max mt-0.5 text-[10px] font-extrabold rounded px-1 py-0.5 text-white whitespace-nowrap ${cc.overdue ? 'bg-brand-red' : 'bg-brand-red/75'}`} title="Call center lead: first contact within 24 hours">CC {cc.overdue ? 'LATE' : '24h'}</span>}
         </td>
       )}
-      {has('date') && <td className="py-3.5 px-3 text-brand-gray whitespace-nowrap font-mono">{formatLeadDateTime(l.date)}</td>}
+      {has('date') && <td className="py-3.5 pl-2 pr-2 text-brand-gray font-mono text-[10.5px] whitespace-nowrap">{formatLeadDateTime(l.date)}</td>}
       {has('customer') && (
-        <td className="py-3.5 px-3">
+        <td className="py-3.5 pl-2 pr-2">
           <div>
-            <p className="font-bold text-brand-black">{l.customerName}</p>
+            <p className="font-bold text-brand-black break-words">{l.customerName}</p>
             <p className="text-[10px] text-brand-gray/80 font-mono mt-0.5">{phoneIntl(l.phoneNumber) || l.phoneNumber}</p>
           </div>
         </td>
       )}
-      {has('project') && <td className="py-3.5 px-3 text-brand-gray whitespace-nowrap">{l.project}</td>}
-      {has('size') && <td className="py-3.5 px-3 text-right font-mono whitespace-nowrap">{fmtSize(l.requiredSize)}</td>}
+      {has('project') && <td className="py-3.5 pl-2 pr-2 text-brand-gray break-words">{l.project}</td>}
+      {has('size') && <td className="py-3.5 pl-2 pr-2 text-right font-mono">{fmtSize(l.requiredSize)}</td>}
       {has('slaStatus') && (
-        <td className="py-3.5 px-3">
+        <td className="py-3.5 pl-2 pr-2">
           {sla ? (
-            <span className={`whitespace-nowrap px-2.5 py-1 rounded-full text-[10px] font-bold ${sla.isViolated ? 'bg-rose-100 text-rose-800 border border-rose-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'}`}>
+            <span className={`inline-block px-1.5 py-0.5 rounded-full text-center text-[10px] font-bold ${sla.isViolated ? 'bg-rose-100 text-rose-800 border border-rose-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'}`}>
               {sla.isViolated ? `Violated (${sla.remainingText})` : sla.remainingText}
             </span>
           ) : (
@@ -68,25 +68,25 @@ export const LeadRow = React.memo(({ lead: l, selected, cols, canAssign, winRate
         </td>
       )}
       {has('priority') && (
-        <td className="py-3.5 px-3">
-          <span className={`whitespace-nowrap px-2.5 py-1 rounded-full text-[10px] font-semibold ${priorityClass(l.priority)}`}>{prioKey(l.priority) || '—'}</span>
+        <td className="py-3.5 pl-2 pr-2">
+          <span className={`inline-block px-1.5 py-0.5 rounded-full text-center text-[10px] font-semibold ${priorityClass(l.priority)}`}>{prioKey(l.priority) || '—'}</span>
         </td>
       )}
+      {has('score') && <td className="py-3.5 pl-2 pr-2"><LeadScoreChip lead={l} winRate={winRate} /></td>}
       {has('touch') && (
-        <td className="py-3.5 px-3">
-          <span className={`whitespace-nowrap px-2.5 py-1 rounded-full text-[10px] font-bold ${isTouchedLead(l) ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{isTouchedLead(l) ? 'Touched' : 'Untouched'}</span>
+        <td className="py-3.5 pl-2 pr-2">
+          <span className={`inline-block px-1.5 py-0.5 rounded-full text-center text-[10px] font-bold ${isTouchedLead(l) ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{isTouchedLead(l) ? 'Touched' : 'Untouched'}</span>
         </td>
       )}
-      {has('score') && <td className="py-3.5 px-3"><LeadScoreChip lead={l} winRate={winRate} /></td>}
       {has('status') && (
-        <td className="py-3.5 px-3">
-          <span className={`whitespace-nowrap px-2.5 py-1 rounded-full text-[10px] font-bold ${statusClass(l.status)}`}>{l.status}</span>
+        <td className="py-3.5 pl-2 pr-2">
+          <span className={`inline-block px-1.5 py-0.5 rounded-full text-center text-[10px] font-bold ${statusClass(l.status)}`}>{l.status}</span>
         </td>
       )}
       {has('assigned') && (
-        <td className="py-3.5 px-3 text-brand-gray whitespace-nowrap">
+        <td className="py-3.5 pl-2 pr-2 text-brand-gray break-words">
           {l.assignedSalespersonName ? (
-            <span className="flex items-center gap-1"><UserCheck size={12} className="text-indigo-600" /><span>{l.assignedSalespersonName}</span></span>
+            <span className="flex items-center gap-1"><UserCheck size={12} className="text-indigo-600 shrink-0" /><span>{l.assignedSalespersonName}</span></span>
           ) : (
             <span className="text-rose-500 font-bold flex items-center gap-1 text-[10px] bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full w-max">
               <AlertTriangle size={10} /><span>UNROUTED QUEUE</span>
@@ -94,16 +94,16 @@ export const LeadRow = React.memo(({ lead: l, selected, cols, canAssign, winRate
           )}
         </td>
       )}
-      {has('channel') && <td className="py-3.5 px-3 text-brand-gray whitespace-nowrap">{channelOf(l) === NO_CHANNEL ? '—' : channelOf(l)}</td>}
-      {has('leadSource') && <td className="py-3.5 px-3 text-brand-gray whitespace-nowrap">{l.source || '—'}</td>}
+      {has('channel') && <td className="py-3.5 pl-2 pr-2 text-brand-gray break-words">{channelOf(l) === NO_CHANNEL ? '—' : channelOf(l)}</td>}
+      {has('leadSource') && <td className="py-3.5 pl-2 pr-2 text-brand-gray break-words">{l.source || '—'}</td>}
       {has('customerId') && (
-        <td className="py-3.5 px-3 whitespace-nowrap">
+        <td className="py-3.5 pl-2 pr-2 whitespace-nowrap">
           {contact && onContact
             ? <button onClick={() => onContact(contact)} className="font-mono font-bold text-brand-red hover:underline" title="Open customer in Contacts">{contact.serialNumber || contact.id}</button>
             : <span className="text-brand-gray/60">—</span>}
         </td>
       )}
-      <td className="py-3.5 px-4 text-right">
+      <td className="py-3.5 px-2 text-right">
         <div className="flex justify-end gap-1.5">
           <button onClick={() => onOpen(l)} className="p-1.5 hover:bg-brand-gray/15 rounded-lg text-brand-black" title="View Lead Details"><Info size={14} /></button>
           {canAssign && (

@@ -127,16 +127,38 @@ interface CrmLeadsProps {
   setActiveSubTab: (tab: string) => void;
 }
 
+/** table columns in display order, with the share of the width each gets by default */
+const COL_ORDER = ['id', 'date', 'customer', 'project', 'size', 'slaStatus', 'priority', 'score', 'touch', 'status', 'assigned', 'channel', 'leadSource', 'customerId'] as const;
+const COL_DEFAULT_W: Record<string, number> = { id: 10, date: 10, customer: 19, project: 13, size: 8, slaStatus: 11, priority: 7, score: 6, touch: 8, status: 9, assigned: 12, channel: 8, leadSource: 10, customerId: 9 };
+const COL_MIN: Record<string, number> = { id: 62, date: 80, customer: 92, project: 68, size: 50, slaStatus: 64, priority: 64, score: 48, touch: 72, status: 68, assigned: 70, channel: 62, leadSource: 76, customerId: 70 };
+/** when the screen is too narrow for every chosen column, these go first (the Columns menu still lists them) */
+const COL_DROP_FIRST = ['customerId', 'channel', 'score', 'touch', 'leadSource', 'priority'];
+const COL_W_KEY = 'sdm-crm-leads-colw';
+const SEL_W = 32;
+const ACT_W = 66;
+/** the grab bar on the right edge of a column header */
+const ColGrip: React.FC<{ onDown: (e: React.PointerEvent) => void; onReset: () => void }> = ({ onDown, onReset }) => (
+  <span
+    role="separator"
+    aria-orientation="vertical"
+    title="Drag to resize · double-click to reset"
+    onPointerDown={onDown}
+    onClick={(e) => e.stopPropagation()}
+    onDoubleClick={(e) => { e.stopPropagation(); onReset(); }}
+    className="absolute top-0 right-0 h-full w-2.5 cursor-col-resize touch-none group/grip flex justify-end"
+  ><span className="h-full w-px bg-brand-gray/20 group-hover/grip:w-0.5 group-hover/grip:bg-brand-red/60" /></span>
+);
+
 type SortKind = 'text' | 'num' | 'date' | 'rank';
 const SORT_KIND: Record<string, SortKind> = { id: 'num', date: 'date', customerName: 'text', project: 'text', requiredSize: 'num', slaDeadline: 'date', priority: 'rank', status: 'rank', assignedSalespersonName: 'text', channel: 'text', source: 'text' };
 const SORT_WORDS: Record<SortKind, [string, string]> = { text: ['A → Z', 'Z → A'], num: ['Small → Large', 'Large → Small'], date: ['Oldest → Newest', 'Newest → Oldest'], rank: ['First → Last', 'Last → First'] };
 /** a table header that shows how the list is sorted and lets the user pick the direction */
-const SortTh: React.FC<{ field: string; label: string; sortField: string; dir: 'asc' | 'desc'; onToggle: () => void; onSet: (d: 'asc' | 'desc') => void; right?: boolean }> = ({ field, label, sortField, dir, onToggle, onSet, right }) => {
+const SortTh: React.FC<{ field: string; label: string; sortField: string; dir: 'asc' | 'desc'; onToggle: () => void; onSet: (d: 'asc' | 'desc') => void; right?: boolean; handle?: React.ReactNode }> = ({ field, label, sortField, dir, onToggle, onSet, right, handle }) => {
   const kind = SORT_KIND[field] || 'text';
   const on = sortField === field;
   return (
-    <th className={`py-3 px-3 cursor-pointer select-none ${right ? 'text-right' : ''}`} onClick={onToggle} aria-sort={on ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-      <span className={`inline-flex items-center gap-1 ${right ? 'flex-row-reverse' : ''}`}>
+    <th className={`relative py-3 pl-2 pr-3 cursor-pointer select-none overflow-hidden ${right ? 'text-right' : ''}`} onClick={onToggle} aria-sort={on ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <span className={`inline-flex flex-wrap items-center gap-x-1 ${right ? 'flex-row-reverse' : ''}`}>
         <span className={on ? 'text-brand-red' : ''}>{label}</span>
         <span className="inline-flex flex-col leading-none" onClick={(e) => e.stopPropagation()}>
           <button type="button" title={`Sort ${SORT_WORDS[kind][0]}`} onClick={() => onSet('asc')} className={`px-0.5 ${on && dir === 'asc' ? 'text-brand-red' : 'text-brand-gray/40 hover:text-brand-black'}`}><ChevronUp size={11} strokeWidth={3} /></button>
@@ -144,6 +166,7 @@ const SortTh: React.FC<{ field: string; label: string; sortField: string; dir: '
         </span>
         {on && <span className="text-[10.5px] font-bold normal-case tracking-normal text-brand-red bg-brand-red/10 rounded px-1 whitespace-nowrap">{SORT_WORDS[kind][dir === 'asc' ? 0 : 1]}</span>}
       </span>
+      {handle}
     </th>
   );
 };
@@ -259,21 +282,92 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   // Column management
   const [visibleColumns, setVisibleColumns] = useState<string[]>(['id', 'date', 'customer', 'project', 'size', 'slaStatus', 'priority', 'score', 'status', 'touch', 'assigned', 'channel', 'leadSource']);
   
+
+  // column widths: each visible column keeps a share of the table; the user can drag the edge between two columns
+  const [colW, setColW] = useState<Record<string, number>>(() => {
+    try { const r = JSON.parse(localStorage.getItem(COL_W_KEY) || 'null'); if (r && typeof r === 'object') return r; } catch { /* no saved widths */ }
+    return {};
+  });
+  const tableBoxRef = useRef<HTMLDivElement>(null);
+  const [boxW, setBoxW] = useState(1100);
+  useEffect(() => {
+    const el = tableBoxRef.current; if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setBoxW(Math.max(480, Math.floor(el.clientWidth))));
+    ro.observe(el); setBoxW(Math.max(480, Math.floor(el.clientWidth)));
+    return () => ro.disconnect();
+  }, [viewMode]);
+  const [effCols, autoHidden] = useMemo(() => {
+    let cols = COL_ORDER.filter((k) => visibleColumns.includes(k)) as string[];
+    const hidden: string[] = [];
+    const need = () => SEL_W + ACT_W + cols.reduce((a, k) => a + (COL_MIN[k] || 60), 0);
+    for (const k of COL_DROP_FIRST) { if (need() <= boxW) break; if (cols.includes(k)) { cols = cols.filter((c) => c !== k); hidden.push(k); } }
+    return [cols, hidden] as [string[], string[]];
+  }, [visibleColumns, boxW]);
+  const shownCols = effCols;
+  const colPx = useMemo(() => {
+    const min = (k: string) => COL_MIN[k] || 60;
+    const data = Math.max(shownCols.reduce((a, k) => a + min(k), 0), boxW - SEL_W - ACT_W);
+    // saved widths are in pixels; a column without a saved width gets its default share at the same scale
+    const saved = Object.keys(colW).filter((c) => colW[c] > 0 && COL_DEFAULT_W[c]);
+    const scale = saved.length ? saved.reduce((a, c) => a + colW[c] / COL_DEFAULT_W[c], 0) / saved.length : 1;
+    const w = (k: string) => colW[k] || (COL_DEFAULT_W[k] || 10) * scale;
+    // share the width by weight; a column that would fall under its minimum keeps the minimum and the rest share what is left
+    const out: Record<string, number> = {};
+    let open = shownCols.slice(), left = data;
+    for (let pass = 0; pass < 6 && open.length; pass++) {
+      const tot = open.reduce((a, k) => a + w(k), 0) || 1;
+      const low = open.filter((k) => (w(k) / tot) * left < min(k));
+      if (!low.length) { open.forEach((k) => { out[k] = Math.floor((w(k) / tot) * left); }); open = []; break; }
+      low.forEach((k) => { out[k] = min(k); left -= min(k); });
+      open = open.filter((k) => !low.includes(k));
+    }
+    return out;
+  }, [shownCols.join(','), colW, boxW]);
+  const startResize = (k: string) => (e: React.PointerEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    const i = shownCols.indexOf(k as any); if (i < 0 || shownCols.length < 2) return;
+    const x0 = e.clientX, base: Record<string, number> = { ...colPx };
+    const min = (c: string) => COL_MIN[c] || 60;
+    // wider: the columns to the right give up space (nearest first), then the ones to the left; narrower: the next column gets the space back
+    const donors = [...shownCols.slice(i + 1), ...shownCols.slice(0, i).reverse()];
+    const heirs = shownCols[i + 1] ? shownCols[i + 1] : shownCols[i - 1];
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      const n = { ...base };
+      let d = ev.clientX - x0;
+      if (d >= 0) {
+        let need = d;
+        for (const c of donors) { const give = Math.min(need, base[c] - min(c)); n[c] = base[c] - give; need -= give; if (need <= 0) break; }
+        n[k] = base[k] + (d - Math.max(0, need));
+      } else {
+        const shrink = Math.min(-d, base[k] - min(k));
+        n[k] = base[k] - shrink; n[heirs] = base[heirs] + shrink;
+      }
+      moved = true; setColW(n);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      if (moved) setColW((prev) => { try { localStorage.setItem(COL_W_KEY, JSON.stringify(prev)); } catch { /* storage blocked */ } return prev; });
+    };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
+  const resetColW = () => { setColW({}); try { localStorage.removeItem(COL_W_KEY); } catch { /* storage blocked */ } };
+
   const columns = {
-    id: visibleColumns.includes('id'),
-    date: visibleColumns.includes('date'),
-    customer: visibleColumns.includes('customer'),
-    project: visibleColumns.includes('project'),
-    size: visibleColumns.includes('size'),
-    slaStatus: visibleColumns.includes('slaStatus'),
-    priority: visibleColumns.includes('priority'),
-    score: visibleColumns.includes('score'),
-    touch: visibleColumns.includes('touch'),
-    status: visibleColumns.includes('status'),
-    assigned: visibleColumns.includes('assigned'),
-    channel: visibleColumns.includes('channel'),
-    leadSource: visibleColumns.includes('leadSource'),
-    customerId: visibleColumns.includes('customerId'),
+    id: effCols.includes('id'),
+    date: effCols.includes('date'),
+    customer: effCols.includes('customer'),
+    project: effCols.includes('project'),
+    size: effCols.includes('size'),
+    slaStatus: effCols.includes('slaStatus'),
+    priority: effCols.includes('priority'),
+    score: effCols.includes('score'),
+    touch: effCols.includes('touch'),
+    status: effCols.includes('status'),
+    assigned: effCols.includes('assigned'),
+    channel: effCols.includes('channel'),
+    leadSource: effCols.includes('leadSource'),
+    customerId: effCols.includes('customerId'),
   };
 
   const columnsList = [
@@ -1563,7 +1657,7 @@ ${user.name || ''}`);
   }, [bulkWon, showSourceEmailModal, deleteConfirmLeadId, deleteConfirmBulk, showLostModal, showWhatsappTemplateModal, showEmailTemplateModal, showInteractionModal, showMergeModal, showAssignModal, showCreateModal, selectedLead]);
 
   // Columns as one string (a memoised row compares it cheaply)
-  const visibleColsKey = useMemo(() => visibleColumns.join(','), [visibleColumns]);
+  const visibleColsKey = useMemo(() => effCols.join(','), [effCols]);
   const canRoute = currentRole !== 'Read Only' && currentRole !== 'Sales Rep';
   const openAssignFor = useCallback((l: Lead) => { setSelectedLead(l); setShowAssignModal(true); }, []);
 
@@ -1905,30 +1999,35 @@ ${user.name || ''}`);
             })}
           </div>
 
-          <div className="overflow-x-auto hidden md:block">
-            <table className="w-full text-left border-collapse">
+          <div ref={tableBoxRef} className="overflow-x-auto hidden md:block">
+            <table className="w-full text-left border-collapse" style={{ tableLayout: 'fixed', minWidth: SEL_W + ACT_W + shownCols.reduce((a, k) => a + (COL_MIN[k] || 60), 0) }}>
+              <colgroup>
+                <col style={{ width: SEL_W }} />
+                {shownCols.map((k) => <col key={k} style={{ width: colPx[k] }} />)}
+                <col style={{ width: ACT_W }} />
+              </colgroup>
               <thead>
-                <tr className="bg-brand-gray/5 border-b border-brand-gray/15 text-brand-gray text-[10px] font-bold uppercase tracking-wider">
-                  <th className="py-4 px-4 w-10">
+                <tr className="bg-brand-gray/5 border-b border-brand-gray/15 text-brand-gray text-[10px] font-bold uppercase tracking-normal">
+                  <th className="py-4 px-2">
                     <button onClick={handleSelectAll} aria-label="Select all leads on this page" title="Select the leads on this page" className="focus:outline-none">
                       {pageAllSelected ? <CheckSquare size={16} className="text-brand-red" /> : <Square size={16} />}
                     </button>
                   </th>
-                  {columns.id && <SortTh field="id" label="Lead ID" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('id' as any)} onSet={(d) => setSort('id' as any, d)} />}
-                  {columns.date && <SortTh field="date" label="Date" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('date' as any)} onSet={(d) => setSort('date' as any, d)} />}
-                  {columns.customer && <SortTh field="customerName" label="Customer" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('customerName' as any)} onSet={(d) => setSort('customerName' as any, d)} />}
-                  {columns.project && <SortTh field="project" label="Project" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('project' as any)} onSet={(d) => setSort('project' as any, d)} />}
-                  {columns.size && <SortTh field="requiredSize" label="Size" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('requiredSize' as any)} onSet={(d) => setSort('requiredSize' as any, d)} right />}
-                  {columns.slaStatus && <SortTh field="slaDeadline" label="SLA Status" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('slaDeadline' as any)} onSet={(d) => setSort('slaDeadline' as any, d)} />}
-                  {columns.priority && <SortTh field="priority" label="Priority" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('priority' as any)} onSet={(d) => setSort('priority' as any, d)} />}
-                  {columns.score && <th className="py-4 px-3">Score</th>}
-                  {columns.touch && <th className="py-4 px-3">Touch</th>}
-                  {columns.status && <SortTh field="status" label="Funnel Status" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('status' as any)} onSet={(d) => setSort('status' as any, d)} />}
-                  {columns.assigned && <SortTh field="assignedSalespersonName" label="Assigned Agent" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('assignedSalespersonName' as any)} onSet={(d) => setSort('assignedSalespersonName' as any, d)} />}
-                  {columns.channel && <SortTh field="channel" label="Channel" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('channel' as any)} onSet={(d) => setSort('channel' as any, d)} />}
-                  {columns.leadSource && <SortTh field="source" label="Lead Source" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('source' as any)} onSet={(d) => setSort('source' as any, d)} />}
-                  {columns.customerId && <th className="py-4 px-3">Customer ID</th>}
-                  <th className="py-4 px-4 text-right w-20">Actions</th>
+                  {columns.id && <SortTh field="id" label="Lead ID" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('id' as any)} onSet={(d) => setSort('id' as any, d)}  handle={<ColGrip onDown={startResize('id')} onReset={resetColW} />} />}
+                  {columns.date && <SortTh field="date" label="Date" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('date' as any)} onSet={(d) => setSort('date' as any, d)}  handle={<ColGrip onDown={startResize('date')} onReset={resetColW} />} />}
+                  {columns.customer && <SortTh field="customerName" label="Customer" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('customerName' as any)} onSet={(d) => setSort('customerName' as any, d)}  handle={<ColGrip onDown={startResize('customer')} onReset={resetColW} />} />}
+                  {columns.project && <SortTh field="project" label="Project" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('project' as any)} onSet={(d) => setSort('project' as any, d)}  handle={<ColGrip onDown={startResize('project')} onReset={resetColW} />} />}
+                  {columns.size && <SortTh field="requiredSize" label="Size" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('requiredSize' as any)} onSet={(d) => setSort('requiredSize' as any, d)} right  handle={<ColGrip onDown={startResize('size')} onReset={resetColW} />} />}
+                  {columns.slaStatus && <SortTh field="slaDeadline" label="SLA Status" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('slaDeadline' as any)} onSet={(d) => setSort('slaDeadline' as any, d)}  handle={<ColGrip onDown={startResize('slaStatus')} onReset={resetColW} />} />}
+                  {columns.priority && <SortTh field="priority" label="Priority" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('priority' as any)} onSet={(d) => setSort('priority' as any, d)}  handle={<ColGrip onDown={startResize('priority')} onReset={resetColW} />} />}
+                  {columns.score && <th className="relative py-4 pl-2 pr-3 overflow-hidden">Score<ColGrip onDown={startResize('score')} onReset={resetColW} /></th>}
+                  {columns.touch && <th className="relative py-4 pl-2 pr-3 overflow-hidden">Touch<ColGrip onDown={startResize('touch')} onReset={resetColW} /></th>}
+                  {columns.status && <SortTh field="status" label="Funnel Status" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('status' as any)} onSet={(d) => setSort('status' as any, d)}  handle={<ColGrip onDown={startResize('status')} onReset={resetColW} />} />}
+                  {columns.assigned && <SortTh field="assignedSalespersonName" label="Assigned Agent" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('assignedSalespersonName' as any)} onSet={(d) => setSort('assignedSalespersonName' as any, d)}  handle={<ColGrip onDown={startResize('assigned')} onReset={resetColW} />} />}
+                  {columns.channel && <SortTh field="channel" label="Channel" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('channel' as any)} onSet={(d) => setSort('channel' as any, d)}  handle={<ColGrip onDown={startResize('channel')} onReset={resetColW} />} />}
+                  {columns.leadSource && <SortTh field="source" label="Lead Source" sortField={sortField as string} dir={sortDirection} onToggle={() => handleSort('source' as any)} onSet={(d) => setSort('source' as any, d)}  handle={<ColGrip onDown={startResize('leadSource')} onReset={resetColW} />} />}
+                  {columns.customerId && <th className="relative py-4 pl-2 pr-3 overflow-hidden">Customer ID<ColGrip onDown={startResize('customerId')} onReset={resetColW} /></th>}
+                  <th className="py-4 px-1 text-right tracking-normal">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-brand-gray/10 text-xs font-medium text-brand-black">
@@ -1959,6 +2058,7 @@ ${user.name || ''}`);
               </tbody>
             </table>
           </div>
+          {autoHidden.length > 0 && <p className="hidden md:block px-4 py-1.5 text-[10.5px] text-brand-gray bg-brand-gray/5 border-t border-brand-gray/10">{autoHidden.length} column{autoHidden.length > 1 ? 's' : ''} hidden to fit this window ({autoHidden.map((k) => columnsList.find((c) => c.key === k)?.label || k).join(', ')}). Widen the window to see {autoHidden.length > 1 ? 'them' : 'it'}.</p>}
           <PagerBar total={filteredLeads.length} page={safePage} pageSize={pageSize} onPage={setPage} onSize={setPageSize} shown={allShown} onMore={() => setAllShown((n) => n + ALL_CHUNK)} />
         </div>
       )}

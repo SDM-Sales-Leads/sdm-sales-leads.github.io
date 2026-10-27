@@ -22,3 +22,18 @@ export function signOff(text: string, name: string): string {
 export const isPhoneDevice = (): boolean => {
   try { return window.matchMedia('(max-width: 767px)').matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent); } catch { return false; }
 };
+
+/** Phone: open the WhatsApp app straight away (whatsapp:// skips the wa.me web page, which phones often leave open instead of switching to the app);
+ *  if the page is still showing after a moment, fall back to the https://wa.me link. */
+export const openWhatsappOnPhone = (digits: string, text: string): void => {
+  const web = `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+  const app = `whatsapp://send?phone=${digits}&text=${encodeURIComponent(text)}`;
+  let left = false;
+  const onHide = () => { if (document.hidden) left = true; };
+  document.addEventListener('visibilitychange', onHide);
+  window.location.href = app;
+  window.setTimeout(() => {
+    document.removeEventListener('visibilitychange', onHide);
+    if (!left && !document.hidden) window.location.href = web;
+  }, 1500);
+};

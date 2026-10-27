@@ -10,7 +10,7 @@ import {
 } from './leadConfig';
 import { statusAfterAction, REQ_FOLLOWUP, isTouchedLead } from './leadConfig';
 import { LoadBar } from './LoadBar';
-import { isPhoneDevice, repNameFromEmail, signOff } from '../../lib/repName';
+import { isPhoneDevice, openWhatsappOnPhone, repNameFromEmail, signOff } from '../../lib/repName';
 import { useBackClose } from '../../lib/backNav';
 import { MultiSelect } from '../ui/MultiSelect';
 import { cleanPersonName, firstNameOf } from '../../lib/personName';
@@ -1406,7 +1406,7 @@ ${user.name || ''}`);
     // Open WhatsApp Web (digits only in the path; the text is URL-encoded)
     const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(whatsappTemplateText)}`;
     const onPhone = isPhoneDevice();
-    if (onPhone) window.location.href = whatsappUrl; else window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    if (onPhone) openWhatsappOnPhone(cleanPhone, whatsappTemplateText); else window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
 
     // Create timeline log event
     const timelineEvent: TimelineEvent = {

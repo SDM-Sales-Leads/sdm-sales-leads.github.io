@@ -77,7 +77,7 @@ async function otherActiveAdmins(exceptId: string) {
 }
 
 route("POST", "/users", async ({ req, c }) => {
-  need(c, "canViewAdminPanel");
+  needAdmin(c);   // 28 Oct 2026: only an administrator creates logins (Sales Operation manages teams, leave and targets)
   const b = await body(req);
   const email = str(b.email, 254).toLowerCase();
   const name = str(b.name, 120);
@@ -176,14 +176,14 @@ route("PUT", "/users/:id", async ({ req, c, params }) => {
   if (b.role !== undefined) {
     const role = str(b.role, 60);
     if (!(await roleExists(role))) throw bad("Unknown role");
-    if (!isAdmin(c) && (cur.id === c.id || (await privileged(role)) || (await privileged(cur.role)))) throw forbidden("Only an administrator can give or change this role (or your own)");
+    if (!isAdmin(c) && role !== cur.role) throw forbidden("Only an administrator can change a person's role");
     if (cur.role === "Admin" && role !== "Admin" && (await otherActiveAdmins(cur.id)) === 0) throw bad("This is the last administrator");
     upd.role = role;
   }
   if (b.active !== undefined) {
     const active = !!b.active;
     if (!active && cur.id === c.id) throw bad("You cannot disable your own account");
-    if (!isAdmin(c) && active !== (cur.active !== false) && (await privileged(cur.role))) throw forbidden("Only an administrator can disable or enable this account");
+    if (!isAdmin(c) && active !== (cur.active !== false)) throw forbidden("Only an administrator can disable or enable an account");
     if (!active && cur.role === "Admin" && (await otherActiveAdmins(cur.id)) === 0) throw bad("This is the last administrator");
     upd.active = active;
     await admin.auth.admin.updateUserById(cur.id, { ban_duration: active ? "none" : "876000h" });
@@ -192,7 +192,7 @@ route("PUT", "/users/:id", async ({ req, c, params }) => {
     const email = str(b.email, 254).toLowerCase();
     if (!isEmail(email)) throw bad("A valid e-mail is required");
     if (email !== cur.email) {
-      if (!isAdmin(c) && (cur.id === c.id || (await privileged(cur.role)))) throw forbidden("Only an administrator can change this e-mail");
+      if (!isAdmin(c)) throw forbidden("Only an administrator can change an e-mail address");
       const r = await admin.auth.admin.updateUserById(cur.id, { email, email_confirm: true });
       if (r.error) throw bad("Could not change the e-mail (already used?)");
       upd.email = email;
@@ -202,12 +202,12 @@ route("PUT", "/users/:id", async ({ req, c, params }) => {
   if (b.password) {
     const p = str(b.password, 72);
     if (!strongPassword(p)) throw bad("Password needs at least 10 characters, with letters and digits");
-    if (!isAdmin(c) && cur.id !== c.id && (await privileged(cur.role))) throw forbidden("Only an administrator can set this password");
+    if (!isAdmin(c) && cur.id !== c.id) throw forbidden("Only an administrator can set another person's password");
     const r = await admin.auth.admin.updateUserById(cur.id, { password: p });
     if (r.error) throw bad("Could not change the password");
     upd.must_change_password = cur.id !== c.id;
   } else if (b.resetPassword === true) {
-    if (!isAdmin(c) && (cur.id === c.id || (await privileged(cur.role)))) throw forbidden("Only an administrator can reset this password");
+    if (!isAdmin(c)) throw forbidden("Only an administrator can reset a password");
     temporaryPassword = randomPassword();
     await admin.auth.admin.updateUserById(cur.id, { password: temporaryPassword });
     upd.must_change_password = true;

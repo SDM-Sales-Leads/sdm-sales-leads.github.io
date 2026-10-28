@@ -12,6 +12,8 @@ import { Upload, Download, Plus, Trash2, Save, Mail, ShieldCheck, Send, Loader2,
 
 export const AdminPanel: React.FC = () => {
   const { user, refreshPermissions } = useAuth();
+  // roles, new logins, e-mails, passwords and account on/off are administrator-only (the server refuses them for anyone else)
+  const isAdm = user?.role === 'Admin';
   const [activeTab, setActiveTab] = useState<'users' | 'system' | 'notifications' | 'styling' | 'roles' | 'lists'>('system');
   const { settings, updateSettings } = useTheme();
   const [users, setUsers] = useState<any[]>([]);
@@ -419,7 +421,8 @@ export const AdminPanel: React.FC = () => {
             <h3 className="font-bold text-xl mb-6 flex items-center gap-2">
               <Plus className="text-brand-red" /> User Management
             </h3>
-            <form onSubmit={handleAddUser} className="grid grid-cols-2 gap-4 mb-8">
+            {!isAdm && <p className="text-xs text-brand-gray mb-4">Only an administrator can add people, change roles, e-mails or passwords, or switch accounts on and off. You can set team leaders, leave and targets.</p>}
+            {isAdm && <form onSubmit={handleAddUser} className="grid grid-cols-2 gap-4 mb-8">
               <input 
                 className="input-field" 
                 placeholder="Full Name" 
@@ -501,7 +504,7 @@ export const AdminPanel: React.FC = () => {
                 />
               )}
               <button type="submit" className="btn-primary col-span-2">Add User</button>
-            </form>
+            </form>}
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -530,7 +533,9 @@ export const AdminPanel: React.FC = () => {
                             />
                             <div className="flex gap-2">
                               <select 
-                                className="text-[10px] font-bold uppercase p-1 rounded border border-black/10"
+                                className="text-[10px] font-bold uppercase p-1 rounded border border-black/10 disabled:opacity-50"
+                                disabled={!isAdm}
+                                title={isAdm ? undefined : 'Only an administrator can change a role'}
                                 value={editUserData.role}
                                 onChange={e => setEditUserData({...editUserData, role: e.target.value})}
                               >
@@ -629,7 +634,7 @@ export const AdminPanel: React.FC = () => {
                         </div>
                       </td>
                       <td className="py-3 text-right">
-                        <button
+                        {isAdm && <button
                           title="Reset password (generates a temporary one)"
                           aria-label={`Reset password for ${u.name}`}
                           onClick={async () => {
@@ -644,7 +649,7 @@ export const AdminPanel: React.FC = () => {
                           className="text-brand-gray hover:text-brand-black transition-colors mr-3"
                         >
                           <Lock size={16} />
-                        </button>
+                        </button>}
                         <button 
                           aria-label={`Delete ${u.name}`}
                           onClick={async () => {

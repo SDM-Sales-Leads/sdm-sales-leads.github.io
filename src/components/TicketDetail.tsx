@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Ticket, TicketStatus, User, Category, SLAConfig } from '../types';
 import { adminService } from '../services/adminService';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../constants';
-import { ticketService } from '../services/ticketService';
+import { ticketService, isAttachmentStub, isTicketStripped } from '../services/ticketService';
 import { useAuth } from '../services/AuthContext';
 import { 
   ArrowLeft, 
@@ -97,9 +97,31 @@ export const TicketDetail: React.FC<TicketDetailProps> = ({ ticket, onBack, onUp
   const [pendingStatus, setPendingStatus] = useState<TicketStatus | null>(null);
   const [statusReason, setStatusReason] = useState('');
 
+  // the list sends tickets without file data: load the full ticket (attachments included) for this view
   useEffect(() => {
     setLocalTicket(ticket);
+    if (!isTicketStripped(ticket)) return;
+    let cancelled = false;
+    ticketService.getTicket(ticket.id)
+      .then(full => { if (!cancelled) setLocalTicket(full); })
+      .catch(err => console.warn('Could not load the full ticket', err));
+    return () => { cancelled = true; };
   }, [ticket]);
+
+  // opens an attachment; if it is still a list stub, fetch the full ticket first and open the real file
+  const openAtt = async (at: string, index: number, entryId?: string) => {
+    if (!isAttachmentStub(at)) return openAttachment(at, index);
+    try {
+      const full = await ticketService.getTicket(localTicket.id);
+      setLocalTicket(full);
+      const list = entryId ? full.history?.find(h => h.id === entryId)?.attachments : full.attachments;
+      const real = list?.[index];
+      if (!real || isAttachmentStub(real)) { toast.error('This attachment could not be opened.'); return; }
+      openAttachment(real, index);
+    } catch (err: any) {
+      toast.error(err?.message || 'This attachment could not be opened.');
+    }
+  };
 
   React.useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -679,7 +701,7 @@ export const TicketDetail: React.FC<TicketDetailProps> = ({ ticket, onBack, onUp
                   {(localTicket.attachments || []).map((at, i) => (
                     <button 
                       key={i} 
-                      onClick={() => openAttachment(at, i)}
+                      onClick={() => openAtt(at, i)}
                       aria-label={`Open attachment ${i + 1}`}
                       className="w-20 h-20 rounded-lg border border-black/5 overflow-hidden hover:border-brand-red transition-all block relative group"
                     >
@@ -826,7 +848,7 @@ export const TicketDetail: React.FC<TicketDetailProps> = ({ ticket, onBack, onUp
                         {entry.attachments.map((at, idx) => (
                           <button 
                             key={idx} 
-                            onClick={() => openAttachment(at, idx)}
+                            onClick={() => openAtt(at, idx, entry.id)}
                             aria-label={`Open attachment ${idx + 1}`}
                             className="w-12 h-12 rounded-lg border border-black/5 overflow-hidden hover:border-brand-red transition-all relative group"
                           >

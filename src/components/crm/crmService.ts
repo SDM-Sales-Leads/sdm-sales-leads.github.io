@@ -4,6 +4,7 @@ import { Lead, Contact, Company, EmailImportLog, QueueSettings, SalespersonTask,
 import { INITIAL_QUEUE_SETTINGS } from './mockData';
 import { phoneIntl } from './leadConfig';
 import { withSideEffects } from './leadRules';
+import { supabase } from '../../lib/supabase';
 
 // Phone number normalizer
 export function normalizePhone(phone: string): string {
@@ -81,6 +82,7 @@ function persistSoon(kind: Kind) {
       else localStorage.setItem(STORE[kind], JSON.stringify(rows));
     } catch { /* quota: the memory copy is used */ }
   }, 1500);
+  saveBigSoon(kind);
 }
 // A version number per list, bumped only when the list really changed. Screens compare it before re-rendering,
 // so a refresh that brought nothing new costs no re-render at all.
@@ -115,6 +117,47 @@ const cursorFrom = (iso: string | null | undefined) => {
   const t = iso ? Date.parse(iso) : NaN;
   return isNaN(t) ? undefined : new Date(t - OVERLAP_MS).toISOString();
 };
+
+// ---- 28 Oct 2026: the lists (4,000+ leads ≈ 1 MB per full download) are kept in IndexedDB per signed-in person (and View as),
+// with their delta cursor, so a reload, a new tab or a new site version asks only for what changed (full reload at most every 4 h) ----
+const IDB = 'sdm-crm-cache';
+let idbP: Promise<IDBDatabase | null> | null = null;
+function idb(): Promise<IDBDatabase | null> {
+  if (!idbP) idbP = new Promise((ok) => {
+    try { const r = indexedDB.open(IDB, 1); r.onupgradeneeded = () => r.result.createObjectStore('lists'); r.onsuccess = () => ok(r.result); r.onerror = () => ok(null); } catch { ok(null); }
+  });
+  return idbP;
+}
+async function cacheKey(kind: Kind): Promise<string | null> {
+  try {
+    const { data } = await supabase.auth.getSession(); const id = data.session?.user?.id; if (!id) return null;
+    let va = ''; try { va = JSON.parse(sessionStorage.getItem('sdm_view_as') || 'null')?.id || ''; } catch { /* none */ }
+    return `${id}|${va}|${kind}`;
+  } catch { return null; }
+}
+async function idbGet(key: string): Promise<any> {
+  const db = await idb(); if (!db) return null;
+  return new Promise((ok) => { try { const r = db.transaction('lists').objectStore('lists').get(key); r.onsuccess = () => ok(r.result || null); r.onerror = () => ok(null); } catch { ok(null); } });
+}
+async function idbPut(key: string, v: any) { const db = await idb(); if (!db) return; try { db.transaction('lists', 'readwrite').objectStore('lists').put(v, key); } catch { /* quota: the memory copy is used */ } }
+/** sign-out: nothing of this person stays in the browser */
+export async function wipeCrmIdb() { const db = await idb(); if (!db) return; try { db.transaction('lists', 'readwrite').objectStore('lists').clear(); } catch { /* ignore */ } }
+const idbTimers: Partial<Record<Kind, ReturnType<typeof setTimeout>>> = {};
+function saveBigSoon(kind: Kind) {
+  if (!DELTA_KINDS.includes(kind)) return;
+  if (idbTimers[kind]) clearTimeout(idbTimers[kind]);
+  idbTimers[kind] = setTimeout(async () => {
+    const rows = memory[kind], c = cursor[kind]; if (!rows || !c) return;
+    const key = await cacheKey(kind); if (key) await idbPut(key, { rows, cursor: c, lastFull: lastFull[kind] || 0 });
+  }, 8000);
+}
+async function restore(kind: Kind): Promise<void> {
+  if (cursor[kind] || !DELTA_KINDS.includes(kind) || (memory[kind] || []).length) return;
+  const key = await cacheKey(kind); if (!key) return;
+  const v = await idbGet(key);
+  if (!v || !Array.isArray(v.rows) || !v.cursor || Date.now() - (v.lastFull || 0) > FULL_EVERY_MS || cursor[kind]) return;
+  write(kind, v.rows); setBaseline(kind, v.rows); cursor[kind] = v.cursor; lastFull[kind] = v.lastFull;
+}
 
 async function pull(kind: Kind): Promise<any[] | null> {
   try {
@@ -307,8 +350,11 @@ export const crmService = {
    * since then are fetched (a full reload happens at most every 15 min). Skips a list while a save of it is running.
    */
   loadAll: async (): Promise<{ ok: boolean }> => {
+    await Promise.all(KINDS.map((k) => restore(k).catch(() => undefined)));   // the browser's copy first: then only the changes travel
     const results = await Promise.all(KINDS.map(async (k) => {
       if (pending[k] > 0) return [k, null, false] as const;
+      // the mail log has no "changes only" mode: re-read it at most every 10 minutes here (its own tab reloads it when opened)
+      if (k === 'email-logs' && Date.now() - (lastFull[k] || 0) < 10 * 60_000) return [k, null, true] as const;
       const fullDue = !cursor[k] || !DELTA_KINDS.includes(k) || Date.now() - (lastFull[k] || 0) > FULL_EVERY_MS;
       if (!fullDue) {
         const d = await pullDelta(k);

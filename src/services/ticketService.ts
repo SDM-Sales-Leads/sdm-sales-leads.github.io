@@ -38,7 +38,20 @@ export interface NewTicket {
   attachments?: string[];
 }
 
+/** The ticket list comes WITHOUT file data: each attachment is a stub "stripped:<mime>;<chars>" (saves egress).
+ *  getTicket(id) returns the full ticket; the server PUT puts a stub back from the stored file, never saves it. */
+export const ATT_STUB = 'stripped:';
+export const isAttachmentStub = (at: unknown) => typeof at === 'string' && at.startsWith(ATT_STUB);
+export const isTicketStripped = (t: Ticket | null | undefined) => !!(t as { attachmentsStripped?: boolean } | null | undefined)?.attachmentsStripped;
+
 export const ticketService = {
+  /** One full ticket (with attachment data); same visibility rules as the list. */
+  getTicket: async (id: string | number): Promise<Ticket> => {
+    const res = await fetchWithTimeout(`/api/tickets/${id}`, {}, 30000);
+    if (!res.ok) await fail(res, 'Ticket not found');
+    return await res.json();
+  },
+
   getTickets: async (): Promise<Ticket[]> => {
     try {
       const res = await fetchWithTimeout('/api/tickets', {}, 15000);
@@ -84,10 +97,7 @@ export const ticketService = {
    */
   updateTicket: async (id: string | number, updates: Partial<Ticket>, actorEmail: string, currentTicket?: Ticket, _slaConfigs?: SLAConfig[]): Promise<Ticket> => {
     let ticket = currentTicket;
-    if (!ticket) {
-      const tickets = await ticketService.getTickets();
-      ticket = tickets.find(t => String(t.id) === String(id));
-    }
+    if (!ticket) ticket = await ticketService.getTicket(id);
     if (!ticket) throw new Error('Ticket not found');
 
     const now = new Date();

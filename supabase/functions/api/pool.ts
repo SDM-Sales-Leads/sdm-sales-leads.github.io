@@ -11,6 +11,12 @@ import { addNotifications } from "./notify.ts";
 const SYSTEM_TEXT = /^(\[merged\]\s*)*(imported from excel|imported via smart paste|auto-assigned|requested area|sole owner set|transferred to|project changed|merged |assigned to |status changed)/i;
 const NOT_A_TOUCH = new Set(["Assignment", "Import", "Creation"]);
 const isCC = (d: any) => /call center/i.test(String(d?.channel || ""));
+// the lead fields fillPool needs: isTouched (leadrules.ts), the pool filter/sort and chooseAgent (requiredSize, channel)
+const LIGHT_FIELDS = ["mergedInto", "assignedSalespersonId", "touched", "status", "firstContactAt", "lastContactDate", "meetingDate", "offerSent", "qualNotes",
+  "comments", "timeline", "channel", "date", "requiredSize"];
+const LIGHT_SEL = LIGHT_FIELDS.map((f) => `j_${f}:data->${f}`).join(",");
+/** rebuilds a partial `data` from the light select (missing keys stay missing, as in the full record); never written back */
+const lightData = (r: any) => { const d: any = {}; for (const f of LIGHT_FIELDS) { const v = r[`j_${f}`]; if (v !== null && v !== undefined) d[f] = v; } return d; };
 
 /** nobody did anything with this lead: still New, no contact, no real comment, no meeting, no offer, no qualification note, no activity */
 export function isUntouched(d: any): boolean {
@@ -51,7 +57,10 @@ export async function fillPool(limit = 300, force = false) {
   if (q.assignmentMethod === "Manual Assignment Only") return { assigned: 0, skipped: "manual assignment only" };
   // when the last run found nobody with a free place, wait 10 minutes before reading the whole pool again (the scheduler calls every 5)
   if (!force) { const st = await getConfig<any>("pool_wait", {}); if (st.until && Date.parse(st.until) > Date.now()) return { assigned: 0, skipped: "nobody has a free place yet" }; }
-  const rows = await pageAll((a, b) => admin.from("crm_leads").select("id,data").is("assigned_to", null).is("deleted_at", null).eq("status", "New").order("id").range(a, b), 20000);
+  // 28 Oct 2026: only the JSON fields the filter / sort / chooseAgent below use are read (less database egress); the full
+  // lead is read only for the leads actually handed out, right before they are written
+  const raw = await pageAll((a, b) => admin.from("crm_leads").select(`id,${LIGHT_SEL}`).is("assigned_to", null).is("deleted_at", null).eq("status", "New").order("id").range(a, b), 20000);
+  const rows = (raw || []).map((r: any) => ({ id: r.id, data: lightData(r) }));
   // a touched lead never goes back to the pool automatically (somebody already spoke to the customer)
   const pool = (rows || []).filter((r: any) => !r.data?.mergedInto && !r.data?.assignedSalespersonId && !isTouched(r.data))
     .sort((x: any, y: any) => Number(isCC(y.data)) - Number(isCC(x.data)) || String(x.data?.date || "").localeCompare(String(y.data?.date || "")) || String(x.id).localeCompare(String(y.id)));
@@ -69,7 +78,16 @@ export async function fillPool(limit = 300, force = false) {
     }
     if (misses >= 15 && !picks.length && !assigned) break;
     const now = nowIso();
-    await Promise.all(picks.map(async ({ r, agent }) => {
+    // the full record of the picked leads (never write the light copy back)
+    const full = new Map<string, any>();
+    if (picks.length) {
+      const { data: fr } = await admin.from("crm_leads").select("id,data").in("id", picks.map((p) => p.r.id)).is("assigned_to", null).is("deleted_at", null);
+      for (const x of fr || []) if (x?.data) full.set(x.id, x.data);   // a failed read = nothing written for this part (like a failed update)
+    }
+    await Promise.all(picks.map(async ({ r: r0, agent }) => {
+      const fd = full.get(r0.id);
+      if (!fd) return;                                   // taken or deleted meanwhile: skip
+      const r = { id: r0.id, data: fd };
       const d = { ...r.data, assignedSalespersonId: agent.id, assignedSalespersonName: agent.name, assignedDate: now, lastUpdated: now,
         timeline: [...(r.data.timeline || []), { id: rid(), timestamp: now, type: "Assignment", user: "System", title: "Assigned from the pool", description: `Assigned to ${agent.name} from the pool (oldest first, ${q.assignmentMethod}).` }] };
       const u = await admin.from("crm_leads").update({ data: d, assigned_to: asUuid(agent.id) }).eq("id", r.id).is("assigned_to", null).select("id");

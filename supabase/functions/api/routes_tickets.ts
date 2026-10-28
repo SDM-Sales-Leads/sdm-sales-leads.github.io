@@ -37,9 +37,32 @@ const cols = (d: any) => ({
   status: STATUSES.includes(d.status) ? d.status : "New",
 });
 
+// The list never carries file data (it burns egress on every load): each attachment becomes a short stub
+// "stripped:<mime>;<chars>" so the UI can still show a paperclip and a count. GET /tickets/:id returns the full ticket.
+export const ATT_STUB = "stripped:";
+const stubOf = (x: any) => {
+  if (typeof x !== "string" || x.startsWith(ATT_STUB)) return x;
+  const m = /^data:([^;,]*)/.exec(x);
+  return `${ATT_STUB}${m ? m[1] : ""};${x.length}`;
+};
+const stripList = (a: any) => Array.isArray(a) ? a.map(stubOf) : a;
+function stripTicket(t: any) {
+  const out: any = { ...t, attachments: stripList(t.attachments), attachmentsStripped: true };
+  if (Array.isArray(t.history)) out.history = t.history.map((h: any) => h && Array.isArray(h.attachments) ? { ...h, attachments: stripList(h.attachments) } : h);
+  return out;
+}
+
 route("GET", "/tickets", async ({ c }) => {
   const data = await pageAll((a, b) => admin.from("tickets").select("*").order("id", { ascending: false }).range(a, b));
-  return (data || []).filter((r: any) => canSeeTicket(c, r)).map(toTicket);
+  return (data || []).filter((r: any) => canSeeTicket(c, r)).map((r: any) => stripTicket(toTicket(r)));
+});
+
+route("GET", "/tickets/:id", async ({ c, params }) => {
+  const id = Number(params.id);
+  if (!Number.isInteger(id)) throw bad("Invalid ticket id");
+  const { data: row } = await admin.from("tickets").select("*").eq("id", id).maybeSingle();
+  if (!row || !canSeeTicket(c, row)) throw notFound("Ticket not found");
+  return toTicket(row);
 });
 
 function checkAttachments(a: any): string[] {
@@ -151,7 +174,12 @@ route("PUT", "/tickets/:id", async ({ req, c, params }) => {
     if (!u || !u.active) throw bad("Unknown assignee");
     neu.assignedTo = a; neu.assignedToName = u.name;
   } else if (b.assignedTo !== undefined) { neu.assignedTo = null; neu.assignedToName = null; }
-  if (b.attachments !== undefined) neu.attachments = checkAttachments(neu.attachments);
+  if (b.attachments !== undefined) {
+    // a stub from the list ("stripped:...") is never saved: it is put back from the stored file at the same place
+    const oa = Array.isArray(old.attachments) ? old.attachments : [];
+    if (Array.isArray(neu.attachments)) neu.attachments = neu.attachments.map((x: any, i: number) => typeof x === "string" && x.startsWith(ATT_STUB) ? oa[i] : x).filter((x: any) => typeof x === "string" && !x.startsWith(ATT_STUB));
+    neu.attachments = checkAttachments(neu.attachments);
+  }
 
   // history is append-only: everything old must still be there, in order
   if (b.history !== undefined) {
@@ -161,7 +189,7 @@ route("PUT", "/tickets/:id", async ({ req, c, params }) => {
     if (!prefix || nh.length - oh.length > 20) throw bad("Ticket history cannot be rewritten");
     neu.history = nh.map((h: any, i: number) => i < oh.length ? oh[i] : {
       id: rid(), action: str(h.action, 200), actor: c.email, date: nowIso(), note: h.note ? str(h.note, 5000) : undefined,
-      isInternal: staff ? !!h.isInternal : false, attachments: Array.isArray(h.attachments) ? h.attachments.slice(0, 5).map((x: any) => String(x).slice(0, 2_000_000)) : undefined,
+      isInternal: staff ? !!h.isInternal : false, attachments: Array.isArray(h.attachments) ? h.attachments.filter((x: any) => !String(x).startsWith(ATT_STUB)).slice(0, 5).map((x: any) => String(x).slice(0, 2_000_000)) : undefined,
     });
   }
   const sla = await slaHours();

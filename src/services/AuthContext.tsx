@@ -3,6 +3,7 @@ import { markReload } from '../lib/telemetry';
 import { User, RolePermissions } from '../types';
 import { supabase } from '../lib/supabase';
 import { wipeCrmCache } from '../lib/storageGuard';
+import { wipeCrmIdb } from '../components/crm/crmService';
 import { fetchWithTimeout } from '../lib/fetchUtils';
 import { startIdleWatch, markActive } from '../lib/idleLogout';
 
@@ -49,7 +50,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setPermissions(null);
     setMustChange(false);
-    wipeCrmCache();
+    wipeCrmCache(); void wipeCrmIdb();
     try { sessionStorage.removeItem('sdm_view_as'); } catch { /* ignore */ }
   }, []);
 

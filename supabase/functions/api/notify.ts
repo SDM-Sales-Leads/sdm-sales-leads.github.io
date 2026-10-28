@@ -220,14 +220,21 @@ export const isEngagedRow = (d: any): boolean => {
   return Array.isArray(d?.timeline) && d.timeline.some((t: any) => REAL_EVENTS.includes(t?.type));
 };
 
+// 28 Oct 2026: escalateCallCenter reads only the lead fields it uses (isEngagedRow, the 24/48-hour clock, the alert text), not the whole lead
+const CC_FIELDS = ["status", "firstContactAt", "lastContactDate", "offerSent", "meetingDate", "timeline", "date", "assignedDate",
+  "customerName", "assignedSalespersonName", "phoneNumber", "project"];
+const CC_SEL = CC_FIELDS.map((f) => `j_${f}:data->${f}`).join(",");
+const ccData = (r: any) => { const d: any = {}; for (const f of CC_FIELDS) { const v = r[`j_${f}`]; if (v !== null && v !== undefined) d[f] = v; } return d; };
+
 export async function escalateCallCenter() {
   const now = Date.now();
   const hour = +(CAIRO_PARTS(new Date(now)) as any).hour;
   if (hour < 7 || hour >= 23) return { ccSkipped: "outside 07:00-23:00 Cairo" };
   // 21 Oct 2026: only the last 3 days are read (it used to read the whole call-center history, capped at 800, and missed today's leads)
   const since72 = new Date(now - 73 * 3600_000).toISOString();
-  const { data } = await admin.from("crm_leads").select("id,assigned_to,data").is("deleted_at", null).not("assigned_to", "is", null).ilike("data->>channel", "%call center%")
+  const { data: raw } = await admin.from("crm_leads").select(`id,assigned_to,${CC_SEL}`).is("deleted_at", null).not("assigned_to", "is", null).ilike("data->>channel", "%call center%")
     .or(`data->>assignedDate.gte.${since72},data->>date.gte.${since72}`).limit(3000);
+  const data = (raw || []).map((r: any) => ({ id: r.id, assigned_to: r.assigned_to, data: ccData(r) }));
   const late: any[] = [];
   for (const l of data || []) {
     const d = l.data || {};
@@ -238,7 +245,8 @@ export async function escalateCallCenter() {
     if (hrs >= 24 && hrs <= 72) late.push({ l, d, hrs, start });         // older than 3 days = history, never alerted
   }
   // call center leads nobody owns yet: Sales Operation is told after 4 hours, so the owner still has time inside the 24
-  const { data: orphans } = await admin.from("crm_leads").select("id,data").is("deleted_at", null).is("assigned_to", null).ilike("data->>channel", "%call center%").gte("data->>date", new Date(now - 73 * 3600_000).toISOString().slice(0, 10)).limit(2000);
+  const { data: orphRaw } = await admin.from("crm_leads").select(`id,${CC_SEL}`).is("deleted_at", null).is("assigned_to", null).ilike("data->>channel", "%call center%").gte("data->>date", new Date(now - 73 * 3600_000).toISOString().slice(0, 10)).limit(2000);
+  const orphans = (orphRaw || []).map((r: any) => ({ id: r.id, data: ccData(r) }));
   const lonely = (orphans || []).filter((l: any) => !CC_CLOSED.has(l.data?.status) && !isEngagedRow(l.data) && (() => { const h = (now - (Date.parse(l.data?.date) || 0)) / 3600_000; return h >= 4 && h <= 72; })());
   if (lonely.length) {
     const lk = lonely.map((l: any) => `ccun:${l.id}`); const seenL = new Set<string>();

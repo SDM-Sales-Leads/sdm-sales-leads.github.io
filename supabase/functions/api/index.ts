@@ -85,6 +85,9 @@ async function handle(req: Request): Promise<Response> {
     if (!m.route.isPublic) {
       c = await getCaller(req);
       const as = req.headers.get("x-view-as");
+      // 28 Oct 2026: users and admin settings are read-only under View as too (the page already refuses these; crash reports stay allowed)
+      if (as && c.role === "Admin" && as !== c.id && req.method !== "GET" && req.method !== "HEAD" && /^\/(users|admin)/.test(path) && !/^\/admin\/report-error/.test(path))
+        return wrap(json({ error: "View as is read-only. Exit View as to make changes." }, 403));
       if (as && c.role === "Admin" && !/^\/(users|admin|auth)/.test(path) && as !== c.id) {
         // 21 Oct 2026: View as is for looking only - a change made while viewing as someone would be recorded in their name
         if (req.method === "GET") c = await viewAsCaller(c, as);

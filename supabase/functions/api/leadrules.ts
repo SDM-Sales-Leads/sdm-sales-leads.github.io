@@ -15,7 +15,7 @@ export const ALL_STATUSES = new Set([...TEAM_STATUSES, ...LEGACY_STATUSES]);
 export const CUSTOM_STATUSES = new Set<string>();
 
 /** fields only Sales Operation / admin may change on an existing lead (identity and origin of the lead) */
-export const PROTECTED_FOR_REPS = ["source", "channel", "phoneNumber", "email", "date", "priority", "legacyId", "legacyOwnerName", "srcOriginal", "contract"];
+export const PROTECTED_FOR_REPS = ["source", "channel", "phoneNumber", "email", "date", "priority", "assignedDate", "legacyId", "legacyOwnerName", "srcOriginal", "contract"];
 /** fields only accounts receivable (or operations) may change */
 const CASH_FIELDS = ["cashStatus", "cashBy", "cashDate"];
 

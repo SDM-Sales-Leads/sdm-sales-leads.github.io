@@ -250,7 +250,7 @@ lbRoute("POST", "/integration/offer-printed", async ({ req, c }) => {
       if (!cur) break;
       const now = nowIso();
       const d = { ...cur.data };
-      d.timeline = [...(Array.isArray(d.timeline) ? d.timeline : []).slice(-1000), {
+      d.timeline = [...(Array.isArray(d.timeline) ? d.timeline : []), {
         id: rid(), timestamp: now, type: "Offer", user: c.name, title: `Offer printed (${label}) for ${codes}`.slice(0, 200),
         description: `${label} printed in the Land Bank${total ? `, total ${Math.round(total).toLocaleString("en-US")} EGP` : ""}${summary !== `${label} for ${codes}` ? `. ${summary}` : ""}`.slice(0, 600),
       }];

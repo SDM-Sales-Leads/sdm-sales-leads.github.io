@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CheckCircle2, Copy, Mail, MessageCircle, Send, X } from 'lucide-react';
 import type { Lead } from './types';
@@ -35,12 +35,29 @@ export const CrmBulkMessage: React.FC<{ leads: Lead[]; mode: 'whatsapp' | 'email
   const [tpl, setTpl] = useState('auto');
   const [lang, setLang] = useState<WaLang>(getWaLang());
   const msgFor = (l: Lead) => signOff(waFill(waCompose(tpl === 'auto' ? suggestTemplate(l) : tpl, lang), l, myName, { date: l.meetingDate || l.nextFollowUpDate || '', time: l.meetingTime || l.nextFollowUpTime || '' }), myName);
+  // How the chat opens. "app": the WhatsApp app on this computer / phone — the chat opens at once with the message written, no page
+  // reload, no new tab (fastest). "web": WhatsApp Web, always in the SAME tab (a new tab per chat makes WhatsApp Web log the others out).
+  const isPhone = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const [via, setVia] = useState<'app' | 'web'>(() => { try { const v = localStorage.getItem('sdm.waVia'); if (v === 'app' || v === 'web') return v; } catch { /* none */ } return isPhone ? 'app' : 'web'; });
+  const pickVia = (v: 'app' | 'web') => { setVia(v); try { localStorage.setItem('sdm.waVia', v); } catch { /* ignore */ } };
   const openWa = (l: Lead) => {
-    const m = msgFor(l);
-    window.open(`https://wa.me/${digits(l.phoneNumber)}?text=${encodeURIComponent(m)}`, '_blank', 'noopener,noreferrer');
+    const m = msgFor(l), ph = digits(l.phoneNumber);
+    if (via === 'app') window.location.href = `whatsapp://send?phone=${ph}&text=${encodeURIComponent(m)}`;
+    else { const w = window.open(`https://web.whatsapp.com/send?phone=${ph}&text=${encodeURIComponent(m)}`, 'sdm-whatsapp'); try { if (w) w.opener = null; } catch { /* ignore */ } }
     mark(l, 'whatsapp', m);
   };
-  const nextWa = leads.find((l) => validWa(l) && !done.has(l.id));
+  const ready = useMemo(() => leads.filter(validWa), [leads]);
+  const nextWa = ready.find((l) => !done.has(l.id));
+  // the batch: the next 10 not yet opened, numbered, so the person works through them quickly (press N for the next one)
+  const batch = useMemo(() => ready.filter((l) => !done.has(l.id)).slice(0, 10), [ready, done]);
+  const nextRef = useRef<Lead | undefined>(undefined); nextRef.current = nextWa;
+  useEffect(() => {
+    if (mode !== 'whatsapp') return;
+    const k = (e: KeyboardEvent) => { const t = e.target as HTMLElement; if (t && /INPUT|TEXTAREA|SELECT/.test(t.tagName)) return;
+      if ((e.key === 'n' || e.key === 'N') && !e.metaKey && !e.ctrlKey && nextRef.current) { e.preventDefault(); openWa(nextRef.current); } };
+    window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
+  });
+  const copyMsg = async (l: Lead) => { try { await navigator.clipboard.writeText(msgFor(l)); toast.success('Message copied'); } catch { toast.error('Copy failed'); } };
 
   // ---------------- e-mail ----------------
   const [subject, setSubject] = useState('Elsewedy Industrial Development');
@@ -80,11 +97,34 @@ export const CrmBulkMessage: React.FC<{ leads: Lead[]; mode: 'whatsapp' | 'email
                   {(Object.keys(WA_LANGS) as WaLang[]).map((k) => <option key={k} value={k}>{WA_LANGS[k]}</option>)}
                 </select>
               </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-brand-gray">Open chats in</span>
+                {([['app', 'WhatsApp app (fastest)'], ['web', 'WhatsApp Web']] as const).map(([v, l]) => (
+                  <button key={v} type="button" onClick={() => pickVia(v)} className={`px-3 py-1.5 rounded-xl font-bold border ${via === v ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-brand-gray/30 text-brand-black hover:border-emerald-600'}`}>{l}</button>
+                ))}
+              </div>
+              <p className="text-[11px] text-brand-gray">{via === 'app'
+                ? <>The chat opens straight in the WhatsApp app with the message written: press <b>Enter</b> in WhatsApp, come back and press <b>N</b> for the next one. Needs the free WhatsApp app on this computer (whatsapp.com/download) and signed in once.</>
+                : <>Every chat opens in the same WhatsApp Web tab (a new tab per chat would sign the others out). Press Send there, come back and press <b>N</b> for the next one.</>}</p>
               <div className="flex items-center gap-3">
-                <button type="button" disabled={!nextWa} onClick={() => nextWa && openWa(nextWa)} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-extrabold px-5 py-3 rounded-xl inline-flex items-center gap-2 text-sm"><Send size={16} />{nextWa ? `Open next chat: ${nextWa.customerName}` : 'All done'}</button>
+                <button type="button" disabled={!nextWa} onClick={() => nextWa && openWa(nextWa)} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-extrabold px-5 py-3 rounded-xl inline-flex items-center gap-2 text-sm"><Send size={16} />{nextWa ? `Open next (N): ${nextWa.customerName}` : 'All done'}</button>
                 <span className="font-bold text-brand-gray">{[...done].length} of {total} opened</span>
               </div>
-              <p className="text-[11px] text-brand-gray">WhatsApp does not allow one message to many people at once, so each tap opens that customer's chat with the message already written. Press Send in WhatsApp and come back: the contact is logged on the lead and its status moves to "Sent WhatsApp".</p>
+              {batch.length > 0 && (
+                <div className="rounded-xl border-2 border-emerald-600/40 bg-emerald-50/40">
+                  <div className="px-3 py-2 font-extrabold text-emerald-800 text-[12px]">Next {batch.length} ready to send</div>
+                  {batch.map((l, i) => (
+                    <div key={l.id} className="flex items-center gap-3 px-3 py-2 border-t border-emerald-600/15">
+                      <span className="w-6 h-6 rounded-full bg-emerald-600 text-white text-[11px] font-extrabold flex items-center justify-center shrink-0">{i + 1}</span>
+                      <div className="min-w-0 flex-1"><div className="font-bold text-brand-black truncate">{l.customerName || l.id} <span className="font-mono font-normal text-brand-gray">· {l.phoneNumber}</span></div>
+                        <div className="text-[11px] text-brand-gray line-clamp-1" dir="auto">{msgFor(l)}</div></div>
+                      <button type="button" onClick={() => copyMsg(l)} aria-label="Copy the message" title="Copy the message" className="shrink-0 text-brand-gray hover:text-brand-black p-1.5"><Copy size={14} /></button>
+                      <button type="button" onClick={() => openWa(l)} className="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg">Send</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-[11px] text-brand-gray">WhatsApp does not allow one message to many people from a normal account, so each customer still needs one press of Send — everything else is ready. Each opened chat is logged on the lead and its status moves to "Sent WhatsApp".</p>
               <div className="divide-y divide-brand-gray/10 border border-brand-gray/15 rounded-xl">
                 {leads.map((l) => (
                   <div key={l.id} className="flex items-center gap-3 px-3 py-2.5">

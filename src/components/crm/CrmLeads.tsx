@@ -2,6 +2,7 @@ import { cairoTimeHM } from '../../lib/cairoTime';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Lead, Contact, Company, LeadStatus, LeadPriority, LostReason, CommentNote, Attachment, TimelineEvent } from './types';
 import { toast } from 'sonner';
+import { REP_LIKE } from '../navGroups';
 import { LeadPlotsPanel } from './LeadPlotsPanel';
 import { ColumnSelector } from './ColumnSelector';
 import { crmService, normalizePhone } from './crmService';
@@ -1586,10 +1587,25 @@ ${user.name || ''}`);
   const canSeePrivate = (author: string) => isAdmin || author === user?.name || !['Sales Rep', 'Read Only'].includes(user?.role || currentRole);
   const visibleComments = (selectedLead?.comments || []).filter(c => !c.isPrivate || canSeePrivate(c.user));
 
+  // Who may export what: admins and roles with the export right export the list on screen; a sales rep only the leads assigned
+  // to them, a team leader only the leads of their team (themselves and their members). The filters on screen still apply.
+  const exportScope: 'all' | 'team' | 'own' | null = (() => {
+    if (isAdmin || permissions?.canExportLeads === true) return 'all';
+    const role = user?.role || currentRole;
+    if (role === 'Sales Team Leader') return 'team';
+    if (REP_LIKE.includes(role)) return 'own';
+    return null;
+  })();
   // Export to CSV helper
   const exportToCSV = () => {
+    if (!exportScope) return;
+    const myId = user ? String(user.id) : '';
+    const mine = new Set<string>([myId]);
+    if (exportScope === 'team') for (const s of salespeople as any[]) if (String(s.teamLeaderId) === myId) mine.add(String(s.id));
+    const list = exportScope === 'all' ? filteredLeads : filteredLeads.filter((l) => !!l.assignedSalespersonId && mine.has(String(l.assignedSalespersonId)));
+    if (!list.length) { toast.error(exportScope === 'own' ? 'No leads assigned to you in this list' : exportScope === 'team' ? "No leads of your team in this list" : 'Nothing to export'); return; }
     const headers = ['Lead ID', 'Date', 'Channel', 'Source', 'Project', 'Customer', 'Phone', 'Email', 'Company', 'Size (sqm)', 'SLA Status', 'Priority', 'Status', 'Salesperson', 'SLA Deadline', 'Lost Reason', 'Lost Comment'];
-    const rows = filteredLeads.map(l => [
+    const rows = list.map(l => [
       l.id,
       l.date,
       channelOf(l) === NO_CHANNEL ? '' : channelOf(l),
@@ -1617,11 +1633,12 @@ ${user.name || ''}`);
     
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `CRM_Leads_Report_${localISO(new Date())}.csv`);
+    link.setAttribute("download", `CRM_Leads_${exportScope === 'own' ? 'My_Leads_' : exportScope === 'team' ? 'My_Team_' : 'Report_'}${localISO(new Date())}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    toast.success(`Exported ${list.length.toLocaleString('en-US')} lead${list.length === 1 ? '' : 's'}`);
   };
 
   // Calendar days for the selected month
@@ -1768,14 +1785,16 @@ ${user.name || ''}`);
             onChange={setVisibleColumns}
           />
 
-          {(isAdmin || permissions?.canExportLeads === true) && (
+          {exportScope && (
             <button
               onClick={exportToCSV}
               className="bg-white hover:bg-brand-gray/5 border border-brand-gray/25 text-brand-black px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
-              title="Download the leads you see now (with the filters you set) as a CSV file"
+              title={exportScope === 'own' ? 'Download the leads assigned to you (with the filters you set) as a CSV file'
+                : exportScope === 'team' ? "Download your team's leads (with the filters you set) as a CSV file"
+                : 'Download the leads you see now (with the filters you set) as a CSV file'}
             >
               <Download size={14} />
-              <span>Export</span>
+              <span>{exportScope === 'own' ? 'Export my leads' : exportScope === 'team' ? 'Export my team' : 'Export'}</span>
             </button>
           )}
           {isAdmin && (

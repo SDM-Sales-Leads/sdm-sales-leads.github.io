@@ -5,7 +5,7 @@ import {
   getSecret, need, needAdmin, notFound, nowIso, rateLimit, setConfig, setSecret, str, UUID_RE, Caller, isObj,
 } from "./lib.ts";
 import { route } from "./router.ts";
-import { appBase } from "./notify.ts";
+import { appBase, notifyOnHold } from "./notify.ts";
 import { loadEws, sendMail, validHost, verify } from "./ews.ts";
 import { canSeeTicket } from "./routes_tickets.ts";
 
@@ -183,6 +183,7 @@ route("PUT", "/users/:id", async ({ req, c, params }) => {
   if (b.active !== undefined) {
     const active = !!b.active;
     if (!active && cur.id === c.id) throw bad("You cannot disable your own account");
+    if (!isAdmin(c) && active !== (cur.active !== false) && (await privileged(cur.role))) throw forbidden("Only an administrator can disable or enable this account");
     if (!active && cur.role === "Admin" && (await otherActiveAdmins(cur.id)) === 0) throw bad("This is the last administrator");
     upd.active = active;
     await admin.auth.admin.updateUserById(cur.id, { ban_duration: active ? "none" : "876000h" });
@@ -612,6 +613,11 @@ route("POST", "/notify", async ({ req, c }) => {
 </div>
 <div style="background:#f1f1f1;padding:12px;text-align:center;font-size:12px;color:#888">Automated message. Please do not reply.</div>
 </div></div>`;
+  // the hold switch blocks EVERY outgoing notification e-mail (this path used to ignore it)
+  if (await notifyOnHold()) {
+    await admin.from("notification_logs").insert({ to_email: to, subject, status: "skipped", error: "Notifications on hold", ticket_id: String(ticketId), type: "Ticket Update" });
+    return { success: true, simulated: true, onHold: true };
+  }
   let cfgOk = true;
   try { await loadEws(); } catch { cfgOk = false; }
   if (!cfgOk) {

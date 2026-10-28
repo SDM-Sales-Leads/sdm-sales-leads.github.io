@@ -13,6 +13,9 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
+// a missing or broken date shows "—", never "Invalid Date"
+const dateOf = (iso?: string) => { const d = iso ? new Date(iso) : null; return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString() : '—'; };
+
 interface TicketListProps {
   tickets: Ticket[];
   onSelect: (ticket: Ticket) => void;
@@ -149,7 +152,7 @@ export const TicketList: React.FC<TicketListProps> = ({ tickets, onSelect }) => 
                     <p className="text-brand-red font-bold mt-1">CRM Contact: {t.crmContactName}</p>
                   )}
                 </div>
-                <p>{new Date(t.createdAt).toLocaleDateString()}</p>
+                <p>{dateOf(t.createdAt)}</p>
               </div>
             </motion.div>
           ))
@@ -209,7 +212,7 @@ export const TicketList: React.FC<TicketListProps> = ({ tickets, onSelect }) => 
                         )}
                       </div>
                       <p className="font-semibold text-brand-black line-clamp-1">{t.title}</p>
-                      <p className="text-[10px] text-brand-gray mt-1">Created: {new Date(t.createdAt).toLocaleDateString()}</p>
+                      <p className="text-[10px] text-brand-gray mt-1">Created: {dateOf(t.createdAt)}</p>
                     </td>
                     <td className="px-6 py-4">
                       <p className="font-medium">{t.type}</p>

@@ -313,6 +313,12 @@ route("PUT", "/workflow-requests/:id", async ({ req, c, params }) => {
   } else {
     need(c, "canEditWorkflow");
     if (!deptAllowed(c, "allowedDepartmentsToCreate", old.department) && !deptAllowed(c, "allowedDepartmentsToApprove", old.department)) throw forbidden();
+    // a full edit may not move the workflow to a department the editor cannot create for, nor change its status without approval rights
+    if (b.department !== undefined && b.department !== old.department && !deptAllowed(c, "allowedDepartmentsToCreate", str(b.department, 80))) throw forbidden("You cannot create workflows for " + (str(b.department, 80) || "this department"));
+    if (b.status !== undefined && b.status !== (old.status ?? row.status ?? "Draft")) {
+      if (!can(c, "canApproveWorkflow") || !deptAllowed(c, "allowedDepartmentsToApprove", old.department)) throw forbidden("You cannot approve workflows of " + old.department);
+      if (!["Draft", "Aligned", "Finalized"].includes(b.status)) throw bad("Unknown status");
+    }
     if (b.steps !== undefined && (!Array.isArray(b.steps) || b.steps.length > 100)) throw bad("Steps must be a list (max 100)");
   }
   const now = nowIso();

@@ -15,7 +15,7 @@ async function visibleLead(c: Caller, id: string) {
   const scope = crmScope(c);
   if (scope === "all" || scope === "viewall") return ex;
   if (scope === "finance") return ex.status === "Won" ? ex : null;
-  if (ex.assigned_to === c.id || ex.created_by === c.id) return ex;
+  if (ex.assigned_to === c.id || (ex.created_by === c.id && !ex.assigned_to)) return ex;   // same as the list: the creator only while nobody owns it
   if (scope === "team" && ex.assigned_to && (await teamIds(c)).includes(ex.assigned_to)) return ex;
   return null;
 }

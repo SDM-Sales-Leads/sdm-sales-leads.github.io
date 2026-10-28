@@ -4,6 +4,8 @@
 const LIMIT = 60 * 60_000, WARN = 55 * 60_000, KEY = 'sdm.lastActive', FLAG = 'sdm.autoLogout';
 
 export const AUTO_LOGOUT_FLAG = FLAG;
+/** a fresh sign-in is activity: without this the last-active time of the previous (timed-out) session signs the person out again within seconds */
+export function markActive() { try { localStorage.setItem(KEY, String(Date.now())); } catch { /* ignore */ } }
 /** true once, if the person was just signed out by this rule (the flag is consumed) */
 export function takeAutoLogoutNotice(): boolean {
   try { if (localStorage.getItem(FLAG)) { localStorage.removeItem(FLAG); return true; } } catch { /* ignore */ }

@@ -14,11 +14,13 @@ const plus = (iso: string, n: number) => { const d = new Date(iso + 'T00:00:00')
 export const GlassHome: React.FC = () => {
   const { user } = useAuth();
   const [, bump] = useState(0);
+  // until the first load answers (and nothing is in memory yet) the cards show "—", not a made-up 0
+  const [ready, setReady] = useState(() => crmService.getLeads().length > 0);
   useEffect(() => {
-    const f = () => bump((n) => n + 1);
+    const f = () => { if (crmService.getLeads().length) setReady(true); bump((n) => n + 1); };
     window.addEventListener('crm-data-changed', f);
     // Home is the landing page: it loads and keeps refreshing by itself (it used to wait for the Leads page to be opened)
-    void crmService.loadAll().then(f);
+    void crmService.loadAll().then((r) => { if (r.ok || crmService.getLeads().length) setReady(true); f(); });
     const stop = crmService.startAutoRefresh();
     return () => { window.removeEventListener('crm-data-changed', f); stop(); };
   }, []);
@@ -50,7 +52,7 @@ export const GlassHome: React.FC = () => {
   const kpi = (label: string, value: number, sub: string, Icon: any, leads: any[]) => (
     <button type="button" onClick={() => go(label, leads)} className="glass-card text-left p-4 group">
       <div className="flex items-center justify-between"><span className="text-[12px] font-bold text-brand-black">{label}</span><span className="w-7 h-7 rounded-full bg-brand-red/10 text-brand-red flex items-center justify-center"><Icon size={14} /></span></div>
-      <div className="mt-3 text-[28px] leading-none font-extrabold text-brand-red tabular-nums">{value.toLocaleString('en-US')}</div>
+      <div className="mt-3 text-[28px] leading-none font-extrabold text-brand-red tabular-nums">{ready ? value.toLocaleString('en-US') : '—'}</div>
       <div className="mt-1.5 text-[11px] font-semibold text-brand-gray flex items-center justify-between">{sub}<ArrowUpRight size={13} className="opacity-0 group-hover:opacity-100 transition-opacity" /></div>
     </button>
   );
@@ -59,7 +61,7 @@ export const GlassHome: React.FC = () => {
       {/* people who phoned us and wait for a call back: the first thing everybody who owns them sees */}
       <CrmCallCenter leads={crmService.getLeads() as any[]} onOpen={(l) => window.dispatchEvent(new CustomEvent('app-open-lead', { detail: { id: l.id } }))} />
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        {kpi('Open leads', d.open.length, `${d.total.toLocaleString('en-US')} assigned to you`, Users, d.open)}
+        {kpi('Open leads', d.open.length, `${ready ? d.total.toLocaleString('en-US') : '—'} assigned to you`, Users, d.open)}
         {kpi('Follow-ups due', d.due.length, 'Today or overdue', PhoneCall, d.due)}
         {kpi('Meetings & visits', d.meet.length, 'Next 7 days', CalendarClock, d.meet)}
         {kpi('Won deals', d.won.length, 'All time', Trophy, d.won)}

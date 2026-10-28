@@ -36,7 +36,7 @@ export const ChangePassword: React.FC = () => {
     if (a !== b) return setError('The two passwords do not match.');
     setBusy(true);
     try {
-      await post('/auth/reset', { email: user?.email || '', code: code.trim(), password: a });
+      await post('/auth/reset', { email: user?.email || '', code: code.replace(/\s/g, ''), password: a });
       await refreshPermissions();
     } catch (err: any) { setError(err.message || 'Could not change the password.'); }
     finally { setBusy(false); }

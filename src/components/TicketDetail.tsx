@@ -516,14 +516,14 @@ export const TicketDetail: React.FC<TicketDetailProps> = ({ ticket, onBack, onUp
                 <Clock size={16} className="text-brand-gray" />
                 <div>
                   <p className="text-[10px] text-brand-gray font-bold uppercase">Created</p>
-                  <p className="text-xs font-medium">{new Date(localTicket.createdAt).toLocaleDateString()}</p>
+                  <p className="text-xs font-medium">{localTicket.createdAt && !isNaN(new Date(localTicket.createdAt).getTime()) ? new Date(localTicket.createdAt).toLocaleDateString() : '—'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <History size={16} className="text-brand-gray" />
                 <div>
                   <p className="text-[10px] text-brand-gray font-bold uppercase">Last Update</p>
-                  <p className="text-xs font-medium">{new Date(localTicket.updatedAt).toLocaleDateString()}</p>
+                  <p className="text-xs font-medium">{localTicket.updatedAt && !isNaN(new Date(localTicket.updatedAt).getTime()) ? new Date(localTicket.updatedAt).toLocaleDateString() : '—'}</p>
                 </div>
               </div>
               {localTicket.crmContactName && (

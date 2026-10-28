@@ -124,10 +124,10 @@ export const CrmOffers: React.FC<CrmOffersProps> = ({ leads, onLeadsUpdated, set
 
   const openSheet = (l: Lead) => {
     setSheetLead(l);
-    setSheet({ client: l.companyName || l.customerName || '', project: l.project || '', area: String(l.requiredSize || ''), price: '', plan: 'Cash', valid: '2 days' });
+    setSheet({ client: l.companyName || l.customerName || '', project: l.project || '', area: String(l.requiredSize || '').replace(/[,\s]/g, ''), price: '', plan: 'Cash', valid: '2 days' });
   };
   const printSheet = () => {
-    const area = Number(sheet.area) || 0, price = Number(sheet.price) || 0;
+    const area = Number(String(sheet.area).replace(/[,\s]/g, '')) || 0, price = Number(String(sheet.price).replace(/[,\s]/g, '')) || 0;
     const total = area && price ? `${Math.round(area * price).toLocaleString('en-US')} EGP` : '—';
     const row = (k: string, v: string) => `<tr><td>${esc(k)}</td><td>${esc(v || '—')}</td></tr>`;
     const html = `<!doctype html><meta charset="utf-8"><title>Offer summary</title><style>
@@ -265,7 +265,7 @@ export const CrmOffers: React.FC<CrmOffersProps> = ({ leads, onLeadsUpdated, set
           <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-bold text-lg">Offer summary (print)</h3>
             {([['client', 'Client'], ['project', 'Project'], ['area', 'Area (sqm)'], ['price', 'Price per sqm (EGP)'], ['plan', 'Payment plan'], ['valid', 'Valid for']] as const).map(([k, label]) => (
-              <input key={k} className="input-field" placeholder={label} type={k === 'area' || k === 'price' ? 'number' : 'text'} value={sheet[k]} onChange={(e) => setSheet({ ...sheet, [k]: e.target.value })} />
+              <input key={k} className="input-field" placeholder={label} aria-label={label} title={label} type={k === 'area' || k === 'price' ? 'number' : 'text'} value={sheet[k]} onChange={(e) => setSheet({ ...sheet, [k]: e.target.value })} />
             ))}
             <div className="flex justify-end gap-2"><button onClick={() => setSheetLead(null)} className="px-4 py-2 text-sm text-brand-gray">Close</button>
               <button onClick={printSheet} className="btn-primary text-sm">Print</button></div>

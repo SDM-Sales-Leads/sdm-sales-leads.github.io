@@ -150,11 +150,13 @@ route("POST", "/cron/reminders", async ({ req }) => {
   if (!want || !safeEqual(given, want)) throw new HttpError(401, "Not allowed");
   const { data } = await admin.from("system_config").select("value").eq("key", "ingest_auto").maybeSingle();
   if (data?.value !== true) return { skipped: true, reason: "automatic jobs are off" };
-  // nobody is at work between 22:00 and 07:00 Cairo time: no reminders, escalations, pool hand-outs or digests to prepare
+  // nobody is at work between 22:00 and 07:00 Cairo time: no escalations, pool hand-outs or digests to prepare.
+  // Reminders (meetings, follow-ups, tasks) run until 23:00 (confirmed rule); this gate used to stop them at 22:00.
   const hourNow = +new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", hourCycle: "h23" }).format(new Date());
-  if (hourNow < 7 || hourNow >= 22) return { skipped: true, reason: "night" };
+  if (hourNow < 7 || hourNow >= 23) return { skipped: true, reason: "night" };
   const T: Record<string, number> = {}; const lap = async <X,>(k: string, f: () => Promise<X>): Promise<X> => { const t0 = Date.now(); try { return await f(); } finally { T[k] = Date.now() - t0; } };
-  const r = await lap("reminders", () => runReminders());
+  let r: any = {}; try { r = await lap("reminders", () => runReminders()); } catch (e: any) { r = { remindersError: String(e?.message || e).slice(0, 120) }; }
+  if (hourNow >= 22) return { ...r, late: "22:00-23:00: reminders only", ms: T };
   // the 24-hour call-center limits do not need a look every 5 minutes: every half hour is plenty (it reads the last 3 days of call-center leads)
   let cc: any = {}; if (new Date().getMinutes() % 30 < 5) { try { cc = await lap("callcenter", () => escalateCallCenter()); } catch (e: any) { cc = { ccError: String(e?.message || e).slice(0, 120) }; } } else cc = { ccSkipped: "every 30 min" };
   let pool: any = {}; try { pool = await lap("pool", () => fillPool(300)); } catch (e: any) { pool = { poolError: String(e?.message || e).slice(0, 120) }; }

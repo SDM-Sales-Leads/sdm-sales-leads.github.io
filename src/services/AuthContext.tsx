@@ -4,7 +4,7 @@ import { User, RolePermissions } from '../types';
 import { supabase } from '../lib/supabase';
 import { wipeCrmCache } from '../lib/storageGuard';
 import { fetchWithTimeout } from '../lib/fetchUtils';
-import { startIdleWatch } from '../lib/idleLogout';
+import { startIdleWatch, markActive } from '../lib/idleLogout';
 
 interface AuthContextType {
   user: User | null;
@@ -56,6 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, password: string): Promise<void> => {
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     if (error) throw new Error('Invalid credentials');
+    markActive();
     // a busy server must not look like a wrong password: try the profile a few times before giving up
     let ok = await loadMe();
     for (let i = 0; i < 3 && !ok && (meStatus.current === 0 || meStatus.current >= 500); i++) { await new Promise((r) => setTimeout(r, 1500)); ok = await loadMe(); }

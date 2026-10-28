@@ -61,6 +61,9 @@ const AppContent: React.FC = () => {
     return () => window.removeEventListener('crm-nav', h);
   }, []);
   useEffect(() => { (window as any).__sdmPage = `${activeTab}/${crmSubTab}`; }, [activeTab, crmSubTab]);
+  // signed out (button, idle timer, expired session): forget the last person's page and tickets, so the next person who signs in
+  // in this tab does not land on the previous person's page (e.g. Admin) or see their tickets for a moment
+  useEffect(() => { if (!user) { setSelectedTicket(null); setTickets([]); setActiveTab('dashboard'); setCrmSubTab('dashboard'); } }, [user]);
 
   // the first page for everybody who works with leads is Home (the day at a glance), in every look
   useEffect(() => {

@@ -17,7 +17,15 @@ export function installApiFetch() {
     const headers = new Headers(init.headers || {});
     if (token) headers.set('Authorization', `Bearer ${token}`);
     headers.set('apikey', SUPABASE_KEY);
-    try { const va = JSON.parse(sessionStorage.getItem('sdm_view_as') || 'null'); if (va?.id) headers.set('x-view-as', va.id); } catch { /* none */ }
+    let viewAs = false;
+    try { const va = JSON.parse(sessionStorage.getItem('sdm_view_as') || 'null'); if (va?.id) { headers.set('x-view-as', va.id); viewAs = true; } } catch { /* none */ }
+    // View as is for looking only. The server refuses changes too, but it lets /users, /admin and /auth through in the admin's own name:
+    // refuse every change here as well (crash reports and id lookups stay allowed, like on the server). Signed out (no token) is not
+    // View as: a left-over flag in this tab must not block "Forgot password" on the sign-in page
+    const method = String(init.method || (typeof input !== 'string' && !(input instanceof URL) ? input.method : 'GET') || 'GET').toUpperCase();
+    if (viewAs && token && method !== 'GET' && method !== 'HEAD' && !/^\/api\/(client-issues|client-error|admin\/report-error|crm\/ids)/.test(url)) {
+      return new Response(JSON.stringify({ error: 'View as is read-only. Exit View as to make changes.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+    }
     let res = await original(API_BASE + url.slice(4), { ...init, headers });
     if (res.status === 401 && token) {
       // two tabs refreshing the token at the same moment can make one call fail: renew the login and try once more before signing out

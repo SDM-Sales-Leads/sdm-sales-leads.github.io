@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo } from 'react';
 import { motion, useSpring, useMotionValue, useTransform } from 'motion/react';
 import { useTheme } from '../services/ThemeContext';
+import { useLight, isLight } from '../lib/lightMode';
 
 export const AnimatedBackground: React.FC = () => {
   const { settings } = useTheme();
+  const light = useLight();
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
 
@@ -38,7 +40,7 @@ export const AnimatedBackground: React.FC = () => {
 
     // Mouse parallax moved large blurred layers on every mouse move (costly on big screens). Kept only when the
     // person has not asked for reduced motion AND the screen is small enough for it to be cheap.
-    const cheap = !window.matchMedia('(prefers-reduced-motion: reduce)').matches && window.innerWidth * window.innerHeight < 1_400_000;
+    const cheap = !isLight() && !window.matchMedia('(prefers-reduced-motion: reduce)').matches && window.innerWidth * window.innerHeight < 1_400_000;
     if (cheap) window.addEventListener('mousemove', handleMouseMove);
     // Trigger initial position
     if (typeof window !== 'undefined') {
@@ -67,6 +69,8 @@ export const AnimatedBackground: React.FC = () => {
   }, [intensity, speedScale]);
 
   // Early return ONLY after all hooks are called
+  // light mode: a plain colour, nothing moves (the orbs, grid and particles are the biggest constant cost on weak devices)
+  if (light) return <div className="fixed inset-0 z-[-10] pointer-events-none" style={{ backgroundColor: settings.backgroundColor }} />;
   if (settings.backgroundEffect === 'none') return null;
 
   const getGridImage = () => {

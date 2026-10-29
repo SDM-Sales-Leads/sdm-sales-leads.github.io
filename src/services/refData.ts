@@ -149,7 +149,7 @@ export function warmReferenceData(perms: Pick<RolePermissions, 'canViewTickets' 
       import('../components/TicketForm').catch(() => {});
     }
     if (workflows) refData.workflows.load().catch(() => {});
-    if (perms.canViewWorkflowBuilder) import('../components/WorkflowSLAAlignment').catch(() => {});
+    // the workflow screen (about 750 KB) is NOT fetched ahead any more: it loads when it is opened
   };
   const ric = (window as any).requestIdleCallback as undefined | ((cb: () => void, o?: { timeout: number }) => number);
   // never earlier than 1.5 s after the first render, so the first screen is not slowed down

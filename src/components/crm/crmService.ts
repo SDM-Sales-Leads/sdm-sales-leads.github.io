@@ -34,6 +34,7 @@ const queues: Partial<Record<Kind, Promise<void>>> = {};
 const ids: Record<'lead' | 'contact' | 'company', string[]> = { lead: [], contact: [], company: [] };
 
 let queueSettingsLoaded = false, queueSettingsAt = 0, lastDeltaAt = 0, autoUsers = 0;
+let mailLogsScheduled = false;
 let autoTimer: ReturnType<typeof setInterval> | null = null;
 let autoOff: (() => void) | null = null;
 
@@ -351,7 +352,16 @@ export const crmService = {
    */
   loadAll: async (): Promise<{ ok: boolean }> => {
     await Promise.all(KINDS.map((k) => restore(k).catch(() => undefined)));   // the browser's copy first: then only the changes travel
+    // the mail log is only used by the Mail Ingestion screen and one lead detail: read it a few seconds after the first screen, not with it
+    // (the first load competes for the same connection: leads, contacts and companies matter first)
+    if (!mailLogsScheduled && !memory['email-logs']?.length) {
+      mailLogsScheduled = true;
+      const run = () => { void crmService.reloadEmailLogs(); };
+      const ric = (window as any).requestIdleCallback as undefined | ((cb: () => void, o?: { timeout: number }) => number);
+      setTimeout(() => (ric ? ric(run, { timeout: 6000 }) : run()), 5000);
+    }
     const results = await Promise.all(KINDS.map(async (k) => {
+      if (k === 'email-logs' && mailLogsScheduled && !memory[k]?.length) return [k, null, true] as const;   // read later (above)
       if (pending[k] > 0) return [k, null, false] as const;
       // the mail log has no "changes only" mode: re-read it at most every 10 minutes here (its own tab reloads it when opened)
       if (k === 'email-logs' && Date.now() - (lastFull[k] || 0) < 10 * 60_000) return [k, null, true] as const;

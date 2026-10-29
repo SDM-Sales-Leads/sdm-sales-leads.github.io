@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { TextSizeButton } from './TextSizeButton';
+import { TextSizeButton, LightModeButton } from './TextSizeButton';
 import { createPortal } from 'react-dom';
 import { useBackClose } from '../lib/backNav';
 import { LogOut, MoreHorizontal, X } from 'lucide-react';
@@ -45,6 +45,7 @@ export const MobileTabBar: React.FC<{ activeTab: string; crmSubTab: string; go: 
             <div className="flex items-center gap-2 pt-1 flex-wrap">
               <ViewSwitch tone="light" />
               <TextSizeButton className="border border-brand-gray/25 rounded-full px-4 py-2 text-xs font-bold" />
+              <LightModeButton className="border border-brand-gray/25 rounded-full px-4 py-2 text-xs font-bold inline-flex items-center" />
               <button type="button" translate="no" onClick={() => setLang(getLang() === 'ar' ? 'en' : 'ar')} className="border border-brand-gray/25 rounded-full px-4 py-2 text-xs font-bold">{getLang() === 'ar' ? 'English' : 'العربية'}</button>
               <button type="button" onClick={logout} className="ml-auto inline-flex items-center gap-1.5 text-xs font-bold text-brand-red px-3 py-2"><LogOut size={15} /> Sign out</button>
             </div>

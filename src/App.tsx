@@ -5,7 +5,8 @@ import { Toaster } from 'sonner';
 import { Login } from './components/Login';
 import { ChangePassword } from './components/ChangePassword';
 import { Sidebar } from './components/Sidebar';
-import { Dashboard } from './components/Dashboard';
+// the charts library is large: the dashboard loads when it is opened, not at start
+const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
 import { TicketList } from './components/TicketList';
 const TicketDetail = lazy(() => import('./components/TicketDetail').then(m => ({ default: m.TicketDetail })));
 const TicketForm = lazy(() => import('./components/TicketForm').then(m => ({ default: m.TicketForm })));

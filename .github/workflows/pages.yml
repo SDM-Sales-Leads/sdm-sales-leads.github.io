@@ -24,8 +24,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       # People who have the system open keep the OLD version in their browser and ask for its page files. Every publish replaces the files,
-      # so they got "Could not load ... .js" errors. Keep the files of the last two versions next to the new ones (branch asset-cache).
-      - name: Keep the page files of the last two versions
+      # so they got "Could not load ... .js" errors. Keep the page files of the last 15 versions next to the new ones (branch asset-cache):
+      # several versions can go out in one day and a tab can stay open for days.
+      - name: Keep the page files of the last 15 versions
         run: |
           set -e
           mkdir -p /tmp/cache /tmp/new
@@ -35,11 +36,20 @@ jobs:
             git --work-tree=/tmp/cache checkout FETCH_HEAD -- . || true
             git reset -q
           fi
-          cp -n /tmp/cache/cur/* dist/assets/ 2>/dev/null || true
-          cp -n /tmp/cache/prev/* dist/assets/ 2>/dev/null || true
-          rm -rf /tmp/pub && mkdir -p /tmp/pub/cur /tmp/pub/prev
-          cp /tmp/new/* /tmp/pub/cur/
-          cp /tmp/cache/cur/* /tmp/pub/prev/ 2>/dev/null || true
+          # same file name = same content (the name carries a hash), so nothing is overwritten
+          for d in /tmp/cache/b/*/ /tmp/cache/cur/ /tmp/cache/prev/; do [ -d "$d" ] && cp -n "$d"* dist/assets/ 2>/dev/null || true; done
+          rm -rf /tmp/pub && mkdir -p /tmp/pub/b/${GITHUB_SHA}
+          cp /tmp/new/* /tmp/pub/b/${GITHUB_SHA}/
+          echo "${GITHUB_SHA}" > /tmp/pub/order.txt
+          if [ -f /tmp/cache/order.txt ]; then
+            for old in $(grep -v "^${GITHUB_SHA}$" /tmp/cache/order.txt | head -14); do
+              [ -d "/tmp/cache/b/$old" ] && cp -r "/tmp/cache/b/$old" /tmp/pub/b/ && echo "$old" >> /tmp/pub/order.txt
+            done
+          fi
+          # first run after the change: carry the two versions kept by the old layout
+          for old in cur prev; do
+            if [ -d "/tmp/cache/$old" ] && [ -n "$(ls -A /tmp/cache/$old 2>/dev/null)" ]; then mkdir -p "/tmp/pub/b/legacy-$old" && cp /tmp/cache/$old/* "/tmp/pub/b/legacy-$old/" && echo "legacy-$old" >> /tmp/pub/order.txt; fi
+          done
           cd /tmp/pub
           git init -q -b asset-cache
           git config user.name "github-actions"; git config user.email "actions@users.noreply.github.com"

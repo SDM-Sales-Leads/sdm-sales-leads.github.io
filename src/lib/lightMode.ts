@@ -1,4 +1,4 @@
-// Light mode: no blur, no moving background, no big transitions. For weak PCs (little memory, few cores), slow links, "reduce motion",
+// Light mode: no blur, no moving background, no big transitions. For weak PCs (little memory, few cores), "data saver", "reduce motion",
 // and any device that turns out to be slow (frame-rate check). A person can force it On or Off from the menu; the choice is kept in this browser.
 import { useSyncExternalStore } from 'react';
 
@@ -20,7 +20,8 @@ export function lightReason(): string {
     if (nav.deviceMemory && nav.deviceMemory <= 4) return `little memory (${nav.deviceMemory} GB)`;
     if (nav.hardwareConcurrency && nav.hardwareConcurrency <= 4) return `few processor cores (${nav.hardwareConcurrency})`;
     const c = nav.connection;
-    if (c && (c.saveData || ['slow-2g', '2g', '3g'].includes(c.effectiveType))) return 'a slow connection';
+    // the connection speed is NOT a reason: it changes the download, not how smoothly the screen draws (only "data saver" counts)
+    if (c && c.saveData) return 'data saver is on';
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return 'reduced motion is set on this device';
     if (localStorage.getItem(AUTO_KEY) === '1') return 'this device ran slowly';
   } catch { /* ignore */ }

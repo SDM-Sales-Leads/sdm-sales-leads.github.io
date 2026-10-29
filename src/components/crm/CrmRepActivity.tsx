@@ -62,7 +62,7 @@ const bucketLabel = (k: string, by: string) => {
 export const CrmRepActivity: React.FC = () => {
   const [preset, setPreset] = useState<Preset>('today');
   const [range, setRange] = useState(() => presetRange('today'));
-  const [by, setBy] = useState('day');
+  const [by, setBy] = useState('hour');   // Today is the first view: by hour
   const [data, setData] = useState<Data | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);

@@ -27,6 +27,7 @@ const CrmAchievements = lazy(() => import('./CrmAchievements').then(m => ({ defa
 const CrmGuide = lazy(() => import('./CrmGuide').then(m => ({ default: m.CrmGuide })));
 const CrmContractControl = lazy(() => import('./CrmContractControl').then(m => ({ default: m.CrmContractControl })));
 const CrmLbActivity = lazy(() => import('./CrmLbActivity').then(m => ({ default: m.CrmLbActivity })));
+const CrmRepActivity = lazy(() => import('./CrmRepActivity').then(m => ({ default: m.CrmRepActivity })));
 const CrmTeamPerformance = lazy(() => import('./CrmTeamPerformance').then(m => ({ default: m.CrmTeamPerformance })));
 const CrmBdTracker = lazy(() => import('./CrmBdTracker').then(m => ({ default: m.CrmBdTracker })));
 const CrmOffers = lazy(() => import('./CrmOffers').then(m => ({ default: m.CrmOffers })));
@@ -253,6 +254,7 @@ export const SalesCrmModule: React.FC<SalesCrmModuleProps> = ({
           <CrmPlotsInventory />
         )}
         {activeSubTab === 'lb-activity' && <CrmLbActivity onLeadsUpdated={() => afterChange()} currentRole={currentRole} setActiveSubTab={setActiveSubTab} />}
+        {activeSubTab === 'rep-activity' && <CrmRepActivity />}
         {activeSubTab === 'team-performance' && <CrmTeamPerformance leads={leads} onLeadsUpdated={() => afterChange()} currentRole={currentRole} setActiveSubTab={setActiveSubTab} />}
         {activeSubTab === 'bd-tracker' && <CrmBdTracker leads={leads} onLeadsUpdated={() => afterChange()} currentRole={currentRole} setActiveSubTab={setActiveSubTab} />}
         {activeSubTab === 'calendar' && <CrmCalendar leads={leads} onLeadsUpdated={() => afterChange()} currentRole={currentRole} setActiveSubTab={setActiveSubTab} />}

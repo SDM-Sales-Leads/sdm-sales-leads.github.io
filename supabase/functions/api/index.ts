@@ -7,6 +7,7 @@ import "./routes_tickets.ts";
 import "./routes_crm.ts";
 import "./routes_crm2.ts";
 import "./routes_bd.ts";
+import "./routes_activity.ts";
 import "./integration.ts";
 import "./routes_notify.ts";
 import "./pool.ts";

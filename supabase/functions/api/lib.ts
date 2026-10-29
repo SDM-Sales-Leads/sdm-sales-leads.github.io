@@ -353,13 +353,13 @@ export interface WorkWeek { start: number; end: number; days: number[] } // hour
 export const WORK_WEEK: WorkWeek = { start: 8, end: 17, days: [0, 1, 2, 3, 4] };
 const CAIRO = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "short" });
 const DOW: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-function cairoParts(ms: number) {
+export function cairoParts(ms: number) {
   const p: Record<string, string> = {};
   for (const x of CAIRO.formatToParts(new Date(ms))) p[x.type] = x.value;
   return { y: +p.year, m: +p.month, d: +p.day, h: +p.hour, mi: +p.minute, dow: DOW[p.weekday] ?? 0 };
 }
 /** the instant at which Cairo wall-clock reads y-m-d h:mi (handles the summer-time offset) */
-function cairoToMs(y: number, m: number, d: number, h: number, mi: number): number {
+export function cairoToMs(y: number, m: number, d: number, h: number, mi: number): number {
   const target = Date.UTC(y, m - 1, d, h, mi);
   let guess = target;
   for (let i = 0; i < 2; i++) {

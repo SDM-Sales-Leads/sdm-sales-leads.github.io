@@ -16,7 +16,7 @@ import { CUSTOM_STATUSES, sanitizeLead } from "./leadrules.ts";
 import { getBody, htmlToText, listFolder, loadEws } from "./ews.ts";
 import { sqmOf } from "./routing_pick.ts";
 import {
-  channelFromMail, chooseAgent, cleanDescription, DEFAULT_QUEUE, ensureContactAndCompany, ensureContactsAndCompaniesBulk, ingestInbox, leadColumns, loadQueue, nextId, parseMail,
+  channelFromHistory, channelFromMail, chooseAgent, cleanDescription, DEFAULT_QUEUE, ensureContactAndCompany, ensureContactsAndCompaniesBulk, ingestInbox, leadColumns, loadQueue, mailChannelIndex, nextId, parseMail,
 } from "./ingest.ts";
 
 const ID_RE = /^[A-Za-z0-9_.:-]{1,60}$/;
@@ -212,6 +212,7 @@ for (const [name, spec] of Object.entries(SPECS)) {
       (rows || []).forEach((x: any) => exMap.set(x.id, x));
     }
     const newRows: { id: string; row: any; lead?: any }[] = [];
+    let mailIdx: Awaited<ReturnType<typeof mailChannelIndex>> | null = null;
     for (const raw of upserts) {
       if (!isObj(raw) || typeof raw.id !== "string" || !ID_RE.test(raw.id)) { rejected.push({ id: String(raw?.id ?? ""), reason: "bad id" }); continue; }
       let d: any = clean(raw);
@@ -290,6 +291,12 @@ for (const [name, spec] of Object.entries(SPECS)) {
             const san = sanitizeLead(d, null, c, scope);
             if (san.error) { rejected.push({ id, reason: san.error }); continue; }
             san.audits.forEach((a) => audit(id, a));
+            // imported leads (old CRM, Excel) carry no channel: take it from the mail history of the customer's phone
+            if (!d.channel && d.legacyId && scope === "all") {
+              mailIdx ||= await mailChannelIndex().catch(() => new Map());
+              const ch = channelFromHistory(mailIdx, d);
+              if (ch) d.channel = ch;
+            }
           }
           if ((name === "tasks" || name === "activities") && scope === "own") { d.salespersonId = c.id; }
           if (name === "external-sales") {

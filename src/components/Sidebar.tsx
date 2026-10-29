@@ -299,6 +299,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'plots-inventory', label: 'Plots Inventory', icon: Database, permission: permissions?.canViewSalesPlotsInventory },
     { id: 'lb-activity', label: 'Land Bank Activity', icon: Database, permission: permissions?.canViewSalesReports || permissions?.canViewSalesLeads },
     { id: 'team-performance', label: 'Team Performance', icon: Users, permission: permissions?.canViewSalesReports },
+    { id: 'rep-activity', label: 'Rep activity', icon: Users, permission: permissions?.canViewSalesReports },
     { id: 'bd-tracker', label: 'BD Tracker', icon: Target, permission: ['Business Development', 'Admin', 'Sales Operation', 'Sales Director', 'Executive (View)'].includes(user?.role || '') },
     { id: 'calendar', label: 'Calendar', icon: Calendar, permission: permissions?.canViewSalesCrm || permissions?.canViewSalesLeads },
     { id: 'achievements', label: 'Achievements', icon: Trophy, permission: (permissions?.canViewSalesCrm || permissions?.canViewSalesLeads) && !(permissions?.canViewSalesDashboard || permissions?.canViewSalesRules) },

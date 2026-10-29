@@ -35,6 +35,7 @@ export function buildGlassNav(p: any, role?: string): { general: NavEntry[]; crm
       c('plots-inventory', 'Plots Inventory', Database, p?.canViewSalesPlotsInventory),
       c('lb-activity', 'Land Bank Activity', Database, p?.canViewSalesReports || p?.canViewSalesLeads),
       c('team-performance', 'Team Performance', Users, p?.canViewSalesReports),
+      c('rep-activity', 'Rep activity', Activity, p?.canViewSalesReports || crmAny),
       c('bd-tracker', 'BD Tracker', Target, ['Business Development', 'Admin', 'Sales Operation', 'Sales Director', 'Executive (View)'].includes(role || '')),
       c('calendar', 'Calendar', Calendar, crmAny),
       c('achievements', 'Achievements', Trophy, crmAny && !mgr),

@@ -434,6 +434,40 @@ export function channelFromMail(h: { sender?: string; subject?: string }): strin
   return "";
 }
 
+/** phone (last 10 digits) -> the mails that came from a known channel, oldest first; used to give imported leads the channel the old system never stored */
+export async function mailChannelIndex(): Promise<Map<string, { date: string; channel: string }[]>> {
+  const rows = await pageAll((a, b) => admin.from("crm_email_logs").select("data->sender,data->subject,data->bodyPreview,data->receivedTime").order("id").range(a, b), 50000);
+  const idx = new Map<string, { date: string; channel: string }[]>();
+  for (const r of rows as any[]) {
+    const channel = channelFromMail({ sender: r.sender, subject: r.subject });
+    const date = String(r.receivedTime || "").slice(0, 10);
+    if (!channel || !date) continue;
+    const seen = new Set<string>();
+    for (const m of `${r.subject || ""} ${r.bodyPreview || ""}`.matchAll(/(?:\+?20|0)?(1[0125]\d{8})(?!\d)/g)) {
+      if (seen.has(m[1])) continue;
+      seen.add(m[1]);
+      (idx.get(m[1]) || idx.set(m[1], []).get(m[1])!).push({ date, channel });
+    }
+  }
+  idx.forEach((v) => v.sort((x, y) => x.date.localeCompare(y.date)));
+  return idx;
+}
+
+/** the channel of an imported lead: the first mail from a known channel for its phone, sent on the lead's date (a day either side).
+ *  A later mail from the same customer is a repeat enquiry and says nothing about where the lead started. */
+export function channelFromHistory(idx: Map<string, { date: string; channel: string }[]>, lead: { phoneNumber?: any; phone2?: any; date?: any }): string {
+  const day = (x: string) => Date.parse(`${x}T00:00:00Z`);
+  const at = day(String(lead.date || "").slice(0, 10));
+  if (isNaN(at)) return "";
+  for (const ph of [lead.phoneNumber, lead.phone2]) {
+    for (const m of String(ph || "").matchAll(/(?:\+?20|0)?(1[0125]\d{8})(?!\d)/g)) {
+      const hit = (idx.get(m[1]) || []).find((x) => Math.abs(day(x.date) - at) <= 86400_000);
+      if (hit) return hit.channel;
+    }
+  }
+  return "";
+}
+
 export async function createLeadFromParsed(parsed: Parsed, head: MailHead, text: string, byUser?: string) {
   const q = await loadQueue();
   const id = await nextId("lead");

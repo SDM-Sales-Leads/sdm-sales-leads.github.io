@@ -8,7 +8,7 @@ import { AlertTriangle, Lock, Save, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Lead } from './types';
 import {
-  INDUSTRIES, LOST_CATEGORIES, LOST_REASONS_TEAM, PRIORITIES, PROJECTS, QUALIFICATIONS, REQ_DATETIME, REQ_FOLLOWUP, SOURCES,
+  INDUSTRIES, LOST_REASONS_TEAM, PRIORITIES, PROJECTS, QUALIFICATIONS, REQ_DATETIME, REQ_FOLLOWUP, SOURCES,
   TEMPERATURES, CHANNELS, closingDate, isOpenStatus, normSource, wonDateFor,
 } from './leadConfig';
 import { EDITABLE_KEYS, LeadAuth, fieldRights, prioKey, statusOptions, validateLead, withSideEffects, addDaysISO } from './leadRules';
@@ -184,12 +184,6 @@ export const LeadEditor: React.FC<Props> = ({ lead, auth, actorName, actorId, on
 
         {status === 'Lost' && (
           <>
-            <Field label="Lost category" req locked={lockedFollow}>
-              <select value={d.lostCategory} disabled={lockedFollow} onChange={(e) => set('lostCategory', e.target.value)} className={inputCls}>
-                <option value="">Select…</option>
-                {LOST_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </Field>
             <Field label="Lost reason" req locked={lockedFollow}>
               <select value={d.lostReason} disabled={lockedFollow} onChange={(e) => set('lostReason', e.target.value)} className={inputCls}>
                 <option value="">Select…</option>

@@ -7,7 +7,6 @@ type Key = 'statuses' | 'sources' | 'projects' | 'industries' | 'lostReasons' | 
 const LISTS: { key: Key; title: string; hint: string }[] = [
   { key: 'statuses', title: 'Lead status', hint: 'The status drop-down of a lead. Statuses the system rules depend on (New, Won, Lost, follow-up and meeting ones) are locked: they cannot be deleted.' },
   { key: 'lostReasons', title: 'Lost reasons', hint: 'The reasons offered when a lead is marked Lost.' },
-  { key: 'lostCategories', title: 'Lost categories', hint: 'The categories offered with a lost reason.' },
   { key: 'sources', title: 'Lead source', hint: 'Where a lead came from.' },
   { key: 'projects', title: 'Projects', hint: 'Projects offered on leads and in filters.' },
   { key: 'industries', title: 'Industries', hint: 'The industry of the customer.' },

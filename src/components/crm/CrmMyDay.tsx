@@ -13,7 +13,7 @@ import {
   XCircle, CheckCircle, SkipForward, ArrowLeft, Flame, Hourglass, FileText, Wallet, ChevronDown, ChevronUp, Settings2,
 } from 'lucide-react';
 import {
-  ACTIVE_EXCLUDE, LOST_CATEGORIES, LOST_REASONS_TEAM, PIPELINE_STATUSES, REQ_DATETIME, REQ_FOLLOWUP, STATUS_GROUPS, isOpenStatus, phoneIntl, statusStage,
+  ACTIVE_EXCLUDE, LOST_REASONS_TEAM, PIPELINE_STATUSES, REQ_DATETIME, REQ_FOLLOWUP, STATUS_GROUPS, isOpenStatus, phoneIntl, statusStage,
 } from './leadConfig';
 import {
   DAY_LEVEL, DayBoard, DayTask, TaskKind, VIP_SLA_HOURS, NEGLECT_HOURS, CONTRACT_REMIND_DAYS, addDays, buildDayBoard, dayOf, fmtDay, fmtEGP, isEngaged,
@@ -83,7 +83,6 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
   const [stTime, setStTime] = useState('');
   const [stNext, setStNext] = useState('');
   const [stReason, setStReason] = useState('');
-  const [stCat, setStCat] = useState('');
   const [fuDate, setFuDate] = useState('');
   const [fuTime, setFuTime] = useState('');
 
@@ -224,7 +223,7 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
     const now = new Date();
     if (kind === 'outcome') { setOutcome('theirs'); setComeBack(3); setOutTime('09:00'); }
     if (kind === 'log') { setIType('call'); setIDate(todayISO()); setITime(cairoTimeHM(now)); setIPlace(''); setISchedule(true); }
-    if (kind === 'status') { setStStatus(''); setStDate(l.meetingDate || addDays(todayISO(), 1)); setStTime(l.meetingTime || '10:00'); setStNext(l.nextFollowUpDate || addDays(todayISO(), 3)); setStReason(''); setStCat(''); }
+    if (kind === 'status') { setStStatus(''); setStDate(l.meetingDate || addDays(todayISO(), 1)); setStTime(l.meetingTime || '10:00'); setStNext(l.nextFollowUpDate || addDays(todayISO(), 3)); setStReason(''); }
     if (kind === 'resched') { setFuDate(dayOf(l.nextFollowUpDate) || addDays(todayISO(), 1)); setFuTime(l.nextFollowUpTime || ''); }
   };
 
@@ -274,7 +273,7 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
       meetingDate: needsSlot ? stDate : '', meetingTime: needsSlot ? stTime : '',
       ...(needsSlot ? { nextFollowUpDate: l.nextFollowUpDate || stDate } : {}),
       ...(needsNext ? { nextFollowUpDate: stNext } : {}),
-      ...(stStatus === 'Lost' ? { lostReason: stReason, lostCategory: stCat || l.lostCategory } : {}),
+      ...(stStatus === 'Lost' ? { lostReason: stReason } : {}),
       ...(ACTIVE_EXCLUDE.includes(stStatus) ? { nextFollowUpDate: '' } : {}),
     }), notes.trim() ? mkEvent('Comment', `Status note: ${stStatus}`, notes.trim()) : undefined);
     if (ok) { toast.success(`Status set to ${stStatus}`); setModal(null); setPinned(null); }
@@ -718,7 +717,6 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
                   {stStatus === 'Lost' && (
                     <div className="grid grid-cols-2 gap-4">
                       <div><label className={lbl}>Reason</label><select value={stReason} onChange={(e) => setStReason(e.target.value)} className={fieldCls}><option value="">Choose…</option>{LOST_REASONS_TEAM.map((r) => <option key={r}>{r}</option>)}</select></div>
-                      <div><label className={lbl}>Category</label><select value={stCat} onChange={(e) => setStCat(e.target.value)} className={fieldCls}><option value="">—</option>{LOST_CATEGORIES.map((r) => <option key={r}>{r}</option>)}</select></div>
                     </div>
                   )}
                   <div><label className={lbl}>Note {REQ_DATETIME.includes(stStatus) ? '(required)' : ''}</label><textarea value={notes} onChange={(e) => setNotes(e.target.value)} className={`${fieldCls} h-20 resize-none`} /></div>

@@ -9,8 +9,7 @@ export const STATUS_GROUPS: { group: string; statuses: string[] }[] = [
   { group: 'Follow-up', statuses: ['Call Back', 'Client Will Call Back', 'Need Time to Study Our Offer'] },
   { group: 'Sales pipeline', statuses: ['Offer Sent – Following Up', 'Scheduled Meeting', 'Site Visit Scheduled', 'Negotiation'] },
   { group: 'Won', statuses: ['Won'] },
-  { group: 'Closed: declined', statuses: ['Lost', 'Low Budget', 'Not Interested'] },
-  { group: 'Closed: invalid', statuses: ['Wrong Number'] },
+  { group: 'Closed', statuses: ['Lost', 'Low Budget', 'Not Interested', 'Wrong Number'] },
 ];
 export const STATUSES: string[] = STATUS_GROUPS.flatMap((g) => g.statuses);
 /** statuses that older rows (and the mail intake) may still carry; shown but not offered */
@@ -81,7 +80,7 @@ export const PROJECTS = ['Industria October', 'Industria Sokhna', 'Industria Ash
 export const QUALIFICATIONS = ['Qualified', 'Unqualified'];
 export const TEMPERATURES = ['Hot', 'Warm', 'Cold'];
 export const LOST_CATEGORIES = ['Price', 'Not Interested', 'Competitor', 'Location'];
-export const LOST_REASONS_TEAM = ['Low Budget', 'Need More Time', 'Need Small Area', 'Need Large Area', 'Collecting Information', 'Industry Not Available', 'Lack of Utilities', 'Not Interested', 'Broker', 'Bought From Another Developer', 'Bought From IDA', 'Bought From SCZone', 'Different Location', 'Plot Sold Out'];
+export const LOST_REASONS_TEAM = ['Low Budget', 'Need More Time', 'Need Small Area', 'Need Large Area', 'Collecting Information', 'Industry Not Available', 'Lack of Utilities', 'Not Interested', 'Broker', 'Bought From Another Developer', 'Bought From IDA', 'Bought From SCZone', 'Different Location', 'Plot Sold Out', 'Price Too High'];
 
 const SOURCE_ALIASES: Record<string, string> = {
   'business development': 'BD Research', bd: 'BD Research',

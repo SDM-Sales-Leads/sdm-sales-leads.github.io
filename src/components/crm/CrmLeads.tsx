@@ -7,7 +7,7 @@ import { LeadPlotsPanel } from './LeadPlotsPanel';
 import { ColumnSelector } from './ColumnSelector';
 import { crmService, normalizePhone } from './crmService';
 import {
-  INDUSTRIES, NO_CHANNEL, channelOf, LOST_CATEGORIES, LOST_REASONS_TEAM, PRIORITIES, SOURCES, STATUS_GROUPS, LEGACY_STATUSES, isOpenStatus, leadScore, normSource, phoneIntl, statusStage,
+  INDUSTRIES, NO_CHANNEL, channelOf, LOST_REASONS_TEAM, PRIORITIES, SOURCES, STATUS_GROUPS, LEGACY_STATUSES, isOpenStatus, leadScore, normSource, phoneIntl, statusStage,
 } from './leadConfig';
 import { statusAfterAction, REQ_FOLLOWUP, isTouchedLead } from './leadConfig';
 import { LoadBar } from './LoadBar';
@@ -433,7 +433,6 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   const [assigneeId, setAssigneeId] = useState('');
   const [primaryLeadMergeId, setPrimaryLeadMergeId] = useState('');
   const [duplicateLeadMergeId, setDuplicateLeadMergeId] = useState('');
-  const [lostCategory, setLostCategory] = useState('');
   const [lostReasonTeam, setLostReasonTeam] = useState('');
   const [lostComment, setLostComment] = useState('');
 
@@ -1079,8 +1078,8 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   // Close Lead as Lost
   const handleMarkAsLost = () => {
     if (!selectedLead) return;
-    if (!lostCategory || !lostReasonTeam) {
-      alert('Choose the lost category and the lost reason.');
+    if (!lostReasonTeam) {
+      alert('Choose the lost reason.');
       return;
     }
     if (!lostComment.trim()) {
@@ -1093,7 +1092,6 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
         return {
           ...l,
           status: 'Lost' as LeadStatus,
-          lostCategory,
           lostReason: lostReasonTeam,
           lostComment: lostComment.trim(),
           lastUpdated: new Date().toISOString(),
@@ -1103,7 +1101,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
             type: 'Status Change' as const,
             user: user?.name || 'Agent',
             title: 'Lead Closed as Lost',
-            description: `Lost (${lostCategory}): ${lostReasonTeam}. Comments: ${lostComment.trim()}`
+            description: `Lost: ${lostReasonTeam}. Comments: ${lostComment.trim()}`
           }]
         };
       }
@@ -1113,7 +1111,6 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
     crmService.saveLeads(updatedLeads);
     setShowLostModal(false);
     setLostComment('');
-    setLostCategory('');
     setLostReasonTeam('');
     
     const refreshed = updatedLeads.find(l => l.id === selectedLead.id);
@@ -3147,18 +3144,6 @@ ${user.name || ''}`);
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase font-bold text-brand-gray mb-1.5">Lost Category *</label>
-                <select
-                  value={lostCategory}
-                  onChange={(e) => setLostCategory(e.target.value)}
-                  className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-3 py-2 text-xs focus:outline-none"
-                >
-                  <option value="">Select...</option>
-                  {LOST_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-
-              <div>
                 <label className="block text-[10px] uppercase font-bold text-brand-gray mb-1.5">Lost Reason *</label>
                 <select
                   value={lostReasonTeam}
@@ -3191,7 +3176,7 @@ ${user.name || ''}`);
                 </button>
                 <button
                   onClick={handleMarkAsLost}
-                  disabled={!lostComment.trim() || !lostCategory || !lostReasonTeam}
+                  disabled={!lostComment.trim() || !lostReasonTeam}
                   className="bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white px-5 py-2 rounded-xl font-bold shadow"
                 >
                   Confirm Lead Lost

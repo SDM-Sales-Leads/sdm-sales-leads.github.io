@@ -97,7 +97,6 @@ export function validateLead(next: Partial<Lead>, prev: Partial<Lead> | null): s
   }
   if (REQ_FOLLOWUP.includes(s) && !next.nextFollowUpDate) return `"${s}" needs the next follow-up date.`;
   if (s === 'Lost') {
-    if (!next.lostCategory) return 'Lost needs the lost category.';
     if (!next.lostReason) return 'Lost needs the lost reason.';
   }
   if (next.qualification) {

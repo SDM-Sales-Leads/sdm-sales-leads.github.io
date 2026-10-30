@@ -84,7 +84,7 @@ export const CrmRepActivity: React.FC = () => {
   const live = preset !== 'custom' && preset !== 'yesterday';
   useEffect(() => {
     if (!live) return;
-    const t = setInterval(() => { setRange(presetRange(preset)); }, 60000);
+    const t = setInterval(() => { if (document.visibilityState === 'visible') setRange(presetRange(preset)); }, 60000);   // 30 Oct 2026: a hidden tab no longer calls the server every minute
     return () => clearInterval(t);
   }, [live, preset]);
 

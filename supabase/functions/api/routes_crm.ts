@@ -22,9 +22,16 @@ import {
 const ID_RE = /^[A-Za-z0-9_.:-]{1,60}$/;
 const METHODS = ["Round Robin", "Least Active Leads", "Least Total Leads", "Least Open Sqm", "Balanced Sqm and Leads", "Random", "Project Based", "Required Size", "Lead Source", "Priority Based", "Working Hours", "VIP Customer Routing", "Company Industry Routing", "Manual Assignment Only"];
 
+// 30 Oct 2026: one pulse asked for the team up to 3 times; the answer is kept 20 s per team leader (a team changes rarely)
+const teamCache = new Map<string, { ids: string[]; until: number }>();
 export async function teamIds(c: Caller): Promise<string[]> {
+  const hit = teamCache.get(c.id);
+  if (hit && hit.until > Date.now()) return hit.ids;
   const { data } = await admin.from("app_users").select("id").eq("team_leader_id", c.id);
-  return [c.id, ...((data || []).map((r: any) => r.id))];
+  const ids = [c.id, ...((data || []).map((r: any) => r.id))];
+  if (teamCache.size > 200) teamCache.clear();
+  teamCache.set(c.id, { ids, until: Date.now() + 20_000 });
+  return ids;
 }
 
 export interface Spec {
@@ -642,11 +649,14 @@ route("POST", "/crm/queue-settings", async ({ req, c }) => {
 route("GET", "/crm/pulse", async ({ c, query }) => {
   needCrm(c);
   const results: Record<string, any> = {};
-  for (const k of ["leads", "tasks", "activities"]) {
-    const since = query.get(k);
-    if (!since) continue;
-    try { results[k] = await listHandlers[k]({ c, query: new URLSearchParams({ since }) }); } catch { results[k] = { error: true }; }
-  }
-  const { count } = await admin.from("crm_notifications").select("id", { count: "exact", head: true }).eq("user_id", c.id).is("read_at", null);
+  // the three lists and the bell count are asked at the same time (same answers, a third of the waiting)
+  const [, , , { count }] = await Promise.all([
+    ...["leads", "tasks", "activities"].map(async (k) => {
+      const since = query.get(k);
+      if (!since) return;
+      try { results[k] = await listHandlers[k]({ c, query: new URLSearchParams({ since }) }); } catch { results[k] = { error: true }; }
+    }),
+    admin.from("crm_notifications").select("id", { count: "exact", head: true }).eq("user_id", c.id).is("read_at", null),
+  ]) as any;
   return { now: nowIso(), unread: count || 0, results };
 });

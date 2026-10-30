@@ -226,15 +226,21 @@ export async function tryLock(name: string, seconds: number): Promise<boolean> {
 export async function unlock(name: string) {
   await admin.rpc("app_unlock", { p_name: name });
 }
+const secretCache = new Map<string, { v: string; until: number }>();
 export async function getSecret(name: string): Promise<string | null> {
+  const c = secretCache.get(name);
+  if (c && c.until > Date.now()) return c.v;
   const { data } = await admin.rpc("app_get_secret", { p_name: name });
-  return typeof data === "string" && data ? data : null;
+  const v = typeof data === "string" && data ? data : null;
+  if (v) secretCache.set(name, { v, until: Date.now() + 600_000 }); // found secrets only: a missing one is looked up again every time
+  return v;
 }
 export async function hasSecret(name: string): Promise<boolean> {
   const { data } = await admin.rpc("app_has_secret", { p_name: name });
   return data === true;
 }
 export async function setSecret(name: string, value: string) {
+  secretCache.delete(name);
   const { error } = await admin.rpc("app_set_secret", { p_name: name, p_value: value });
   if (error) throw new HttpError(500, "Could not store the secret");
 }
@@ -249,11 +255,20 @@ export async function logActivity(c: Caller | null, action: string, details: str
   });
 }
 
+// 30 Oct 2026: every database call is also a log line (Log Ingestion 0.8 GB of the 1 GB plan allowance by day 20), so rarely-changing
+// settings are kept in the server copy for 60 s. Only keys listed here are cached; counters/cursors (rr_cursor, mail_cursor, ...) always read fresh.
+const CACHED_KEYS = new Set(["notify_hold", "app", "dropdown_lists", "queue_settings", "email_config", "ui_settings", "landbank_url"]);
+const CFG_TTL = 60_000;
+const cfgCache = new Map<string, { v: any; until: number }>();
 export async function getConfig<T = any>(key: string, fallback: T): Promise<T> {
+  const c = CACHED_KEYS.has(key) ? cfgCache.get(key) : undefined;
+  if (c && c.until > Date.now()) return (c.v as T) ?? fallback;
   const { data } = await admin.from("system_config").select("value").eq("key", key).maybeSingle();
+  if (CACHED_KEYS.has(key)) cfgCache.set(key, { v: data?.value ?? null, until: Date.now() + CFG_TTL });
   return (data?.value as T) ?? fallback;
 }
 export async function setConfig(key: string, value: unknown) {
+  cfgCache.delete(key);
   await admin.from("system_config").upsert({ key, value, updated_at: new Date().toISOString() });
 }
 

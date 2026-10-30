@@ -9,11 +9,11 @@ export const STATUS_GROUPS: { group: string; statuses: string[] }[] = [
   { group: 'Follow-up', statuses: ['Call Back', 'Client Will Call Back', 'Need Time to Study Our Offer'] },
   { group: 'Sales pipeline', statuses: ['Offer Sent – Following Up', 'Scheduled Meeting', 'Site Visit Scheduled', 'Negotiation'] },
   { group: 'Won', statuses: ['Won'] },
-  { group: 'Closed', statuses: ['Lost', 'Low Budget', 'Not Interested', 'Wrong Number'] },
+  { group: 'Closed', statuses: ['Lost', 'Wrong Number'] },
 ];
 export const STATUSES: string[] = STATUS_GROUPS.flatMap((g) => g.statuses);
 /** statuses that older rows (and the mail intake) may still carry; shown but not offered */
-export const LEGACY_STATUSES = ['Assigned', 'Contacted', 'Follow Up', 'Meeting Scheduled', 'Quotation Sent', 'Waiting Customer', 'Duplicate', 'Invalid', 'No Answer', 'Closed'];
+export const LEGACY_STATUSES = ['Assigned', 'Contacted', 'Follow Up', 'Meeting Scheduled', 'Quotation Sent', 'Waiting Customer', 'Duplicate', 'Invalid', 'No Answer', 'Closed', 'Low Budget', 'Not Interested'];
 
 /** need a meeting date + time + notes */
 export const REQ_DATETIME = ['Call Back', 'Scheduled Meeting', 'Site Visit Scheduled'];
@@ -48,7 +48,7 @@ export function statusAfterAction(current: string, action: LoggedAction, outcome
   else if (action === 'meeting') next = 'Scheduled Meeting';
   else if (action === 'visit') next = 'Site Visit Scheduled';
   else if (action === 'call') {
-    next = ({ 'Line Busy': 'No Answer – Sent WhatsApp', 'No Answer': 'No Answer – Sent WhatsApp', 'Wrong Number': 'Wrong Number', 'Asked to Call Back': 'Client Will Call Back', 'Not Interested': 'Not Interested' } as Record<string, string>)[outcome] || null;
+    next = ({ 'Line Busy': 'No Answer – Sent WhatsApp', 'No Answer': 'No Answer – Sent WhatsApp', 'Wrong Number': 'Wrong Number', 'Asked to Call Back': 'Client Will Call Back', 'Not Interested': 'Lost' } as Record<string, string>)[outcome] || null;
   }
   if (!next || next === current) return null;
   const moves = action === 'meeting' || action === 'visit' ? (stage === 'active' || (stage === 'pipeline' && current !== 'Negotiation')) : stage === 'active';

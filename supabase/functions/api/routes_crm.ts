@@ -12,6 +12,7 @@ import {
 } from "./lib.ts";
 import { route } from "./router.ts";
 import { canonicalPark } from "./parks.ts";
+import { closedStatusCleanup } from "./closedcleanup.ts";
 import { CUSTOM_STATUSES, sanitizeLead } from "./leadrules.ts";
 import { getBody, htmlToText, listFolder, loadEws } from "./ews.ts";
 import { sqmOf } from "./routing_pick.ts";
@@ -541,6 +542,15 @@ route("POST", "/crm/fix-mail-projects", async ({ c }) => {
   }
   await logActivity(c, "Fix lead projects", `${fixed} lead(s) mapped to park names`, "admin");
   return { success: true, checked: rows.length, fixed };
+});
+// admin only: "Low Budget" / "Not Interested" leads become Lost + reason. dry run first (body {apply:false}); the apply refuses when report totals would move
+route("POST", "/crm/closed-cleanup", async ({ c, req }) => {
+  needAdmin(c);
+  await rateLimit(`closedclean:${c.id}`, 3600, 10);
+  const b: any = await body(req).catch(() => ({}));
+  const r = await closedStatusCleanup(c, b?.apply === true);
+  if (b?.apply === true) await logActivity(c, "Closed status cleanup", `${r.applied ?? 0} lead(s) converted to Lost + reason`, "admin");
+  return r;
 });
 route("POST", "/crm/sync-inbox", async ({ c }) => { needCrm(c); return await runIngest(c); });
 

@@ -17,7 +17,7 @@ function target(d: any): { to: string; why: string } | null {
   return null;
 }
 
-export async function projectCleanup(c: { id: string; name: string }, apply: boolean, withD75Notes: boolean, fillBlanks = false) {
+export async function projectCleanup(c: { id: string; name: string }, apply: boolean, withD75Notes: boolean, fillBlanks = false, excludeIds: string[] = []) {
   const rows: any[] = await pageAll((a, b) => admin.from("crm_leads").select("id,data,updated_at").is("deleted_at", null).order("id").range(a, b), 50000) as any[];
   const moves: Record<string, number> = {}, left: Record<string, number> = {}, after: Record<string, number> = {};
   const todo: { r: any; to: string }[] = [];
@@ -31,7 +31,7 @@ export async function projectCleanup(c: { id: string; name: string }, apply: boo
     // blank project, but the customer's own message names exactly one park (call center / app / website mails): offered separately, applied only on {fillBlanks:true}
     if (!raw && !t) {
       const guess = canonicalPark(String(r.data?.description || ""));
-      if (guess) { blanksFound++; if (blankSamples.length < 12) blankSamples.push({ id: r.id, park: guess, text: String(r.data.description).replace(/\s+/g, " ").slice(0, 110) }); if (fillBlanks) to = guess; }
+      if (guess) { blanksFound++; if (blankSamples.length < 12) blankSamples.push({ id: r.id, park: guess, text: String(r.data.description).replace(/\s+/g, " ").slice(0, 110) }); if (fillBlanks && !excludeIds.includes(String(r.id))) to = guess; }
     }
     if (to !== raw) { moves[`${raw || "(blank)"} -> ${to || "(blank)"}`] = (moves[`${raw || "(blank)"} -> ${to || "(blank)"}`] || 0) + 1; todo.push({ r, to }); }
     else if (raw && !canonicalPark(raw)) left[raw] = (left[raw] || 0) + 1;

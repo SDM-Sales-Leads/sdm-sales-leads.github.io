@@ -558,7 +558,7 @@ route("POST", "/crm/project-cleanup", async ({ c, req }) => {
   needAdmin(c);
   await rateLimit(`projclean:${c.id}`, 3600, 10);
   const b: any = await body(req).catch(() => ({}));
-  const r = await projectCleanup(c, b?.apply === true, b?.withD75Notes === true);
+  const r = await projectCleanup(c, b?.apply === true, b?.withD75Notes === true, b?.fillBlanks === true);
   if (b?.apply === true) await logActivity(c, "Project name cleanup", `${r.applied ?? 0} lead(s) given the standard project name`, "admin");
   return r;
 });

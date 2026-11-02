@@ -52,6 +52,42 @@ for (const [park, list] of Object.entries(PARK_ALIASES)) {
 }
 TABLE.sort((a, b) => b.alias.length - a.alias.length);
 
+function lev(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]; let rowMin = i;
+    for (let j = 1; j <= b.length; j++) { cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); if (cur[j] < rowMin) rowMin = cur[j]; }
+    if (rowMin > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/** typo-tolerant: used only when no alias matched exactly. Long aliases may be 1-2 letters off ("Indstria Sadatt", "Industria Borg el Arrab"); aliases with a digit
+ *  (Plot 10 / 11, D75, 360) and short ones must match exactly; when two parks are equally close nothing is returned. */
+function fuzzyParks(t: string): string[] {
+  const toks = t.trim().split(" ");
+  const best = new Map<string, number>();
+  for (const { alias, park } of TABLE) {
+    const L = alias.length, max = L >= 12 ? 2 : L >= 6 ? 1 : 0;
+    if (!max || /\d/.test(alias)) continue;
+    const k = alias.split(" ").length;
+    for (const kk of [k - 1, k, k + 1]) {       // a space may be missing or extra: "Ras Elhekma", "Sokhna 360"
+      if (kk < 1) continue;
+      for (let i = 0; i + kk <= toks.length; i++) {
+        const w = toks.slice(i, i + kk).join(" ");
+        const d = lev(w, alias, max);
+        if (d <= max) best.set(park, Math.min(best.get(park) ?? 9, d));
+      }
+    }
+  }
+  if (!best.size) return [];
+  const m = Math.min(...best.values());
+  const top = [...best].filter(([, d]) => d === m).map(([p]) => p);
+  return top.length === 1 ? top : [];
+}
+
 /** every park named in the text (whole phrases, longest first, each phrase used once) */
 export function parkMatches(text: string): string[] {
   let t = " " + normPark(text) + " ";
@@ -63,13 +99,15 @@ export function parkMatches(text: string): string[] {
     if (!found.includes(park)) found.push(park);
     t = t.split(key).join(" ");
   }
-  return found;
+  return found.length ? found : fuzzyParks(t);
 }
 
 /** Canonical park name for a free text ("اندستريا برج العرب" -> "Industria Borg El Arab"). "" when nothing matches OR when the text names two different
  *  parks ("Industria East and West"): never guess, the caller keeps the customer's own words for a person to decide. */
 export function canonicalPark(text: string): string {
-  const f = parkMatches(text);
+  let f = parkMatches(text);
+  if (f.includes("Sokhna 360")) f = f.filter((x) => x !== "Industria Sokhna");   // "Industria Sokhna 360" is the 360 project
+  if (f.includes("Asher D75")) f = f.filter((x) => x !== "Industria Asher");
   if (f.length === 1 && f[0] === "Industria East" && /\bwest\b/i.test(String(text))) return "";   // "Industria East and West": two parks
   return f.length === 1 ? f[0] : "";
 }

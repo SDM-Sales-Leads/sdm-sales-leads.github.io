@@ -3,7 +3,7 @@
 import {
   admin, pageAll, asUuid, getConfig, setConfig, getSecret, HttpError, normEmail, normName, normPhone, nowIso, rid, str, isEmail, tryLock, unlock,
 } from "./lib.ts";
-import { canonicalPark, PARKS } from "./parks.ts";
+import { canonicalPark, parkMatches, PARKS } from "./parks.ts";
 import { later, notifyAssigned } from "./notify.ts";
 import { effectiveSqm, pickBySize, sqmOf, Load } from "./routing_pick.ts";
 import { getBodies, getBody, htmlToText, listFolder, loadEws, MailHead } from "./ews.ts";
@@ -198,12 +198,20 @@ export function parseWebsiteForm(text: string, subject = ""): Parsed | null {
   });
 }
 
+/** the project field was empty or matched no park (call center, mobile app and website mails sometimes only mention the park in the message): when the
+ *  customer's own message / the subject name exactly ONE park, that park is the project. Two parks or none: stays blank for a person. */
+function withParkFromText(p: Parsed, subject: string): Parsed {
+  if (p.project) return p;
+  const found = parkMatches(`${p.description || ""} ${subject || ""}`);
+  return found.length === 1 ? { ...p, project: found[0], description: `${p.description}${p.description ? "\n" : ""}Project (found in the message): ${found[0]}`.slice(0, 2000) } : p;
+}
+
 export async function parseMail(text: string, queue: any, subject = ""): Promise<{ parsed: Parsed; by: "ai" | "regex" }> {
   const web = parseWebsiteForm(text, subject);
-  if (web && (web.customerName || web.phoneNumber)) return { parsed: web, by: "regex" };
+  if (web && (web.customerName || web.phoneNumber)) return { parsed: withParkFromText(web, subject), by: "regex" };
   const ai = await aiParse(text, [...PARKS], queue.canonicalLeadSources || []);
-  if (ai && (ai.customerName || ai.phoneNumber)) return { parsed: ai, by: "ai" };
-  return { parsed: regexParse(text), by: "regex" };
+  if (ai && (ai.customerName || ai.phoneNumber)) return { parsed: withParkFromText(ai, subject), by: "ai" };
+  return { parsed: withParkFromText(regexParse(text), subject), by: "regex" };
 }
 
 // ---------------------------------------------------------------------------------------------

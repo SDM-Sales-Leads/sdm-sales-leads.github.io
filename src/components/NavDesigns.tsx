@@ -137,15 +137,15 @@ export const DenseNav: React.FC<Props> = ({ groups, activeId, onPick, user, logo
     <div className="border-t border-white/10 px-3 py-2 shrink-0 space-y-2">
       <div className="flex items-center gap-2.5 min-w-0">
         <div className="w-8 h-8 rounded-full bg-brand-red flex items-center justify-center font-bold text-sm shrink-0">{String(user?.name || '?').charAt(0)}</div>
-        <div className="min-w-0"><p className="text-[12px] font-medium truncate leading-tight">{user?.name}</p><p className="text-[9px] text-white/40 uppercase tracking-wider font-bold truncate">{user?.role}</p></div>
+        <div className="min-w-0 flex-1"><p className="text-[12px] font-medium truncate leading-tight">{user?.name}</p><p className="text-[9px] text-white/40 uppercase tracking-wider font-bold truncate">{user?.role}</p></div>
+        <button type="button" title="Logout" onClick={logout} className="w-8 h-8 rounded-lg text-white/60 hover:bg-white/10 hover:text-white inline-flex items-center justify-center shrink-0"><LogOut size={16} /></button>
       </div>
       <div className="flex items-center justify-between">
         <ViewSwitch />
-        <div className="flex items-center gap-0.5 text-white/60">
-          <TextSizeButton compact className="w-8 h-8 rounded-lg hover:bg-white/10 hover:text-white inline-flex items-center justify-center text-xs" />
-          <LightModeButton compact className="w-8 h-8 rounded-lg hover:bg-white/10 hover:text-white inline-flex items-center justify-center" />
-          {langBtn('w-8 h-8 rounded-lg hover:bg-white/10 hover:text-white inline-flex items-center justify-center', false)}
-          <button type="button" title="Logout" onClick={logout} className="w-8 h-8 rounded-lg hover:bg-white/10 hover:text-white inline-flex items-center justify-center"><LogOut size={16} /></button>
+        <div className="flex items-center text-white/60">
+          <TextSizeButton compact className="w-7 h-7 rounded-lg hover:bg-white/10 hover:text-white inline-flex items-center justify-center text-xs" />
+          <LightModeButton compact className="w-7 h-7 rounded-lg hover:bg-white/10 hover:text-white inline-flex items-center justify-center" />
+          {langBtn('w-7 h-7 rounded-lg hover:bg-white/10 hover:text-white inline-flex items-center justify-center', false)}
         </div>
       </div>
     </div>

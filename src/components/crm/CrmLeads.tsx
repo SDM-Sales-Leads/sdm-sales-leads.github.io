@@ -2336,7 +2336,7 @@ ${user.name || ''}`);
 
               {createDup && (
                 <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 space-y-2">
-                  <p className="text-[11px] leading-relaxed flex gap-2"><AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" /><span>Lead <strong>{createDup.lead.id}</strong> ({createDup.lead.customerName}) already has {createDup.why}. It is owned by <strong>{createDup.lead.assignedSalespersonName || 'nobody yet (unrouted queue)'}</strong>.</span></p>
+                  <p className="text-[11px] leading-relaxed flex gap-2"><AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" /><span>Lead <strong>{createDup.lead.id}</strong> ({createDup.lead.customerName}) already has {createDup.why}. It is owned by <strong>{createDup.lead.assignedSalespersonName || 'nobody yet (unassigned)'}</strong>.</span></p>
                   <div className="flex gap-2">
                     <button type="button" onClick={() => { setShowCreateModal(false); setSelectedLead(createDup.lead); setCreateDup(null); }} className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-lg text-[11px]">Open that lead</button>
                     {isOps && <button type="button" onClick={(e) => handleCreateLead(e as any, true)} className="bg-white border border-amber-300 font-bold px-3 py-1.5 rounded-lg text-[11px]">Create another lead anyway</button>}

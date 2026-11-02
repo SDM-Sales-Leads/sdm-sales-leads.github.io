@@ -6,7 +6,7 @@
 export const PARKS = [
   "Industria Borg Al Arab", "Industria East", "Industria New Sadat", "Industria October", "Industria Sadat", "Industria Sokhna", "Industria West",
   "Industria Asher", "Asher Arady", "D75", "Al Oula", "SOKHNA360",
-  "Industria New Damietta", "Al Minya Green Park (EGP)", "Qantara", "Industria Ras El Hakma", "Industria Safaga", "Abou Rawash Arady",
+  "Industria New Damietta", "Al Minya Green Park (EGP)", "Qantara", "Industria Ras Al Hakma", "Industria Safaga", "Abou Rawash Arady",
   "Elsewedy Industrial City (EIC)", "Industria Alamein", "Industria Iraq",
 ] as const;   // 3 Nov 2026: the names the owner chose as the FORMAL project names (they replace the Land Bank spellings used on 2 Nov)
 
@@ -25,7 +25,7 @@ export const PARK_ALIASES: Record<string, string[]> = {
   "Industria New Damietta": ["new damietta", "industria new damietta", "industria damietta", "damietta", "دمياط الجديده", "دمياط"],
   "Al Minya Green Park (EGP)": ["el minya", "minya", "el minya green park", "المنيا", "al minya", "al minya green park", "minya green park", "al minya green park egp"],
   "Qantara": ["qantara", "el qantara", "القنطره"],
-  "Industria Ras El Hakma": ["ras el hekma", "ras al hekma", "industria ras al hekma", "رأس الحكمه", "راس الحكمه", "ras el hakma", "ras al hakma", "ras elhakma", "industria ras el hakma", "industria ras el hekma"],
+  "Industria Ras Al Hakma": ["ras el hekma", "ras al hekma", "industria ras al hekma", "رأس الحكمه", "راس الحكمه", "ras el hakma", "ras al hakma", "ras elhakma", "industria ras el hakma", "industria ras el hekma"],
   "Industria Safaga": ["safaga", "industria safaga", "سفاجا"],
   "Abou Rawash Arady": ["abu rawash", "abou rawash", "abu rawwash", "ابو رواش", "ابو رواس", "abou rawash arady", "abu rawash arady", "abu rawash", "abou rawash"],
   "Elsewedy Industrial City (EIC)": ["egyptian industrial city", "eic", "elsewedy industrial city", "elsewedy industrial city eic", "tanzania", "تنزانيا", "elsewedy industrial city tanzania"],

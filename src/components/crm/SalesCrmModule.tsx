@@ -131,7 +131,7 @@ export const SalesCrmModule: React.FC<SalesCrmModuleProps> = ({
     try {
       const allUsers = await adminService.getUsers();
       const crmSalesPeople = allUsers
-        .filter((u: any) => u.role === 'Sales Team' || u.role === 'Sales Rep' || u.role === 'Sales Team Leader' || u.role === 'Sales Operation' || u.role === 'Business Development'   // BD: only by manual assignment, never in the queue
+        .filter((u: any) => u.role === 'Sales Team' || u.role === 'Sales Rep' || u.role === 'Sales Team Leader' || u.role === 'Sales Operation' || u.role === 'Business Development' || u.role === 'Sales Director'   // Sales Director (3 Nov 2026): like BD, only by manual assignment; BD: only by manual assignment, never in the queue
           || (String(u.role || '').toLowerCase().includes('admin') && String(u.id) === String(user?.id)))   // an admin can assign leads to himself
         .map((u: any) => ({
           id: String(u.id), name: u.name, email: u.email || '', role: u.role || 'Sales Rep',

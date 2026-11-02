@@ -87,3 +87,50 @@ export async function archiveImportBatch(c: { id: string; name: string }, batch:
   }
   return { ...out, archived: done };
 }
+
+/** 3 Nov 2026: old migrated leads that were assigned but never worked fill every salesperson's cap of untouched leads, so new leads cannot be handed out.
+ *  They are flagged as history (data.importedHistory, tag STALE-...): they stay with their owner and stay visible, but stop counting toward the cap and are never
+ *  handed out again. Preview first ({apply:false}); {revert:true} takes the flag off again. */
+import { isUntouched } from "./pool.ts";
+export async function staleUntouchedFlag(c: { id: string; name: string }, opts: { apply: boolean; revert: boolean; days: number; tag: string }) {
+  const tag = opts.tag.slice(0, 60);
+  if (opts.revert) {
+    const rows: any[] = await pageAll((a, b) => admin.from("crm_leads").select("id,data,updated_at").is("deleted_at", null).eq("data->>importBatch", tag).order("id").range(a, b), 20000) as any[];
+    const out: any = { tag, flagged: rows.length };
+    if (!opts.apply) return out;
+    let done = 0;
+    for (let i = 0; i < rows.length; i += 25) await Promise.all(rows.slice(i, i + 25).map(async (r: any) => {
+      const d = { ...r.data }; delete d.importedHistory; delete d.importBatch;
+      const u = await admin.from("crm_leads").update({ data: d }).eq("id", r.id).eq("updated_at", r.updated_at).select("id"); if (u.data?.length) done++;
+    }));
+    return { ...out, reverted: done };
+  }
+  const rows: any[] = await pageAll((a, b) => admin.from("crm_leads").select("id,assigned_to,status,data,updated_at").is("deleted_at", null).not("assigned_to", "is", null).eq("status", "New").order("id").range(a, b), 20000) as any[];
+  const cutoff = Date.now() - opts.days * 86400_000;
+  const users = new Map<string, string>(((await admin.from("app_users").select("id,name,role")).data || []).map((u: any) => [u.id, `${u.name} (${u.role})`]));
+  const hit: any[] = [], tooNew: any[] = [], touched: any[] = [];
+  let noLegacy = 0;
+  for (const r of rows) {
+    const d = r.data || {};
+    if (d.importedHistory) continue;
+    if (!isUntouched(d)) { touched.push(r); continue; }
+    const ms = Date.parse(d.date);
+    if (!(ms < cutoff)) { tooNew.push(r); continue; }
+    if (!d.legacyId) { noLegacy++; continue; }                     // only leads that came from the old CRM migration
+    hit.push(r);
+  }
+  const per: Record<string, number> = {};
+  for (const r of hit) { const k = users.get(r.assigned_to) || r.assigned_to; per[k] = (per[k] || 0) + 1; }
+  const keep: Record<string, number> = {};
+  for (const r of rows) if (!hit.includes(r) && isUntouched(r.data || {}) && !(r.data || {}).importedHistory) { const k = users.get(r.assigned_to) || r.assigned_to; keep[k] = (keep[k] || 0) + 1; }
+  const out: any = { olderThanDays: opts.days, assignedNewLeads: rows.length, toFlag: hit.length, perOwner: Object.entries(per).sort((a, b) => b[1] - a[1]), untouchedLeftPerOwner: Object.entries(keep).sort((a, b) => b[1] - a[1]), skippedBecauseWorkedOn: touched.length, skippedBecauseRecent: tooNew.length, skippedNoOldCrmId: noLegacy, sampleIds: hit.slice(0, 8).map((r) => r.id) };
+  if (!opts.apply) return out;
+  const now = nowIso();
+  let done = 0, skipped = 0;
+  for (let i = 0; i < hit.length; i += 25) await Promise.all(hit.slice(i, i + 25).map(async (r: any) => {
+    const d = { ...r.data, importedHistory: true, importBatch: tag, lastUpdated: now };
+    const u = await admin.from("crm_leads").update({ data: d }).eq("id", r.id).eq("updated_at", r.updated_at).select("id");
+    if (u.data?.length) done++; else skipped++;
+  }));
+  return { ...out, flagged: done, skippedChangedMeanwhile: skipped };
+}

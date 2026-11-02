@@ -13,7 +13,7 @@ import {
 import { route } from "./router.ts";
 import { canonicalPark } from "./parks.ts";
 import { closedStatusCleanup } from "./closedcleanup.ts";
-import { archiveImportBatch, projectCleanup, queueTextCleanup } from "./projectcleanup.ts";
+import { archiveImportBatch, projectCleanup, queueTextCleanup, staleUntouchedFlag } from "./projectcleanup.ts";
 import { nameRecovery } from "./namerecovery.ts";
 import { nameProblem, repairName } from "./namecheck.ts";
 import { CUSTOM_STATUSES, sanitizeLead } from "./leadrules.ts";
@@ -592,6 +592,15 @@ route("POST", "/crm/import-batch-archive", async ({ c, req }) => {
   const b: any = await body(req).catch(() => ({}));
   const r = await archiveImportBatch(c, String(b?.batch || ""), b?.apply === true);
   if (b?.apply === true) await logActivity(c, "Import batch archived", `${b?.batch}: ${r.archived ?? 0} lead(s)`, "admin");
+  return r;
+});
+// admin only: old migrated leads nobody ever worked on stop filling the salespeople's cap. Preview first ({apply:false}); {revert:true,apply:true} undoes it
+route("POST", "/crm/stale-untouched", async ({ c, req }) => {
+  needAdmin(c);
+  await rateLimit(`stale:${c.id}`, 3600, 20);
+  const b: any = await body(req).catch(() => ({}));
+  const r = await staleUntouchedFlag(c, { apply: b?.apply === true, revert: b?.revert === true, days: Math.max(7, Math.min(365, Number(b?.days) || 30)), tag: String(b?.tag || "STALE-2026-11-03") });
+  if (b?.apply === true) await logActivity(c, b?.revert ? "Stale untouched leads: flag removed" : "Stale untouched leads flagged as history", `${r.flagged ?? r.reverted ?? 0} lead(s)`, "admin");
   return r;
 });
 route("POST", "/crm/sync-inbox", async ({ c }) => { needCrm(c); return await runIngest(c); });

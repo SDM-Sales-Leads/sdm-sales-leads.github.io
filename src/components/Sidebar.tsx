@@ -7,6 +7,7 @@ import { Logo } from '../constants';
 import { NotificationBell } from './NotificationBell';
 import { getLang, setLang } from '../i18n/lang';
 import { ViewSwitch } from './ViewSwitch';
+import { DenseNav, RailNav, useActiveDesign } from './NavDesigns';
 import { 
   LayoutDashboard, 
   Ticket, 
@@ -321,6 +322,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const groups = useMemo(() => buildGroups(permissions, user?.role), [permissions, user?.role]);
   const activeGroup = groupOf(groups, activeTab, crmSubTab);
+  const design = useActiveDesign();
+  const pick = (g: any) => { setActiveTab(g.items[0].tab); if (g.items[0].sub) setCrmSubTab(g.items[0].sub); setIsOpen(false); };
+  if (design === 'rail') return <RailNav groups={groups} activeId={activeGroup?.id} onPick={pick} user={user} logout={logout} />;
+  if (design === 'dense') return <DenseNav groups={groups} activeId={activeGroup?.id} onPick={pick} user={user} logout={logout} />;
+  if (design === 'top') return null;   // the bar on top is drawn by App
 
   return (
     <>

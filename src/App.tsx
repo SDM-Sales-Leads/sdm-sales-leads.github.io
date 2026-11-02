@@ -5,6 +5,8 @@ import { Toaster } from 'sonner';
 import { Login } from './components/Login';
 import { ChangePassword } from './components/ChangePassword';
 import { Sidebar } from './components/Sidebar';
+import { NavPicker, TopNav, useActiveDesign } from './components/NavDesigns';
+import { buildGroups, groupOf } from './components/navGroups';
 // the charts library is large: the dashboard loads when it is opened, not at start
 const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
 import { TicketList } from './components/TicketList';
@@ -34,7 +36,8 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { usePageHistory, useBackClose } from './lib/backNav';
 
 const AppContent: React.FC = () => {
-  const { user, permissions, isLoading, mustChangePassword } = useAuth();
+  const { user, permissions, isLoading, mustChangePassword, logout } = useAuth();
+  const navDesign = useActiveDesign();
 
   // warm the lists the ticket and workflow pages need, once, after the first screen has been drawn
   useEffect(() => { if (user && permissions) warmReferenceData(permissions as any); }, [user, permissions]);
@@ -266,7 +269,12 @@ const AppContent: React.FC = () => {
     <div className="flex h-screen overflow-hidden relative">
       <AnimatedBackground />
       
-      <div className="flex flex-1 h-screen overflow-hidden z-10">
+      <div className={`flex flex-1 h-screen overflow-hidden z-10 ${navDesign === 'top' ? 'flex-col' : ''}`}>
+        {navDesign === 'top' && (() => {
+          const groups = buildGroups(permissions, user?.role);
+          const ag = groupOf(groups, activeTab, crmSubTab);
+          return <TopNav groups={groups} activeId={ag?.id} user={user} logout={logout} onPick={(g) => { setActiveTab(g.items[0].tab); setSelectedTicket(null); if (g.items[0].sub) setCrmSubTab(g.items[0].sub); }} />;
+        })()}
         <Sidebar 
           activeTab={activeTab} 
           setActiveTab={(tab) => {
@@ -301,6 +309,7 @@ const AppContent: React.FC = () => {
         </div>
       </div>
       <MobileTabBar activeTab={activeTab} crmSubTab={crmSubTab} go={(tab, sub) => { setActiveTab(tab); setSelectedTicket(null); if (sub) setCrmSubTab(sub); }} />
+      <NavPicker />
     </div>
   );
 };

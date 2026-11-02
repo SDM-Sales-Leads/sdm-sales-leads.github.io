@@ -5,7 +5,7 @@ import { Toaster } from 'sonner';
 import { Login } from './components/Login';
 import { ChangePassword } from './components/ChangePassword';
 import { Sidebar } from './components/Sidebar';
-import { NavPicker, TopNav, useActiveDesign } from './components/NavDesigns';
+import { TopNav, useActiveDesign } from './components/NavDesigns';
 import { buildGroups, groupOf } from './components/navGroups';
 // the charts library is large: the dashboard loads when it is opened, not at start
 const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
@@ -309,7 +309,6 @@ const AppContent: React.FC = () => {
         </div>
       </div>
       <MobileTabBar activeTab={activeTab} crmSubTab={crmSubTab} go={(tab, sub) => { setActiveTab(tab); setSelectedTicket(null); if (sub) setCrmSubTab(sub); }} />
-      <NavPicker />
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ChevronDown, LogOut, MoreHorizontal } from 'lucide-react';
+import { ChevronDown, LogOut, MoreHorizontal, PanelLeft } from 'lucide-react';
 import { Logo } from '../constants';
 import { NotificationBell } from './NotificationBell';
 import { ViewSwitch } from './ViewSwitch';
@@ -13,42 +13,31 @@ import type { NavGroup } from './navGroups';
 //   top   = the menu moves to a bar on top, extra pages fold into "More"
 // The choice is kept in this browser only (localStorage), so nobody else sees a change until one design is made the default.
 export type NavDesign = 'current' | 'rail' | 'dense' | 'top';
-const KEY = 'sdm_nav_design', PREVIEW = 'sdm_nav_preview';
+type Stored = NavDesign | 'auto';   // 'auto' = nobody chose: the top bar on laptops (under 1500 px wide), the side menu on big screens
+const KEY = 'sdm_nav_design';
 const listeners = new Set<() => void>();
 const valid = (v: any): v is NavDesign => v === 'current' || v === 'rail' || v === 'dense' || v === 'top';
-export const readNavDesign = (): NavDesign => { try { const v = localStorage.getItem(KEY); return valid(v) ? v : 'current'; } catch { return 'current'; } };
-export const setNavDesign = (d: NavDesign) => { try { localStorage.setItem(KEY, d); } catch { /* private mode */ } listeners.forEach((f) => f()); };
-// ?nav=rail|dense|top|current picks a design in this browser; ?navpick=1 shows the chooser chip (?navpick=0 hides it)
+export const readNavDesign = (): Stored => { try { const v = localStorage.getItem(KEY); return valid(v) ? v : 'auto'; } catch { return 'auto'; } };
+export const setNavDesign = (d: Stored) => { try { localStorage.setItem(KEY, d); } catch { /* private mode */ } listeners.forEach((f) => f()); };
+// ?nav=rail|dense|top|current|auto picks a design in this browser (for testing); people switch between top bar and side menu from their account menu
 try {
   const q = new URLSearchParams(location.search);
   if (valid(q.get('nav'))) localStorage.setItem(KEY, q.get('nav')!);
-  if (q.get('navpick') === '1') localStorage.setItem(PREVIEW, '1');
-  if (q.get('navpick') === '0') localStorage.removeItem(PREVIEW);
 } catch { /* ignore */ }
-export const useNavDesign = (): NavDesign =>
-  useSyncExternalStore((cb) => { listeners.add(cb); return () => { listeners.delete(cb); }; }, readNavDesign, () => 'current');
+export const useNavDesign = (): Stored =>
+  useSyncExternalStore((cb) => { listeners.add(cb); return () => { listeners.delete(cb); }; }, readNavDesign, () => 'auto');
 
-const useDesktop = () => {
-  const [on, setOn] = useState(() => (typeof window === 'undefined' ? true : window.matchMedia('(min-width: 1024px)').matches));
-  useEffect(() => { const m = window.matchMedia('(min-width: 1024px)'); const f = () => setOn(m.matches); m.addEventListener('change', f); return () => m.removeEventListener('change', f); }, []);
+const useMin = (px: number) => {
+  const q = `(min-width: ${px}px)`;
+  const [on, setOn] = useState(() => (typeof window === 'undefined' ? true : window.matchMedia(q).matches));
+  useEffect(() => { const m = window.matchMedia(q); const f = () => setOn(m.matches); m.addEventListener('change', f); return () => m.removeEventListener('change', f); }, [q]);
   return on;
 };
-/** the new designs are for desktop screens; below 1024 px the existing drawer menu stays */
-export const useActiveDesign = (): NavDesign => { const d = useNavDesign(); const desk = useDesktop(); return desk ? d : 'current'; };
-
-export const NavPicker: React.FC = () => {
-  const d = useNavDesign();
-  let show = false; try { show = localStorage.getItem(PREVIEW) === '1'; } catch { /* none */ }
-  if (!show) return null;
-  const items: [NavDesign, string][] = [['current', 'Current'], ['rail', 'A · Rail'], ['dense', 'B · Compact'], ['top', 'C · Top bar']];
-  return (
-    <div className="fixed bottom-3 right-3 z-[200] rounded-2xl bg-white shadow-2xl border border-black/10 p-1.5 flex items-center gap-1 text-[11px]" translate="no">
-      <span className="px-2 font-bold text-black/60">Menu design</span>
-      {items.map(([k, label]) => (
-        <button key={k} type="button" onClick={() => setNavDesign(k)} className={`px-2.5 py-1.5 rounded-xl font-bold ${d === k ? 'bg-brand-red text-white' : 'text-black/70 hover:bg-black/5'}`}>{label}</button>
-      ))}
-    </div>
-  );
+/** the new designs are for desktop screens; below 1024 px the existing drawer menu stays. Nobody chose: top bar under 1500 px, side menu above */
+export const useActiveDesign = (): NavDesign => {
+  const d = useNavDesign(); const desk = useMin(1024); const big = useMin(1500);
+  if (!desk) return 'current';
+  return d === 'auto' ? (big ? 'current' : 'top') : d;
 };
 
 interface Props { groups: NavGroup[]; activeId?: string; onPick: (g: NavGroup) => void; user: any; logout: () => void }
@@ -78,6 +67,7 @@ const AccountMenu: React.FC<{ user: any; logout: () => void; place: 'right' | 'b
           <TextSizeButton className={row} />
           <LightModeButton className={row} />
           {langBtn(row, true)}
+          <button type="button" onClick={() => setNavDesign('current')} className={row}><PanelLeft size={16} /><span className="ml-1.5">Use the side menu</span></button>
           <button type="button" onClick={logout} className={row}><LogOut size={16} /><span className="ml-1.5">Logout</span></button>
         </div>
       )}

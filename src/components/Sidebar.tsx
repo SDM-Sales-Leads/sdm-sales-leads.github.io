@@ -7,7 +7,7 @@ import { Logo } from '../constants';
 import { NotificationBell } from './NotificationBell';
 import { getLang, setLang } from '../i18n/lang';
 import { ViewSwitch } from './ViewSwitch';
-import { DenseNav, RailNav, useActiveDesign } from './NavDesigns';
+import { DenseNav, RailNav, setNavDesign, useActiveDesign } from './NavDesigns';
 import { 
   LayoutDashboard, 
   Ticket, 
@@ -43,7 +43,7 @@ import {
   Bell,
   Trash2,
   BellOff,
-  Calendar, Trophy, Network, GraduationCap, SlidersHorizontal, Construction, FileSpreadsheet,
+  PanelTop, Calendar, Trophy, Network, GraduationCap, SlidersHorizontal, Construction, FileSpreadsheet,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -525,6 +525,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <span className="w-5 text-center font-bold text-sm">{getLang() === 'ar' ? 'EN' : 'ع'}</span>
             {!isCollapsed && <span className="font-medium">{getLang() === 'ar' ? 'English' : 'العربية'}</span>}
+          </button>
+          <button
+            type="button"
+            title="Use the menu bar on top"
+            onClick={() => setNavDesign('top')}
+            className={`hidden lg:flex w-full items-center gap-3 py-2.5 rounded-xl text-white/60 hover:bg-white/5 hover:text-white transition-all ${isCollapsed ? 'justify-center px-0' : 'px-4'}`}
+          >
+            <PanelTop size={20} />
+            {!isCollapsed && <span className="font-medium">Use the top menu</span>}
           </button>
           <button
             title={isCollapsed ? "Logout" : undefined}

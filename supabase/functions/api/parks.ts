@@ -30,7 +30,7 @@ export const PARK_ALIASES: Record<string, string[]> = {
   "Egyptian Industrial City (EIC)": ["egyptian industrial city", "eic"],
   "Industria Alamein": ["industria alamein", "new alamein", "industria new alamein", "alamein", "العلمين"],
   "Industria Iraq": ["industria iraq", "iraq", "العراق"],
-  "Elsewedy Industrial City (Tanzania)": ["elsewedy industrial city tanzania", "elsewedy industrial city", "tanzania", "تنزانيا"],
+  "Elsewedy Industrial City (Tanzania)": ["elsewedy industrial city tanzania", "elsewedy industrial city (tanzania)", "tanzania", "تنزانيا"],
   "Al Oula": ["al oula", "aloula", "el oula", "al ola", "el ola", "oula", "الاولي", "الاوله", "الأولى", "الاولى"],
   "Sokhna 360": ["sokhna 360", "sokhna360", "sid 360", "sid360", "sokhna three sixty", "سخنه 360", "السخنه 360", "سخنة 360", "360"],
 };
@@ -99,7 +99,7 @@ export function parkMatches(text: string): string[] {
     if (!found.includes(park)) found.push(park);
     t = t.split(key).join(" ");
   }
-  return found.length ? found : fuzzyParks(t);
+  return found.length ? found : t.trim().split(" ").length <= 8 ? fuzzyParks(t) : [];   // typo tolerance only for a short field, never for a whole message
 }
 
 /** Canonical park name for a free text ("اندستريا برج العرب" -> "Industria Borg El Arab"). "" when nothing matches OR when the text names two different

@@ -13,7 +13,7 @@ import {
 import { route } from "./router.ts";
 import { canonicalPark } from "./parks.ts";
 import { closedStatusCleanup } from "./closedcleanup.ts";
-import { projectCleanup } from "./projectcleanup.ts";
+import { projectCleanup, queueTextCleanup } from "./projectcleanup.ts";
 import { nameRecovery } from "./namerecovery.ts";
 import { nameProblem, repairName } from "./namecheck.ts";
 import { CUSTOM_STATUSES, sanitizeLead } from "./leadrules.ts";
@@ -574,6 +574,15 @@ route("POST", "/crm/name-recovery", async ({ c, req }) => {
   const b: any = await body(req).catch(() => ({}));
   const r = await nameRecovery(c, b?.apply === true, Array.isArray(b?.excludeIds) ? b.excludeIds.map(String) : []);
   if (b?.apply === true) await logActivity(c, "Name recovery", `${r.applied ?? 0} lead(s) given the real name from the Facebook sheet`, "admin");
+  return r;
+});
+// admin only: clears the text "Unassigned Queue" used as an owner name on leads that have no owner. Dry run first ({apply:false})
+route("POST", "/crm/queue-text-cleanup", async ({ c, req }) => {
+  needAdmin(c);
+  await rateLimit(`queuetext:${c.id}`, 3600, 10);
+  const b: any = await body(req).catch(() => ({}));
+  const r = await queueTextCleanup(c, b?.apply === true);
+  if (b?.apply === true) await logActivity(c, "Queue text cleanup", `${r.applied ?? 0} lead(s): owner name text cleared`, "admin");
   return r;
 });
 route("POST", "/crm/sync-inbox", async ({ c }) => { needCrm(c); return await runIngest(c); });

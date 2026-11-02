@@ -53,3 +53,19 @@ export async function projectCleanup(c: { id: string; name: string }, apply: boo
   }
   return { ...out, applied: done, skippedChangedMeanwhile: skipped };
 }
+
+/** 3 Nov 2026: old mail / sheet leads carry the TEXT "Unassigned Queue" as the owner's name (shown as a person). Only leads with no owner are touched: the name becomes blank. */
+export async function queueTextCleanup(c: { id: string; name: string }, apply: boolean) {
+  const rows: any[] = await pageAll((a, b) => admin.from("crm_leads").select("id,assigned_to,data,updated_at").is("deleted_at", null).eq("data->>assignedSalespersonName", "Unassigned Queue").order("id").range(a, b), 20000) as any[];
+  const free = rows.filter((r) => !r.assigned_to && !String(r.data?.assignedSalespersonId || ""));
+  const out: any = { withText: rows.length, toClear: free.length, hasAnOwnerSoSkipped: rows.length - free.length };
+  if (!apply) return out;
+  let done = 0, skipped = 0;
+  for (let i = 0; i < free.length; i += 25) {
+    await Promise.all(free.slice(i, i + 25).map(async (r: any) => {
+      const u = await admin.from("crm_leads").update({ data: { ...r.data, assignedSalespersonName: "" } }).eq("id", r.id).eq("updated_at", r.updated_at).is("assigned_to", null).select("id");
+      if (u.data?.length) done++; else skipped++;
+    }));
+  }
+  return { ...out, applied: done, skippedChangedMeanwhile: skipped };
+}

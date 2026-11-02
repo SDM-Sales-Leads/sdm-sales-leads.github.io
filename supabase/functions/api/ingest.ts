@@ -505,7 +505,7 @@ export async function createLeadFromParsed(parsed: Parsed, head: MailHead, text:
     date: (head as any).leadDate || atDate,
     expectedClosingDate: "",
     assignedSalespersonId: "",
-    assignedSalespersonName: "Unassigned Queue",
+    assignedSalespersonName: "",   // 3 Nov 2026: was the text "Unassigned Queue", which the lists showed as a person; blank shows the UNASSIGNED badge
     comments: [],
     attachments: [],
     timeline: [{

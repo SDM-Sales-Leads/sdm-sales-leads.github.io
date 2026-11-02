@@ -3,7 +3,7 @@
 import {
   admin, pageAll, asUuid, getConfig, setConfig, getSecret, HttpError, normEmail, normName, normPhone, nowIso, rid, str, isEmail, tryLock, unlock,
 } from "./lib.ts";
-import { canonicalPark } from "./parks.ts";
+import { canonicalPark, PARKS } from "./parks.ts";
 import { later, notifyAssigned } from "./notify.ts";
 import { effectiveSqm, pickBySize, sqmOf, Load } from "./routing_pick.ts";
 import { getBodies, getBody, htmlToText, listFolder, loadEws, MailHead } from "./ews.ts";
@@ -30,7 +30,7 @@ export const DEFAULT_QUEUE = {
   businessHoursStart: "08:00",
   businessHoursEnd: "17:00",
   enableOverflowQueue: true,
-  canonicalProjects: ["Industria East", "Industria West", "Industria Sadat", "Industria 10th of Ramadan", "Sokhna", "Industria New Alamein"],
+  canonicalProjects: [...PARKS],
   canonicalLeadSources: ["Facebook", "Website", "Referral", "Cold Call", "Exhibition"],
 };
 
@@ -76,14 +76,14 @@ export function sanitizeParsed(p: any): Parsed {
   const park = canonicalPark(rawProject);
   let description = str(p.description, 2000);
   // the lead keeps what the customer wrote; the project field gets the canonical park name
-  if (park && rawProject && rawProject !== park && !description.includes(rawProject)) description = `${description}${description ? "\n" : ""}Project (as written): ${rawProject}`.slice(0, 2000);
+  if (rawProject && rawProject !== park && !description.includes(rawProject)) description = `${description}${description ? "\n" : ""}Project (as written): ${rawProject}`.slice(0, 2000);
   const priority = PRIORITIES.find((x) => x.toLowerCase() === str(p.priority, 20).toLowerCase()) || "";
   return {
     customerName: str(p.customerName, 120),
     phoneNumber: str(p.phoneNumber, 40),
     email: isEmail(email) ? email : "",
     companyName: str(p.companyName, 160),
-    project: park || rawProject,
+    project: park,   // 2 Nov 2026: a name that matches no park (or two) stays blank, the words are kept in the description above
     plotType: str(p.plotType, 80),
     requiredSize: num(p.requiredSize),
     budget: num(p.budget),
@@ -201,7 +201,7 @@ export function parseWebsiteForm(text: string, subject = ""): Parsed | null {
 export async function parseMail(text: string, queue: any, subject = ""): Promise<{ parsed: Parsed; by: "ai" | "regex" }> {
   const web = parseWebsiteForm(text, subject);
   if (web && (web.customerName || web.phoneNumber)) return { parsed: web, by: "regex" };
-  const ai = await aiParse(text, queue.canonicalProjects || [], queue.canonicalLeadSources || []);
+  const ai = await aiParse(text, [...PARKS], queue.canonicalLeadSources || []);
   if (ai && (ai.customerName || ai.phoneNumber)) return { parsed: ai, by: "ai" };
   return { parsed: regexParse(text), by: "regex" };
 }

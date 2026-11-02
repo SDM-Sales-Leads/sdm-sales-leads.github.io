@@ -13,6 +13,7 @@ import {
 import { route } from "./router.ts";
 import { canonicalPark } from "./parks.ts";
 import { closedStatusCleanup } from "./closedcleanup.ts";
+import { projectCleanup } from "./projectcleanup.ts";
 import { CUSTOM_STATUSES, sanitizeLead } from "./leadrules.ts";
 import { getBody, htmlToText, listFolder, loadEws } from "./ews.ts";
 import { sqmOf } from "./routing_pick.ts";
@@ -550,6 +551,15 @@ route("POST", "/crm/closed-cleanup", async ({ c, req }) => {
   const b: any = await body(req).catch(() => ({}));
   const r = await closedStatusCleanup(c, b?.apply === true);
   if (b?.apply === true) await logActivity(c, "Closed status cleanup", `${r.applied ?? 0} lead(s) converted to Lost + reason`, "admin");
+  return r;
+});
+// admin only: every spelling of a project becomes its Land Bank name (parks.ts). Dry run first ({apply:false}); {withD75Notes:true} also moves Asher leads whose note says D75
+route("POST", "/crm/project-cleanup", async ({ c, req }) => {
+  needAdmin(c);
+  await rateLimit(`projclean:${c.id}`, 3600, 10);
+  const b: any = await body(req).catch(() => ({}));
+  const r = await projectCleanup(c, b?.apply === true, b?.withD75Notes === true);
+  if (b?.apply === true) await logActivity(c, "Project name cleanup", `${r.applied ?? 0} lead(s) given the standard project name`, "admin");
   return r;
 });
 route("POST", "/crm/sync-inbox", async ({ c }) => { needCrm(c); return await runIngest(c); });

@@ -56,11 +56,11 @@ function cairoDate(iso: string): string {
 function projectOf(raw: string): { project: string; note: string } {
   const t = raw.replace(/_/g, " ").trim();
   if (!t || /^<test/i.test(t)) return { project: "", note: "" };
-  if (/d\s*-?\s*75/i.test(t)) return { project: "Industria Asher", note: "Asher D75" };           // owner: d75 = new project in Asher
-  if (/العاشر|asher/i.test(t) && !/^(إ|ا)ندستريا (إ|ا)يست/.test(t)) return { project: "Industria Asher", note: "Asher plots 10 & 11" };
-  if (/دمياط|damietta/i.test(t)) return { project: "Industria New Damietta", note: "" };
+  // 2 Nov 2026: one alias table (parks.ts) names every project; D75 is its own project ("Asher D75", Land Bank name). A text that names no park or two
+  // parks leaves the project blank - the customer's own words stay in the description ("Project of interest: ...") for a person to decide.
+  if (/d\s*-?\s*75/i.test(t)) return { project: "Asher D75", note: "" };
   const park = canonicalPark(t);
-  return { project: park || t, note: park ? "" : "" };
+  return { project: park, note: park === "Industria Asher" && /plot|قطع/i.test(t) ? t : "" };
 }
 function sizeOf(raw: string): { size: number | null; text: string } {
   const t = raw.replace(/_/g, " ").trim();

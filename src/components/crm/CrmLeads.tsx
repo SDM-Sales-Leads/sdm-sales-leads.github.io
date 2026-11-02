@@ -7,7 +7,7 @@ import { LeadPlotsPanel } from './LeadPlotsPanel';
 import { ColumnSelector } from './ColumnSelector';
 import { crmService, normalizePhone } from './crmService';
 import {
-  INDUSTRIES, NO_CHANNEL, channelOf, LOST_REASONS_TEAM, PRIORITIES, SOURCES, STATUS_GROUPS, LEGACY_STATUSES, isOpenStatus, leadScore, normSource, phoneIntl, statusStage,
+  INDUSTRIES, NO_CHANNEL, channelOf, LOST_REASONS_TEAM, PROJECTS, PRIORITIES, SOURCES, STATUS_GROUPS, LEGACY_STATUSES, isOpenStatus, leadScore, normSource, phoneIntl, statusStage,
 } from './leadConfig';
 import { statusAfterAction, REQ_FOLLOWUP, isTouchedLead } from './leadConfig';
 import { LoadBar } from './LoadBar';
@@ -2270,10 +2270,8 @@ ${user.name || ''}`);
                   >
                     <option value="">Select project...</option>
                     {(() => {
-                      // Configured canonical projects first, else the standard list; plus any project already used by a lead
-                      const configured = crmService.getQueueSettings()?.canonicalProjects;
-                      const base = configured && configured.length > 0 ? configured : ['Industria East', 'Industria West', 'Industria Sadat', 'Industria Sokhna'];
-                      return Array.from(new Set([...base, ...projects])).map(p => <option key={p} value={p}>{p}</option>);
+                      // 2 Nov 2026: only the standard (Land Bank) names: spellings already typed on old leads are no longer offered
+                      return PROJECTS.map(p => <option key={p} value={p}>{p}</option>);
                     })()}
                   </select>
                 </div>

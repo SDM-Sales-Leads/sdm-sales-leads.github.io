@@ -1,3 +1,4 @@
+import { PARKS } from '../../../supabase/functions/api/parks';
 import { Lead, Contact, Company, EmailImportLog, QueueSettings, SalespersonTask, SalespersonActivity } from './types';
 
 export const INITIAL_SALES_PEOPLE = [];
@@ -11,7 +12,7 @@ export const INITIAL_LEADS: Lead[] = [];
 export const INITIAL_EMAIL_LOGS: EmailImportLog[] = [];
 
 export const INITIAL_QUEUE_SETTINGS: QueueSettings = {
-  canonicalProjects: ["Industria East", "Industria West", "Industria Sadat", "Industria 10th of Ramadan", "Sokhna", "Industria New Alamein"],
+  canonicalProjects: [...PARKS],
   canonicalLeadSources: ["Facebook", "Website", "Referral", "Cold Call", "Exhibition"],
   assignmentMethod: 'Round Robin',
   queueOrder: 'FIFO',

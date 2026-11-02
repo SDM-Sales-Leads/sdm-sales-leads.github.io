@@ -1,11 +1,13 @@
 // One alias table for the Land Bank parks: Arabic and English spellings -> the canonical park name used by the Land Bank.
-// Used by mail ingestion (server). PARK_ALIASES is plain data so the client can copy it.
+// Used by mail ingestion, the Facebook sheet, imports and the project clean-up (server) and by the screens (client imports this same file).
 // Matching is by whole phrase inside the text, longest alias first, after normalising (case, accents, alef/yaa/taa-marbuta,
 // punctuation). An unmatched text returns "" so callers keep what the customer wrote.
 
 export const PARKS = [
-  "Industria Borg El Arab", "Industria East", "Industria New Sadat", "Industria October", "Industria Sadat",
-  "Industria Sokhna", "Industria West", "Industria Asher - Plot 10", "Industria Asher - Plot 11", "Al Oula", "Sokhna 360",
+  "Industria Borg El Arab", "Industria East", "Industria New Sadat", "Industria October", "Industria Sadat", "Industria Sokhna", "Industria West",
+  "Industria Asher", "Asher D75", "Al Oula", "Sokhna 360",
+  "New Damietta", "El Minya", "Qantara", "Ras El Hekma", "Safaga", "Abu Rawash",
+  "Egyptian Industrial City (EIC)", "Industria Alamein", "Industria Iraq", "Elsewedy Industrial City (Tanzania)",
 ] as const;
 
 export const PARK_ALIASES: Record<string, string[]> = {
@@ -16,8 +18,19 @@ export const PARK_ALIASES: Record<string, string[]> = {
   "Industria October": ["industria october", "6th of october", "6 october", "6th october", "sixth of october", "october", "اكتوبر", "السادس من اكتوبر", "6 اكتوبر", "٦ اكتوبر"],
   "Industria Sokhna": ["industria sokhna", "ain sokhna", "ain el sokhna", "el sokhna", "sokhna", "السخنه", "العين السخنه", "عين السخنه", "سخنه"],
   "Industria West": ["industria west", "west industria", "اندستريا ويست", "انداستريا ويست", "اندستريا الغرب", "ويست", "الغرب"],
-  "Industria Asher - Plot 10": ["asher plot 10", "asher p10", "asher 10", "plot 10", "p10", "عاشر قطعه 10", "العاشر قطعه 10", "قطعه 10", "10th of ramadan plot 10"],
-  "Industria Asher - Plot 11": ["asher plot 11", "asher p11", "asher 11", "plot 11", "p11", "عاشر قطعه 11", "العاشر قطعه 11", "قطعه 11", "10th of ramadan plot 11"],
+  // 2 Nov 2026 (owner): ONE "Industria Asher" for now; later split into "Industria Asher Plot 10" / "Industria Asher Plot 11" (names of the Land Bank portfolio).
+  "Industria Asher": ["industria asher", "asher", "inustria asher", "10th of ramadan", "tenth of ramadan", "العاشر من رمضان", "عاشر", "العاشر", "اندستريا عاشر", "اندستريا العاشر", "asher plot 10", "asher p10", "asher 10", "plot 10", "p10", "عاشر قطعه 10", "العاشر قطعه 10", "قطعه 10", "10th of ramadan plot 10", "asher plot 11", "asher p11", "asher 11", "plot 11", "p11", "عاشر قطعه 11", "العاشر قطعه 11", "قطعه 11", "القطعه رقم 11", "القطعه رقم 10", "10th of ramadan plot 11"],
+  "Asher D75": ["asher d75", "d75", "d 75", "d-75", "asher d 75"],
+  "New Damietta": ["new damietta", "industria new damietta", "industria damietta", "damietta", "دمياط الجديده", "دمياط"],
+  "El Minya": ["el minya", "minya", "el minya green park", "المنيا"],
+  "Qantara": ["qantara", "el qantara", "القنطره"],
+  "Ras El Hekma": ["ras el hekma", "ras al hekma", "industria ras al hekma", "رأس الحكمه", "راس الحكمه"],
+  "Safaga": ["safaga", "industria safaga", "سفاجا"],
+  "Abu Rawash": ["abu rawash", "abou rawash", "abu rawwash", "ابو رواش", "ابو رواس"],
+  "Egyptian Industrial City (EIC)": ["egyptian industrial city", "eic"],
+  "Industria Alamein": ["industria alamein", "new alamein", "industria new alamein", "alamein", "العلمين"],
+  "Industria Iraq": ["industria iraq", "iraq", "العراق"],
+  "Elsewedy Industrial City (Tanzania)": ["elsewedy industrial city tanzania", "elsewedy industrial city", "tanzania", "تنزانيا"],
   "Al Oula": ["al oula", "aloula", "el oula", "al ola", "el ola", "oula", "الاولي", "الاوله", "الأولى", "الاولى"],
   "Sokhna 360": ["sokhna 360", "sokhna360", "sid 360", "sid360", "sokhna three sixty", "سخنه 360", "السخنه 360", "سخنة 360", "360"],
 };
@@ -39,10 +52,24 @@ for (const [park, list] of Object.entries(PARK_ALIASES)) {
 }
 TABLE.sort((a, b) => b.alias.length - a.alias.length);
 
-/** Canonical Land Bank park name for a free text ("اندستريا برج العرب" -> "Industria Borg El Arab"), or "" when nothing matches. */
+/** every park named in the text (whole phrases, longest first, each phrase used once) */
+export function parkMatches(text: string): string[] {
+  let t = " " + normPark(text) + " ";
+  const found: string[] = [];
+  if (t.trim() === "") return found;
+  for (const { alias, park } of TABLE) {
+    const key = " " + alias + " ";
+    if (!t.includes(key)) continue;
+    if (!found.includes(park)) found.push(park);
+    t = t.split(key).join(" ");
+  }
+  return found;
+}
+
+/** Canonical park name for a free text ("اندستريا برج العرب" -> "Industria Borg El Arab"). "" when nothing matches OR when the text names two different
+ *  parks ("Industria East and West"): never guess, the caller keeps the customer's own words for a person to decide. */
 export function canonicalPark(text: string): string {
-  const t = " " + normPark(text) + " ";
-  if (t.trim() === "") return "";
-  for (const { alias, park } of TABLE) if (t.includes(" " + alias + " ")) return park;
-  return "";
+  const f = parkMatches(text);
+  if (f.length === 1 && f[0] === "Industria East" && /\bwest\b/i.test(String(text))) return "";   // "Industria East and West": two parks
+  return f.length === 1 ? f[0] : "";
 }

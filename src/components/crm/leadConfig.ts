@@ -2,6 +2,7 @@
 // moving to this system changes nothing in how they speak about a lead. Keep server copy in
 // supabase/functions/api/leadrules.ts in step with this file.
 import type { Lead } from './types';
+import { PARKS, canonicalPark } from '../../../supabase/functions/api/parks';
 
 export const STATUS_GROUPS: { group: string; statuses: string[] }[] = [
   { group: 'New', statuses: ['New'] },
@@ -76,7 +77,7 @@ export function channelOf(l: { channel?: string; source?: string }): string {
 }
 export const NON_MARKETING_SOURCES = ['Personal', 'Management', 'BD Research'];
 export const INDUSTRIES = ['Engineering', 'Pharmaceutical', 'Textile', 'Chemical', 'Food & Beverage (F&B)', 'Logistics', 'Heavy Industry', 'Services', 'Automotive', 'Warehouse'];
-export const PROJECTS = ['Industria October', 'Industria Sokhna', 'Industria Asher', 'Industria East', 'Industria West', 'Industria Sadat', 'Industria New Sadat', 'Industria Borg El Arab', 'Industria New Damietta', 'SOKHNA360', 'Al Oula', 'Industria Ras Al Hekma', 'El Minya Green Park', 'Industria Safaga', 'Elsewedy Industrial City (Tanzania)', 'Industria Iraq', 'Other'];
+export const PROJECTS = [...PARKS, 'Other'];   // 2 Nov 2026: the names of the Land Bank, one list for mail, sheet, import and screens (supabase/functions/api/parks.ts)
 export const QUALIFICATIONS = ['Qualified', 'Unqualified'];
 export const TEMPERATURES = ['Hot', 'Warm', 'Cold'];
 export const LOST_CATEGORIES = ['Price', 'Not Interested', 'Competitor', 'Location'];
@@ -112,18 +113,20 @@ const PROJECT_FIX: [RegExp, string][] = [
   [/^(industria|inustria)\s+sadat/i, 'Industria Sadat'],
   [/^(industria|inustria)\s+borg\s*(al|el)\s*arab\s*$/i, 'Industria Borg El Arab'],
   [/^(industria|inustria)\s+(new\s+)?damietta/i, 'Industria New Damietta'],
-  [/^sokhna\s*360|^sokhna360/i, 'SOKHNA360'],
+  [/^sokhna\s*360|^sokhna360/i, 'Sokhna 360'],
   [/^al\s*oula/i, 'Al Oula'],
   [/^anadasataraya\s+alaashar/i, 'Industria Asher'],
   [/^enadasataraya\s+akatawabar/i, 'Industria October'],
   [/^(egyptian industrial city|eic)/i, 'Egyptian Industrial City (EIC)'],
 ];
 /** website page names that were captured as a "project" by the ad forms: not a project */
-const NOT_A_PROJECT = /^(plan your visit|opportunities page|contact us|textile sector case study.*|n\/a|none|-)$/i;
+const NOT_A_PROJECT = /^(of interest|plan your visit|opportunities page|contact us|textile sector case study.*|n\/a|none|-)$/i;
 /** Fixes typos and double spaces in a project name; unknown names are kept as typed (never guessed). */
 export function normProject(p: string | undefined | null): string {
   const t = String(p ?? '').trim().replace(/\s+/g, ' ');
   if (!t || NOT_A_PROJECT.test(t)) return '';
+  const park = canonicalPark(t);
+  if (park) return park;
   for (const [re, name] of PROJECT_FIX) if (re.test(t)) return name;
   return PROJECTS.find((x) => x.toLowerCase() === t.toLowerCase()) || t;
 }

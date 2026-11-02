@@ -13,7 +13,7 @@ import {
 import { route } from "./router.ts";
 import { canonicalPark } from "./parks.ts";
 import { closedStatusCleanup } from "./closedcleanup.ts";
-import { projectCleanup, queueTextCleanup } from "./projectcleanup.ts";
+import { archiveImportBatch, projectCleanup, queueTextCleanup } from "./projectcleanup.ts";
 import { nameRecovery } from "./namerecovery.ts";
 import { nameProblem, repairName } from "./namecheck.ts";
 import { CUSTOM_STATUSES, sanitizeLead } from "./leadrules.ts";
@@ -583,6 +583,15 @@ route("POST", "/crm/queue-text-cleanup", async ({ c, req }) => {
   const b: any = await body(req).catch(() => ({}));
   const r = await queueTextCleanup(c, b?.apply === true);
   if (b?.apply === true) await logActivity(c, "Queue text cleanup", `${r.applied ?? 0} lead(s): owner name text cleared`, "admin");
+  return r;
+});
+// admin only: takes back one import batch ("HIST-2026-11-03-file"): its leads are archived (soft delete). Dry run first ({apply:false})
+route("POST", "/crm/import-batch-archive", async ({ c, req }) => {
+  needAdmin(c);
+  await rateLimit(`batcharc:${c.id}`, 3600, 20);
+  const b: any = await body(req).catch(() => ({}));
+  const r = await archiveImportBatch(c, String(b?.batch || ""), b?.apply === true);
+  if (b?.apply === true) await logActivity(c, "Import batch archived", `${b?.batch}: ${r.archived ?? 0} lead(s)`, "admin");
   return r;
 });
 route("POST", "/crm/sync-inbox", async ({ c }) => { needCrm(c); return await runIngest(c); });

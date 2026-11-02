@@ -69,3 +69,21 @@ export async function queueTextCleanup(c: { id: string; name: string }, apply: b
   }
   return { ...out, applied: done, skippedChangedMeanwhile: skipped };
 }
+
+/** 3 Nov 2026: takes back one import batch (leads tagged data.importBatch). They are ARCHIVED (soft delete, deleted_at), never erased. Dry run first. */
+export async function archiveImportBatch(c: { id: string; name: string }, batch: string, apply: boolean) {
+  const tag = String(batch || "").slice(0, 80);
+  if (!tag) return { error: "batch is required" };
+  const rows: any[] = await pageAll((a, b) => admin.from("crm_leads").select("id,data,updated_at").is("deleted_at", null).eq("data->>importBatch", tag).order("id").range(a, b), 20000) as any[];
+  const worked = rows.filter((r) => (r.data?.comments || []).length || (r.data?.timeline || []).some((e: any) => e && !["Import", "Creation", "Assignment"].includes(e.type)));
+  const out: any = { batch: tag, leads: rows.length, alreadyWorkedOn: worked.length };
+  if (!apply) return out;
+  const now = nowIso();
+  let done = 0;
+  for (let i = 0; i < rows.length; i += 50) {
+    const part = rows.slice(i, i + 50).map((r) => r.id);
+    const u = await admin.from("crm_leads").update({ deleted_at: now }).in("id", part).is("deleted_at", null).select("id");
+    done += u.data?.length || 0;
+  }
+  return { ...out, archived: done };
+}

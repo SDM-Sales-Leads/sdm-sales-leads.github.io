@@ -723,7 +723,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
     ...STATUS_GROUPS.flatMap((g) => g.statuses.map((st) => ({ value: st, label: st, group: g.group }))),
     ...LEGACY_STATUSES.map((st) => ({ value: st, label: st, group: 'Legacy' })),
   ], []);
-  const ownerOptions = useMemo(() => [{ value: 'Unassigned', label: 'Unassigned leads' }, ...(salespeople as any[]).map((sp) => ({ value: sp.name, label: sp.name }))], [salespeople]);
+  const ownerOptions = useMemo(() => [{ value: 'Unassigned', label: 'Unassigned' }, ...(salespeople as any[]).map((sp) => ({ value: sp.name, label: sp.name }))], [salespeople]);
 
   // View Source Ingested Email helper
   const handleViewInboundEmail = async (lead: Lead) => {
@@ -1764,7 +1764,7 @@ ${user.name || ''}`);
             <option value="My Open Leads">My Active Leads</option>
             <option value="SLA Violated">SLA Violated Leads</option>
             <option value="SLA Within Limit">SLA Within Limit</option>
-            <option value="Unassigned">Unrouted Queues</option>
+            <option value="Unassigned">Unassigned</option>
             <option value="SLA At Risk">SLA At Risk (last 25% of window)</option>
           </select>
 
@@ -2627,7 +2627,7 @@ ${user.name || ''}`);
                   <span className="text-brand-gray text-[10px] font-bold uppercase tracking-wider block mb-0.5">Account Manager</span>
                   <span className="text-indigo-600 text-xs font-bold flex items-center gap-1">
                     <UserCheck size={12} />
-                    {selectedLead.assignedSalespersonName || 'Unassigned Queue'}
+                    {selectedLead.assignedSalespersonName || 'Unassigned'}
                   </span>
                 </div>
               </div>
@@ -2699,7 +2699,7 @@ ${user.name || ''}`);
                     <span className="font-bold text-xs">Warning: {duplicateWarnings.length} Potential Duplicate Records Detected!</span>
                   </div>
                   <p className="text-[10px] leading-relaxed">
-                    {duplicateWarnings.slice(0, 3).map(d => `${d.id} (${d.assignedSalespersonName || 'unrouted'})`).join(', ')}{duplicateWarnings.length > 3 ? ` +${duplicateWarnings.length - 3}` : ''} share the same phone number or e-mail with this lead.
+                    {duplicateWarnings.slice(0, 3).map(d => `${d.id} (${d.assignedSalespersonName || 'unassigned'})`).join(', ')}{duplicateWarnings.length > 3 ? ` +${duplicateWarnings.length - 3}` : ''} share the same phone number or e-mail with this lead.
                   </p>
                   <div className="flex gap-2 mt-1">
                     <button

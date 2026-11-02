@@ -89,7 +89,7 @@ export const LeadRow = React.memo(({ lead: l, selected, cols, canAssign, winRate
             <span className="flex items-center gap-1"><UserCheck size={12} className="text-indigo-600 shrink-0" /><span>{l.assignedSalespersonName}</span></span>
           ) : (
             <span className="text-rose-500 font-bold flex items-center gap-1 text-[10px] bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full w-max">
-              <AlertTriangle size={10} /><span>UNROUTED QUEUE</span>
+              <AlertTriangle size={10} /><span>UNASSIGNED</span>
             </span>
           )}
         </td>

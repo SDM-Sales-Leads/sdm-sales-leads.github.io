@@ -112,7 +112,7 @@ export const LeadEditor: React.FC<Props> = ({ lead, auth, actorName, actorId, on
     if (dirtyKeys.some((k) => k === 'phoneNumber' || k === 'phone2' || k === 'email')) {
       const hit = crmService.findDuplicates({ phone: next.phoneNumber, phone2: next.phone2, email: next.email }, lead.id)[0];
       if (hit && !dupMsg) {
-        setDupMsg({ id: hit.id, owner: hit.assignedSalespersonName || 'nobody yet (unrouted)', why: 'the same phone number or e-mail' });
+        setDupMsg({ id: hit.id, owner: hit.assignedSalespersonName || 'nobody yet (unassigned)', why: 'the same phone number or e-mail' });
         return;
       }
     }

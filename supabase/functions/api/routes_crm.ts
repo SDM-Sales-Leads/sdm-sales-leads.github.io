@@ -14,6 +14,7 @@ import { route } from "./router.ts";
 import { canonicalPark } from "./parks.ts";
 import { closedStatusCleanup } from "./closedcleanup.ts";
 import { projectCleanup } from "./projectcleanup.ts";
+import { nameRecovery } from "./namerecovery.ts";
 import { CUSTOM_STATUSES, sanitizeLead } from "./leadrules.ts";
 import { getBody, htmlToText, listFolder, loadEws } from "./ews.ts";
 import { sqmOf } from "./routing_pick.ts";
@@ -560,6 +561,15 @@ route("POST", "/crm/project-cleanup", async ({ c, req }) => {
   const b: any = await body(req).catch(() => ({}));
   const r = await projectCleanup(c, b?.apply === true, b?.withD75Notes === true, b?.fillBlanks === true, Array.isArray(b?.excludeIds) ? b.excludeIds.map(String) : []);
   if (b?.apply === true) await logActivity(c, "Project name cleanup", `${r.applied ?? 0} lead(s) given the standard project name`, "admin");
+  return r;
+});
+// admin only: leads whose customer name is a Facebook ad name get the real name from the Facebook sheet (matched by phone / e-mail). Dry run first; the sheet is only read
+route("POST", "/crm/name-recovery", async ({ c, req }) => {
+  needAdmin(c);
+  await rateLimit(`namerec:${c.id}`, 3600, 10);
+  const b: any = await body(req).catch(() => ({}));
+  const r = await nameRecovery(c, b?.apply === true, Array.isArray(b?.excludeIds) ? b.excludeIds.map(String) : []);
+  if (b?.apply === true) await logActivity(c, "Name recovery", `${r.applied ?? 0} lead(s) given the real name from the Facebook sheet`, "admin");
   return r;
 });
 route("POST", "/crm/sync-inbox", async ({ c }) => { needCrm(c); return await runIngest(c); });

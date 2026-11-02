@@ -26,7 +26,7 @@ export function parseCsv(t: string): string[][] {
 }
 
 /** tab names, in order, read from the sheet's public page (the newest tab is the last one) */
-async function tabNames(): Promise<string[]> {
+export async function tabNames(): Promise<string[]> {
   const r = await fetch(`${BASE}${FB_SHEET_ID}/edit`, { redirect: "follow" });
   if (!r.ok) throw new Error("sheet page " + r.status);
   const html = await r.text();
@@ -34,7 +34,7 @@ async function tabNames(): Promise<string[]> {
   for (const m of html.matchAll(/\[0,0,\\"([^"\\]{1,60})\\"\]/g)) if (!names.includes(m[1])) names.push(m[1]);
   return names;
 }
-async function tabRows(name: string): Promise<string[][]> {
+export async function tabRows(name: string): Promise<string[][]> {
   const r = await fetch(`${BASE}${FB_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`);
   if (!r.ok) throw new Error("sheet tab " + r.status);
   return parseCsv(await r.text());

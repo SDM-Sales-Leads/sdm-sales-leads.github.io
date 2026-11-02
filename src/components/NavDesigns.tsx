@@ -30,7 +30,11 @@ export const useNavDesign = (): Stored =>
 const useMin = (px: number) => {
   const q = `(min-width: ${px}px)`;
   const [on, setOn] = useState(() => (typeof window === 'undefined' ? true : window.matchMedia(q).matches));
-  useEffect(() => { const m = window.matchMedia(q); const f = () => setOn(m.matches); m.addEventListener('change', f); return () => m.removeEventListener('change', f); }, [q]);
+  useEffect(() => {
+    const m = window.matchMedia(q); const f = () => setOn(window.matchMedia(q).matches);
+    m.addEventListener('change', f); window.addEventListener('resize', f); f();
+    return () => { m.removeEventListener('change', f); window.removeEventListener('resize', f); };
+  }, [q]);
   return on;
 };
 /** the new designs are for desktop screens; below 1024 px the existing drawer menu stays. Nobody chose: top bar under 1500 px, side menu above */

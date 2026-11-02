@@ -4,6 +4,7 @@ import {
   admin, pageAll, asUuid, getConfig, setConfig, getSecret, HttpError, normEmail, normName, normPhone, nowIso, rid, str, isEmail, tryLock, unlock,
 } from "./lib.ts";
 import { canonicalPark, parkMatches, PARKS } from "./parks.ts";
+import { repairName } from "./namecheck.ts";
 import { later, notifyAssigned } from "./notify.ts";
 import { effectiveSqm, pickBySize, sqmOf, Load } from "./routing_pick.ts";
 import { getBodies, getBody, htmlToText, listFolder, loadEws, MailHead } from "./ews.ts";
@@ -483,11 +484,13 @@ export async function createLeadFromParsed(parsed: Parsed, head: MailHead, text:
   // the lead is dated when the customer wrote (the e-mail / form time), not when somebody pressed Sync
   const at = head.receivedTime && !isNaN(Date.parse(head.receivedTime)) && Date.parse(head.receivedTime) <= Date.now() + 60_000 ? new Date(head.receivedTime).toISOString() : now;
   const atDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
+  const fixedName: any = { customerName: parsed.customerName, phoneNumber: parsed.phoneNumber, email: parsed.email, description: parsed.description };
+  await repairName(fixedName);   // 3 Nov 2026: an ad name / code / link in the name field is replaced by the real name we know, else "Name needed"
   const lead: any = {
     id,
     emailId: head.id,
     createdBy: (head as any).channel === "Facebook Leads" ? "Facebook sheet sync" : "Mailbox sync",
-    customerName: parsed.customerName,
+    customerName: fixedName.customerName,
     phoneNumber: parsed.phoneNumber,
     email: parsed.email,
     companyName: parsed.companyName,
@@ -497,7 +500,7 @@ export async function createLeadFromParsed(parsed: Parsed, head: MailHead, text:
     source: parsed.source || "",
     channel: (head as any).channel ?? channelFromMail(head),
     priority: parsed.priority || "Medium",
-    description: parsed.description,
+    description: fixedName.description,
     status: "New",
     date: (head as any).leadDate || atDate,
     expectedClosingDate: "",

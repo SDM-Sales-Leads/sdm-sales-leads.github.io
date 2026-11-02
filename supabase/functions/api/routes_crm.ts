@@ -15,6 +15,7 @@ import { canonicalPark } from "./parks.ts";
 import { closedStatusCleanup } from "./closedcleanup.ts";
 import { projectCleanup } from "./projectcleanup.ts";
 import { nameRecovery } from "./namerecovery.ts";
+import { nameProblem, repairName } from "./namecheck.ts";
 import { CUSTOM_STATUSES, sanitizeLead } from "./leadrules.ts";
 import { getBody, htmlToText, listFolder, loadEws } from "./ews.ts";
 import { sqmOf } from "./routing_pick.ts";
@@ -275,6 +276,8 @@ for (const [name, spec] of Object.entries(SPECS)) {
             if (scope === "finance") { // accounts receivable may only confirm cash, through its own call
               rejected.push({ id, reason: "accounts receivable confirms cash from the Won Deals page" }); continue;
             }
+            // 3 Nov 2026: a typed or imported "name" that is an ad name, link, e-mail or code is not accepted for an existing lead
+            if (d.customerName !== undefined && String(d.customerName) !== String(ex.data?.customerName ?? "") && nameProblem(d.customerName)) { rejected.push({ id, reason: `the customer name looks like ${nameProblem(d.customerName)}, not a person` }); continue; }
             const san = sanitizeLead(d, ex, c, scope, assigneeName);
             if (san.error) { rejected.push({ id, reason: san.error }); continue; }
             san.audits.forEach((a) => audit(id, a));
@@ -298,6 +301,7 @@ for (const [name, spec] of Object.entries(SPECS)) {
             if (scope === "own" && !as && !mkt) { d.assignedSalespersonId = c.id; d.assignedSalespersonName = c.name; }
             if (mkt && as) { d.assignedSalespersonId = ""; d.assignedSalespersonName = ""; } // marketing does not distribute
             if (scope === "finance") { rejected.push({ id, reason: "not allowed" }); continue; }
+            if (await repairName(d)) audit(id, { action: "edit", from: "customerName=(not a person's name)", to: `customerName=${d.customerName}`, note: "name check at creation" });
             const san = sanitizeLead(d, null, c, scope);
             if (san.error) { rejected.push({ id, reason: san.error }); continue; }
             san.audits.forEach((a) => audit(id, a));

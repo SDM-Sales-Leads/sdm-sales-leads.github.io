@@ -8,7 +8,9 @@ import { readXlsx, buildXlsx } from './xlsxLite';
 import {
   XLSX_HEADERS, buildPlan, parseHistory, HistRow, summarize, reportRows, leadToRow, Plan, Person, cleanCell,
 } from './importEngine';
-import { STATUSES, SOURCES, PROJECTS, PRIORITIES } from './leadConfig';
+import { STATUSES, SOURCES, PROJECTS, PRIORITIES, ACTIVE_EXCLUDE, QUALIFICATIONS, TEMPERATURES, INDUSTRIES, LOST_REASONS_TEAM } from './leadConfig';
+import { NATIONALITIES } from './LeadEditor';
+import { buildTemplateSheets } from './importTemplate';
 import {
   Download, Upload, FileSpreadsheet, AlertTriangle, CheckCircle, Loader2, X, FileText,
 } from 'lucide-react';
@@ -54,6 +56,7 @@ export const CrmImportExport: React.FC<CrmImportExportProps> = ({ leads, onLeads
   const [plan, setPlan] = useState<Plan | null>(null);
   const [dupMode, setDupMode] = useState<'skip' | 'import'>('skip');
   const [updateExisting, setUpdateExisting] = useState(true);
+  const [historyMode, setHistoryMode] = useState(false);
   const [prog, setProg] = useState({ done: 0, total: 0, label: '' });
   const [result, setResult] = useState<null | { added: number; updated: number; failed: number; cancelled: boolean }>(null);
   const sheetRef = useRef<{ headers: string[]; body: string[][] } | null>(null);
@@ -68,13 +71,14 @@ export const CrmImportExport: React.FC<CrmImportExportProps> = ({ leads, onLeads
       .filter((p) => p && p.active !== false && /sales|business|bd/i.test(p.role || '') && !/operation/i.test(p.role || ''))
       .map((p) => ({ id: String(p.id), name: String(p.name || ''), email: p.email, role: p.role }));
 
-  const makePlan = async (upd: boolean, name = fileName) => {
+  const makePlan = async (upd: boolean, name = fileName, hist = historyMode) => {
     const s = sheetRef.current!;
     const label = user?.name || 'User';
     return buildPlan(s.headers, s.body, {
       existing: crmService.getLeads(), people: people(), canOwners, scopeAll, leaveUnassigned, history: historyRef.current,
       me: { id: String(user?.id ?? ''), name: label }, userLabel: label, fileName: name,
-      today: new Date().toISOString().slice(0, 10), dupMode, updateExisting: upd,
+      today: new Date().toISOString().slice(0, 10), dupMode, updateExisting: upd, historyMode: hist,
+      batch: hist ? `HIST-${new Date().toISOString().slice(0, 10)}-${name.replace(/\.[a-z]+$/i, '').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 30)}` : undefined,
     }, (done, total) => setProg({ done, total, label: 'Checking rows' }));
   };
 
@@ -115,6 +119,15 @@ export const CrmImportExport: React.FC<CrmImportExportProps> = ({ leads, onLeads
     } catch (e: any) {
       setError(e?.message || 'The file could not be read.'); setPhase('idle');
     }
+  };
+
+  const toggleHistory = async (v: boolean) => {
+    setHistoryMode(v);
+    if (v) { setUpdateExisting(false); }
+    if (!sheetRef.current) return;
+    setPhase('reading');
+    const p = await makePlan(v ? false : updateExisting, fileName, v);
+    setPlan(p); setPhase('preview');
   };
 
   const toggleUpdate = async (v: boolean) => {
@@ -170,7 +183,7 @@ export const CrmImportExport: React.FC<CrmImportExportProps> = ({ leads, onLeads
       const current = crmService.getLeads();
       crmService.saveLeads([...newLeads, ...current.map((l) => upd.get(l.id) || l)]);
       await crmService.whenSaved();
-      if (leaveUnassigned) for (const id of newIds) crmService.routeLeadAutomatically(id);
+      if (leaveUnassigned && !historyMode) for (const id of newIds) crmService.routeLeadAutomatically(id);   // old history is never routed
       const after = new Map(crmService.getLeads().map((l) => [l.id, l]));
       for (const r of part) {
         if (r.kind === 'update') {
@@ -208,13 +221,12 @@ export const CrmImportExport: React.FC<CrmImportExportProps> = ({ leads, onLeads
   };
   const handleExportCsv = () => saveBlob(csvBlob(exportRows()), `Elsewedy_CRM_Leads_${stamp}.csv`);
   const handleDownloadTemplate = () => {
-    const ref: string[][] = [['Instructions'], ['Fill the "Leads" sheet. Only Lead Name is required. Blank cells never clear existing data.'],
-      ['Dates: YYYY-MM-DD or DD/MM/YYYY (day first). Phones: any format, they are converted to +20… style.'],
-      ['A Lead ID that already exists updates that lead (only if you can see it). A new Lead ID is kept as the previous system ID.'],
-      ['Assigned To: matched to a team member by name (Sales Operation only). Names that match nobody or several people are left unassigned.'], [],
-      ['Sources', ...SOURCES], ['Projects', ...PROJECTS], ['Statuses', ...STATUSES], ['Priorities', ...PRIORITIES],
-      ['Team members', ...people().map((p) => p.name)]];
-    saveBlob(buildXlsx([{ name: 'Leads', rows: [XLSX_HEADERS as unknown as string[]], widths: XLSX_HEADERS.map((h) => (h.length > 16 ? 22 : 16)) }, { name: 'Reference', rows: ref }]), 'Elsewedy_CRM_Leads_template.xlsx');
+    const closedStatuses = STATUSES.filter((st) => ACTIVE_EXCLUDE.includes(st));
+    const sheets = buildTemplateSheets({
+      projects: [...PROJECTS], statuses: [...STATUSES], closedStatuses, sources: [...SOURCES], priorities: [...PRIORITIES], qualifications: [...QUALIFICATIONS],
+      temperatures: [...TEMPERATURES], industries: [...INDUSTRIES], lostReasons: [...LOST_REASONS_TEAM], nationalities: [...NATIONALITIES], team: people().map((p) => p.name),
+    });
+    saveBlob(buildXlsx(sheets), 'Elsewedy_CRM_Leads_template.xlsx');
   };
   const downloadReport = () => plan && saveBlob(csvBlob(reportRows(plan, dupMode)), `crm_import_report_${stamp}.csv`);
 
@@ -323,6 +335,7 @@ export const CrmImportExport: React.FC<CrmImportExportProps> = ({ leads, onLeads
               </div>
               {summary.unchanged > 0 && <p className="text-[11px] text-brand-gray">{summary.unchanged} row(s) change nothing and will be ignored. {summary.warnings} row(s) have warnings (see the report).</p>}
               {plan.corrected > 0 && <p className="text-[11px] text-brand-gray">{plan.corrected} phone number(s) were converted to the international format.</p>}
+              {!!plan.examples && <p className="text-[11px] text-brand-gray">{plan.examples} EXAMPLE row(s) of the template were ignored.</p>}
               {plan.protectedIgnored && <p className="text-[11px] text-amber-700">Some columns (owner, source, phone, e-mail, priority, lead date) were ignored for existing leads: only Sales Operation can change them.</p>}
 
               <div className="space-y-2 text-[11px]">
@@ -331,6 +344,10 @@ export const CrmImportExport: React.FC<CrmImportExportProps> = ({ leads, onLeads
                     <option value="skip">Skip them (recommended)</option>
                     <option value="import">Import them anyway (review on the Duplicates page)</option>
                   </select>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer"><span className="text-brand-gray w-36">Old leads</span>
+                  <input type="checkbox" checked={historyMode} onChange={(e) => void toggleHistory(e.target.checked)} />
+                  <span>These are OLD leads (history): not handed out, no notifications, same customer = a history note on the current lead. Needs Lead Date and Status on every row.</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer"><span className="text-brand-gray w-36">Lead ID in the file</span>
                   <input type="checkbox" checked={updateExisting} onChange={(e) => void toggleUpdate(e.target.checked)} />

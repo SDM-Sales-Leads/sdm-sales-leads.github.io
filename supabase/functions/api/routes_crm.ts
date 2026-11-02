@@ -64,7 +64,7 @@ async function leadNotifications(c: Caller, touched: { id: string; prev: string 
     if (!t.next || t.next === c.id) continue;                                   // nobody to tell, or you changed your own lead
     const bits = auditRows.filter((a) => a.lead_id === t.id && a.action !== "owner" && a.action !== "delete")
       .map((a) => `${a.action}${a.from_value || a.to_value ? `: ${a.from_value ?? "—"} → ${a.to_value ?? "—"}` : ""}`);
-    for (const e of t.fresh) if (e?.user && e.user !== c.name && e.type !== "Assignment" && e.title) bits.push(String(e.title) + (e.description ? ` — ${String(e.description).slice(0, 120)}` : ""));
+    for (const e of t.fresh) if (e?.user && e.user !== c.name && e.type !== "Assignment" && e.type !== "Import" && e.title) bits.push(String(e.title) + (e.description ? ` — ${String(e.description).slice(0, 120)}` : ""));
     if (bits.length) changed.push({ userId: t.next, leadId: t.id, leadName: nm, byName: c.name, summary: bits.slice(0, 6).join("; ") });
   }
   await Promise.all([notifyAssigned(assigned), notifyChanged(changed)]);
@@ -349,7 +349,7 @@ for (const [name, spec] of Object.entries(SPECS)) {
         (ins.data || []).forEach((x: any) => saved.push({ id: x.id, _rev: x.updated_at || x.created_at }));
         if (name === "leads") {
           await ensureContactsAndCompaniesBulk(newRows.map((n) => n.lead)).catch(() => {});
-          for (const n of newRows) { const as = asUuid(n.lead?.assignedSalespersonId); if (as && !n.lead?.legacyId) touched.push({ id: n.id, prev: null, next: as, d: n.lead, fresh: [] }); }
+          for (const n of newRows) { const as = asUuid(n.lead?.assignedSalespersonId); if (as && !n.lead?.legacyId && !n.lead?.importedHistory) touched.push({ id: n.id, prev: null, next: as, d: n.lead, fresh: [] }); }
         }
       } else {
         // one bad row must not sink the batch: fall back to row-by-row so the culprit is named

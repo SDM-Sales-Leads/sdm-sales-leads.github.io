@@ -544,7 +544,7 @@ export function funnelRows(a: Agg) {
 export const CC_HOURS = 24;
 export interface CcState { leftMs: number; overdue: boolean; start: number }
 export function ccState(l: Lead, nowMs: number): CcState | null {
-  if (channelOf(l) !== 'Call Center' || !isOpen(l) || isMerged(l) || isEngaged(l)) return null;
+  if (channelOf(l) !== 'Call Center' || !isOpen(l) || isMerged(l) || isEngaged(l) || l.importedHistory) return null;
   const start = Math.max(Date.parse(l.date) || 0, Date.parse(l.assignedDate || '') || 0);
   if (!start) return null;
   const leftMs = start + CC_HOURS * 3600_000 - nowMs;

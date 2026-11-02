@@ -1,7 +1,7 @@
 // Import engine for the sales team's 35-column lead sheet (the old CRM's export format).
 // Pure functions: no network, no storage. CrmImportExport.tsx drives them, CrmDuplicates.tsx reuses the duplicate keys.
 import type { Lead, TimelineEvent } from './types';
-import { STATUSES, LEGACY_STATUSES, PRIORITIES, normSource, normProject, phoneIntl, closingDate } from './leadConfig';
+import { STATUSES, LEGACY_STATUSES, PRIORITIES, ACTIVE_EXCLUDE, normSource, normProject, phoneIntl, closingDate } from './leadConfig';
 
 export const XLSX_HEADERS = [
   'Lead ID', 'Lead Name', 'Reference No.', 'Company', 'Customer Number', 'Email', 'Lead Source', 'Project Interested In',
@@ -248,6 +248,7 @@ function findCols(headers: string[]): Cols {
     lastContact: find(['lastcontact']),
     qualNotes: find(['qualificationnotes']),
     lostCategory: find(['lostcategory']),
+    cashStatus: find(['cashstatus']),
   };
   // Era rule: when a "Phone" column exists, "Customer Number" is the reference number; otherwise it IS the phone.
   const phoneCol = find(['phone', 'mobile'], /2$/);
@@ -275,6 +276,7 @@ export interface Plan {
   fatal?: string;
   rows: PlanRow[];
   sheetRows: number;
+  examples?: number;                   // rows of the template's EXAMPLE lines, ignored
   corrected: number;                   // phone numbers repaired
   protectedIgnored: boolean;
 }
@@ -290,6 +292,8 @@ export interface PlanCtx {
   today: string;
   dupMode: 'skip' | 'import';
   updateExisting: boolean;
+  historyMode?: boolean;               // old leads (e.g. the Excel the sales operation used since January): kept as history, never handed out, never notified
+  batch?: string;                      // tag written on every lead of this import, so a bad batch can be archived
   history?: Map<string, HistRow[]>;    // the "Comments & Notes" sheet, by lead id (migration from the old CRM)
 }
 
@@ -363,6 +367,7 @@ export async function buildPlan(headers: string[], body: string[][], ctx: PlanCt
   const fileKey = new Map<string, number>();
   const matchOwner = makeOwnerMatcher(ctx.people);
   const seenIds = new Set<string>();
+  const noteLead = new Map<string, Lead>();   // history notes added to an existing lead (several rows of one customer build on each other)
   const nowIso = new Date().toISOString();
   const cell = (r: string[], k: string) => (cols[k] >= 0 ? cleanCell(r[cols[k]]) : '');
 
@@ -370,6 +375,7 @@ export async function buildPlan(headers: string[], body: string[][], ctx: PlanCt
     if (i % 300 === 0) { onProgress?.(i, body.length); await tick(); }
     const r = body[i];
     if (!r || !r.some((x) => cleanCell(x))) continue;      // empty line
+    if (/^\s*example\b/i.test(cell(r, 'name'))) { plan.examples = (plan.examples || 0) + 1; continue; }   // the template's example lines
     const rowNo = i + 2;
     const row: PlanRow = { rowNo, name: cell(r, 'name'), phone: '', kind: 'new', errors: [], warnings: [] };
     plan.rows.push(row);
@@ -514,6 +520,14 @@ export async function buildPlan(headers: string[], body: string[][], ctx: PlanCt
     if (finalStatus === 'Won' && !ctx.scopeAll) { finalStatus = 'New'; warn('Won can only be set by Sales Operation: imported as New'); }
     if (finalStatus === 'Won' && !(Number(f.dealValue) > 0)) warn('Won without a deal value');
     if (finalStatus === 'Lost' && !f.lostReason) warn('Lost without a reason');
+    const cashRaw = cell(r, 'cashStatus');
+    if (ctx.historyMode) {
+      // 3 Nov 2026: old leads need their real date and an explicit status (a blank date would count as today; a blank status would be "New")
+      if (!f.date) { err('History import: the Lead Date is required (YYYY-MM-DD)'); row.kind = 'invalid'; continue; }
+      if (!status) { err('History import: the Status is required (use a status from the Lists sheet)'); row.kind = 'invalid'; continue; }
+      if (!ACTIVE_EXCLUDE.includes(finalStatus)) warn(`Status "${finalStatus}" is still open: this old lead will count in open leads and the pipeline. Use a closed status if it is over`);
+      if (finalStatus === 'Won' && !cashRaw) warn('Won without a Cash Status (pending = not paid yet, confirmed = paid)');
+    }
 
     // duplicates (phones, second phone, e-mail), against the system first, then earlier rows of the file
     const keys = leadKeys({ phoneNumber: f.phoneNumber, phone2: f.phone2, email: f.email });
@@ -523,6 +537,21 @@ export async function buildPlan(headers: string[], body: string[][], ctx: PlanCt
       const fr = fileKey.get(k);
       if (fr !== undefined) { row.dup = { of: `row ${fr}`, scope: 'file', via: k[0] === 'e' ? 'e-mail' : 'phone' }; break; }
     }
+    if (ctx.historyMode && ctx.dupMode === 'skip' && row.dup?.scope === 'system') {
+      // the same customer is already in the system: the old enquiry becomes a history note on the current lead (no second lead)
+      const exL = noteLead.get(String(row.dup.of).toLowerCase()) || byId.get(String(row.dup.of).toLowerCase());
+      if (exL) {
+        const ev: TimelineEvent = {
+          id: 'imp_' + uid(), timestamp: nowIso, type: 'Import', user: ctx.userLabel, title: 'Earlier enquiry (old Excel sheet)',
+          description: `${f.date || 'date not given'} · source ${f.source || '—'} · project ${f.project || '—'} · status ${status || '—'} · owner ${ownerRaw || '—'}` + (f.notes ? ` · notes: ${String(f.notes).slice(0, 300)}` : '') + ` (row ${rowNo} of ${ctx.fileName})`,
+        };
+        const merged = { ...exL, lastUpdated: nowIso, timeline: [...(exL.timeline || []), ev] } as Lead;
+        noteLead.set(String(exL.id).toLowerCase(), merged);
+        row.lead = merged; row.kind = 'update'; row.phone = (merged.phoneNumber as string) || '';
+        warn(`Same customer as ${exL.id}: added as a history note on that lead (no new lead)`);
+        continue;
+      }
+    }
     const lead: any = {
       id: '', date: f.date || ctx.today, source: f.source || '', project: f.project || '', customerName: row.name,
       phoneNumber: f.phoneNumber || '', email: f.email || '', requiredSize: f.requiredSize ?? '', priority: f.priority || 'Medium',
@@ -530,16 +559,17 @@ export async function buildPlan(headers: string[], body: string[][], ctx: PlanCt
     };
     for (const k of ['companyName', 'phone2', 'industry', 'nationality', 'refNo', 'plotNo', 'notes', 'lostReason', 'lostCategory', 'qualNotes', 'qualification', 'temperature', 'soldArea', 'totalSoldValue', 'dealValue',
       'meetingDate', 'meetingTime', 'eoiApplicable', 'eoiDate', 'reservationDate', 'contractDate', 'nextFollowUpDate', 'offerSent', 'offerDate', 'lastContactDate']) put(lead, k, f[k]);
-    if (assignee) { lead.assignedSalespersonId = assignee.id; lead.assignedSalespersonName = assignee.name; lead.assignedDate = nowIso; }
+    if (assignee) { lead.assignedSalespersonId = assignee.id; lead.assignedSalespersonName = assignee.name; lead.assignedDate = ctx.historyMode && f.date ? `${f.date}T09:00:00.000Z` : nowIso; }
+    if (ctx.historyMode) { lead.importedHistory = true; if (ctx.batch) lead.importBatch = ctx.batch; }
     if (legacyOwner) lead.legacyOwnerName = legacyOwner;
     if (fileId) lead.legacyId = fileId;
     if (finalStatus === 'Won') {
-      lead.wonDate = closingDate(lead) || ctx.today;
-      if (ctx.scopeAll && Number(lead.dealValue) > 0) lead.cashStatus = 'pending';
+      lead.wonDate = closingDate(lead) || (ctx.historyMode && f.date ? f.date : ctx.today);
+      if (ctx.scopeAll && Number(lead.dealValue) > 0) lead.cashStatus = ctx.historyMode && /conf|paid|collect/i.test(cashRaw) ? 'confirmed' : 'pending';
     }
     if (finalStatus === 'Lost' && !lead.lostReason) lead.lostReason = 'Imported';
     lead.timeline = [{
-      id: 'imp_' + uid(), timestamp: nowIso, type: 'Import', user: ctx.userLabel, title: 'Imported from Excel',
+      id: 'imp_' + uid(), timestamp: nowIso, type: 'Import', user: ctx.userLabel, title: ctx.historyMode ? 'Imported from the old Excel sheet (history)' : 'Imported from Excel',
       description: `Row ${rowNo} of ${ctx.fileName}` + (fileId ? ` (previous Lead ID ${fileId})` : '') + (legacyOwner ? `. Owner written as "${legacyOwner}" (not matched: left unassigned)` : ''),
     }];
     if (fileId && ctx.history?.has(fileId.toLowerCase())) applyHistory(lead, ctx.history.get(fileId.toLowerCase())!);

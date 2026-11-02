@@ -312,7 +312,7 @@ export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?:
   const statsKey = [...ids].sort().join(",");
   let st = opts?.sim?.st as RStats | undefined || ROUTE_STATS.get(statsKey);
   if (!st || (!opts?.sim?.st && Date.now() - st.at > 90_000)) {
-    const rows = await pageAll((a, b) => admin.from("crm_leads").select("assigned_to,status,created_at,data->assignedDate,data->requiredSize,data->touched,data->channel,data->legacyId").in("assigned_to", ids).is("deleted_at", null).order("id").range(a, b));
+    const rows = await pageAll((a, b) => admin.from("crm_leads").select("assigned_to,status,created_at,data->assignedDate,data->requiredSize,data->touched,data->channel,data->legacyId,data->importedHistory").in("assigned_to", ids).is("deleted_at", null).order("id").range(a, b));
     const open: Record<string, number> = {};
     const total: Record<string, number> = {};
     const today: Record<string, number> = {};
@@ -322,7 +322,7 @@ export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?:
     for (const r of rows || []) {
       const k = r.assigned_to as string;
       total[k] = (total[k] || 0) + 1;
-      if (!CLOSED.has(r.status || "")) {
+      if (!CLOSED.has(r.status || "") && (r as any).importedHistory !== true) {   // old Excel history does not count as a person's open load
         open[k] = (open[k] || 0) + 1; sqm[k] = (sqm[k] || 0) + effectiveSqm((r as any).requiredSize, q);
         // touched = the person worked on it (marked on the lead; any status other than New also counts)
         if ((r as any).touched === true || (r.status || "New") !== "New") openT[k] = (openT[k] || 0) + 1; else openU[k] = (openU[k] || 0) + 1;

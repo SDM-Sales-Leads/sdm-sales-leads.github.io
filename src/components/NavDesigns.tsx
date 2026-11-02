@@ -102,7 +102,7 @@ export const RailNav: React.FC<Props> = ({ groups, activeId, onPick, user, logou
             const on = g.id === activeId, Icon = g.icon;
             return (
               <button key={g.id} type="button" title={g.label} onClick={() => onPick(g)} className={`w-full h-10 flex items-center gap-3 rounded-xl px-[13px] transition-colors ${on ? 'bg-brand-red text-white shadow-lg shadow-brand-red/20' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}>
-                <Icon size={19} className="shrink-0" /><span className="text-[13px] font-medium whitespace-nowrap">{g.label}</span>
+                <Icon size={19} className="shrink-0" />{hover && <span className="text-[13px] font-medium whitespace-nowrap">{g.label}</span>}
               </button>
             );
           })}

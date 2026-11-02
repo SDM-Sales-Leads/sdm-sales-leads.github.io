@@ -5,6 +5,7 @@ import { crmService } from './crmService';
 import { isOpenStatus } from './leadConfig';
 import { dayOf, fmtDay, isEngaged, todayISO } from './leadMetrics';
 import { InfoTip } from './CrmMetricsUi';
+import { PoolHandOut } from './PoolHandOut';
 import { 
   GitMerge, 
   HelpCircle, 
@@ -38,6 +39,7 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
   const [maxDay, setMaxDay] = useState('');
   const [pool, setPool] = useState<{ unassigned: number; maxOpen: number } | null>(null);
   const [poolBusy, setPoolBusy] = useState(false);
+  const [handOutOpen, setHandOutOpen] = useState(false);
   const loadPool = () => { fetch('/api/crm/pool/status').then((r) => (r.ok ? r.json() : null)).then((j) => j && setPool(j)).catch(() => {}); };
   useEffect(() => { loadPool(); }, []);
   const fillPool = async () => {
@@ -236,7 +238,8 @@ export const CrmAssignmentRules: React.FC<CrmAssignmentRulesProps> = ({ onRulesU
                 <div className="font-extrabold text-brand-black text-sm">Pool of unassigned leads: {pool ? pool.unassigned.toLocaleString('en-US') : '…'}</div>
                 <div className="text-brand-gray font-semibold mt-0.5">Leads nobody worked on wait here. Every 5 minutes the oldest ones (call center first) go to whoever has fewer open leads than the limit, fair by number and size.</div>
               </div>
-              {hasAdminRole && <button type="button" disabled={poolBusy} onClick={fillPool} className="bg-brand-red disabled:opacity-50 text-white px-4 py-2 rounded-xl font-bold">{poolBusy ? 'Handing out…' : 'Hand out the pool now'}</button>}
+              {hasAdminRole && <button type="button" disabled={poolBusy} onClick={() => setHandOutOpen(true)} className="bg-brand-red disabled:opacity-50 text-white px-4 py-2 rounded-xl font-bold">Hand out the pool…</button>}
+              <PoolHandOut open={handOutOpen} onClose={() => setHandOutOpen(false)} onDone={loadPool} />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

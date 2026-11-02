@@ -1,11 +1,11 @@
 // deno-lint-ignore-file no-explicit-any
 // The pool of unassigned leads. Leads nobody has worked on go back to the pool; whenever a salesperson has fewer open leads than the
 // limit (Setup > Routing rules), the oldest pool leads are handed out, fairly by number and size. Call center leads go first and ignore the limit.
-import { admin, asUuid, bad, crmScope, getConfig, HttpError, needAdmin, needCrm, nowIso, pageAll, rid, setConfig } from "./lib.ts";
+import { admin, asUuid, bad, crmScope, getConfig, HttpError, logActivity, needAdmin, needCrm, nowIso, pageAll, rid, setConfig } from "./lib.ts";
 import { isTouched } from "./leadrules.ts";
 import { SALES_ROLES } from "./ingest.ts";
 import { route } from "./router.ts";
-import { chooseAgent, loadQueue } from "./ingest.ts";
+import { chooseAgent, loadQueue, resetRouteStats } from "./ingest.ts";
 import { addNotifications } from "./notify.ts";
 
 const SYSTEM_TEXT = /^(\[merged\]\s*)*(imported from excel|imported via smart paste|auto-assigned|requested area|sole owner set|transferred to|project changed|merged |assigned to |status changed)/i;
@@ -99,6 +99,110 @@ export async function fillPool(limit = 300, force = false) {
   if (bells.length) await addNotifications(bells);
   return { assigned, left: Math.max(0, pool.length - assigned), perPerson: Object.fromEntries(Object.values(per).map((v) => [v.name, v.n])) };
 }
+
+// ---------------------------------------------------------------------------------------------
+// 3 Nov 2026: "Hand out the pool" by choice: how many, to whom (one or several people), fair by the routing method or evenly, always the OLDEST leads first
+// (call center leads first, then by lead date, then by arrival). Preview first, nothing is written until {apply:true}.
+// ---------------------------------------------------------------------------------------------
+const MANUAL_ONLY = ["Business Development", "Sales Director"];
+
+route("GET", "/crm/pool/people", async ({ c }) => {
+  needCrm(c);
+  if (crmScope(c) !== "all") throw new HttpError(403, "Only Sales Operation or an administrator can hand out the pool");
+  const q = await loadQueue();
+  const { data: users } = await admin.from("app_users").select("id,name,role,active,on_leave").in("role", [...SALES_ROLES, ...MANUAL_ONLY]).eq("active", true).order("name");
+  const ids = (users || []).map((u: any) => u.id);
+  const rows = ids.length ? await pageAll((a, b) => admin.from("crm_leads").select("assigned_to,status,data->touched,data->importedHistory").in("assigned_to", ids).is("deleted_at", null).order("id").range(a, b), 20000) : [];
+  const per: Record<string, { open: number; touched: number; untouched: number }> = {};
+  for (const r of (rows || []) as any[]) {
+    if (CLOSED.has(r.status || "") || r.importedHistory === true) continue;
+    const p = (per[r.assigned_to] ||= { open: 0, touched: 0, untouched: 0 });
+    p.open++; if (r.touched === true || (r.status || "New") !== "New") p.touched++; else p.untouched++;
+  }
+  return {
+    maxUntouched: Number(q.maxUntouchedPerSalesperson) || 0, maxTotal: (Number(q.maxTouchedPerSalesperson) || 0) + (Number(q.maxUntouchedPerSalesperson) || 0), method: q.assignmentMethod,
+    people: (users || []).map((u: any) => ({ id: u.id, name: u.name, role: u.role, onLeave: !!u.on_leave, manualOnly: MANUAL_ONLY.includes(u.role), ...(per[u.id] || { open: 0, touched: 0, untouched: 0 }) })),
+  };
+});
+
+export async function handOutPool(c: { id: string; name: string }, o: { count: number; agentIds: string[]; mode: "fair" | "even"; ignoreLimits: boolean; apply: boolean }) {
+  const q = await loadQueue();
+  resetRouteStats();   // fresh counts, never the 90-second copy
+  const ids = [...new Set(o.agentIds.filter((x) => typeof x === "string" && /^[0-9a-f-]{36}$/i.test(x)))];
+  if (!ids.length) return { error: "Choose at least one salesperson" };
+  const { data: chosen } = await admin.from("app_users").select("id,name,role,active,on_leave").in("id", ids);
+  const people = (chosen || []).filter((u: any) => u.active !== false);
+  if (!people.length) return { error: "None of the chosen people is active" };
+  const pids = people.map((u: any) => u.id);
+  const raw = await pageAll((a, b) => admin.from("crm_leads").select(`id,created_at,${LIGHT_SEL}`).is("assigned_to", null).is("deleted_at", null).eq("status", "New").order("id").range(a, b), 20000);
+  const pool = (raw || []).map((r: any) => ({ id: r.id, at: String(r.created_at || ""), data: lightData(r) }))
+    .filter((r: any) => !r.data?.mergedInto && !r.data?.assignedSalespersonId && !r.data?.importedHistory && !isTouched(r.data))
+    .sort((x: any, y: any) => Number(isCC(y.data)) - Number(isCC(x.data)) || String(x.data?.date || "").localeCompare(String(y.data?.date || "")) || x.at.localeCompare(y.at) || String(x.id).localeCompare(String(y.id)));
+  const want = Math.max(1, Math.min(5000, Math.floor(Number(o.count) || 0) || pool.length));
+  const sim: any = {};
+  const trace: any[] = [];
+  const plan: { r: any; agent: { id: string; name: string } }[] = [];
+  const got: Record<string, number> = {};
+  let nobody = 0, traced = false;
+  for (const r of pool) {
+    if (plan.length >= want) break;
+    const base = { sim, ignoreDaily: true, noBackup: true, onlyIds: pids, users: people, ignoreLimits: o.ignoreLimits };
+    const tr = () => (traced ? undefined : ((traced = true), trace));   // the counts BEFORE the first pick are kept for the preview
+    let agent: { id: string; name: string } | null = null;
+    if (o.mode === "even") {
+      // the person with the fewest leads of THIS hand-out goes first; the next one is tried when the first one has no free place
+      const order = [...people].sort((a: any, b: any) => (got[a.id] || 0) - (got[b.id] || 0) || String(a.name).localeCompare(String(b.name)));
+      for (const cand of order) { agent = await chooseAgent(r.data, q, { ...base, restrictTo: [cand.id], trace: tr() }); if (agent) break; }
+    } else agent = await chooseAgent(r.data, q, { ...base, trace: tr() });
+    if (!agent) { nobody++; continue; }
+    got[agent.id] = (got[agent.id] || 0) + 1;
+    plan.push({ r, agent });
+  }
+  const before: Record<string, any> = Object.fromEntries(trace.map((t: any) => [t.id, t]));
+  const maxU = Number(q.maxUntouchedPerSalesperson) || 0;
+  const perPerson = people.map((u: any) => {
+    const b = before[u.id] || { open: 0, touched: 0, untouched: 0 };
+    const n = got[u.id] || 0;
+    return { id: u.id, name: u.name, role: u.role, onLeave: !!u.on_leave, openBefore: b.open || 0, untouchedBefore: b.untouched || 0, gets: n, untouchedAfter: (b.untouched || 0) + n, overUntouchedCap: !!maxU && (b.untouched || 0) + n > maxU };
+  }).sort((a, b) => b.gets - a.gets || a.name.localeCompare(b.name));
+  const dates = plan.map((p) => String(p.r.data?.date || "")).filter(Boolean).sort();
+  const out: any = {
+    pool: pool.length, requested: want, willAssign: plan.length, noOneCouldTake: nobody, leftInPool: pool.length - plan.length, method: q.assignmentMethod, mode: o.mode, ignoreLimits: o.ignoreLimits,
+    oldestHandedOut: dates[0] || null, newestHandedOut: dates[dates.length - 1] || null, perPerson,
+  };
+  if (!o.apply) return out;
+  let assigned = 0;
+  const per: Record<string, { name: string; n: number }> = {};
+  const now = nowIso();
+  for (const part of chunks(plan, 40)) {
+    const full = new Map<string, any>();
+    const { data: fr } = await admin.from("crm_leads").select("id,data").in("id", part.map((p) => p.r.id)).is("assigned_to", null).is("deleted_at", null);
+    for (const x of fr || []) if (x?.data) full.set(x.id, x.data);
+    await Promise.all(part.map(async ({ r: r0, agent }) => {
+      const fd = full.get(r0.id);
+      if (!fd) return;                                   // taken or deleted meanwhile
+      const d = { ...fd, assignedSalespersonId: agent.id, assignedSalespersonName: agent.name, assignedDate: now, lastUpdated: now,
+        timeline: [...(fd.timeline || []), { id: rid(), timestamp: now, type: "Assignment", user: c.name, title: "Assigned from the pool", description: `Assigned to ${agent.name} from the pool by ${c.name} (oldest first, ${o.mode === "even" ? "split evenly" : q.assignmentMethod}).` }] };
+      const u = await admin.from("crm_leads").update({ data: d, assigned_to: asUuid(agent.id) }).eq("id", r0.id).is("assigned_to", null).select("id");
+      if (u.data?.length) { assigned++; (per[agent.id] ||= { name: agent.name, n: 0 }).n++; }
+    }));
+  }
+  resetRouteStats();
+  await setConfig("pool_wait", {}).catch(() => {});
+  const bells = Object.entries(per).map(([userId, v]) => ({ userId, type: "assigned", title: `${v.n} lead${v.n === 1 ? "" : "s"} assigned to you from the pool`, body: `${c.name} handed out the oldest waiting leads.` }));
+  if (bells.length) await addNotifications(bells);
+  return { ...out, assigned, perPersonDone: Object.fromEntries(Object.values(per).map((v) => [v.name, v.n])) };
+}
+
+route("POST", "/crm/pool/hand-out", async ({ c, req }) => {
+  needCrm(c);
+  if (crmScope(c) !== "all") throw new HttpError(403, "Only Sales Operation or an administrator can hand out the pool");
+  let b: any = {}; try { b = await req.json(); } catch { /* none */ }
+  const r = await handOutPool(c, { count: Number(b?.count) || 0, agentIds: Array.isArray(b?.agentIds) ? b.agentIds.map(String) : [], mode: b?.mode === "even" ? "even" : "fair", ignoreLimits: b?.ignoreLimits === true, apply: b?.apply === true });
+  if ((r as any).error) throw bad((r as any).error);
+  if (b?.apply === true) await logActivity(c, "Hand out the pool", `${(r as any).assigned ?? 0} lead(s) handed out to ${(r as any).perPerson?.filter((p: any) => p.gets).map((p: any) => `${p.name} ${p.gets}`).join(", ")}`, "admin");
+  return r;
+});
 
 route("POST", "/admin/unassign-untouched", async ({ req, c }) => {
   needAdmin(c);

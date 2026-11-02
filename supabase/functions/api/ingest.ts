@@ -297,14 +297,18 @@ type RStats = { at: number; open: Record<string, number>; total: Record<string, 
 const ROUTE_STATS = new Map<string, RStats>();
 /** opts.sim: a dry run. Nothing is saved or cached; the same object carries the pretend state from one lead to the next. */
 let USERS_CACHE: { at: number; rows: any[] } | null = null;
-export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?: any[]; ignoreDaily?: boolean; noBackup?: boolean }): Promise<{ id: string; name: string } | null> {
+export function resetRouteStats() { ROUTE_STATS.clear(); USERS_CACHE = null; }
+/** onlyIds: a person chosen by hand (any role, also on leave); ignoreLimits: the caps (open, untouched, daily, sqm) do not apply; restrictTo: pick only among these (after the counts are read) */
+export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?: any[]; ignoreDaily?: boolean; noBackup?: boolean; onlyIds?: string[]; users?: any[]; ignoreLimits?: boolean; restrictTo?: string[] }): Promise<{ id: string; name: string } | null> {
   if (q.assignmentMethod === "Manual Assignment Only") return null;
 
   // 24 Oct 2026: the sales users are read once a minute, not once per lead (handing out 300 pool leads made 300 identical reads)
-  let users: any[] | null = USERS_CACHE && Date.now() - USERS_CACHE.at < 60_000 ? USERS_CACHE.rows : null;
+  let users: any[] | null = !opts?.onlyIds && USERS_CACHE && Date.now() - USERS_CACHE.at < 60_000 ? USERS_CACHE.rows : null;
+  if (!users && opts?.onlyIds && opts.users) users = opts.users;   // already read by the caller: no query per lead
+  if (!users && opts?.onlyIds) users = (await admin.from("app_users").select("id,name,role,active,on_leave").in("id", opts.onlyIds)).data || [];
   if (!users) { users = (await admin.from("app_users").select("id,name,role,active,on_leave").in("role", SALES_ROLES)).data || []; USERS_CACHE = { at: Date.now(), rows: users }; }
   let pool = (users || []).filter((u: any) => u.active !== false);
-  if (q.skipUsersOnLeave !== false) pool = pool.filter((u: any) => !u.on_leave);
+  if (q.skipUsersOnLeave !== false && !opts?.onlyIds) pool = pool.filter((u: any) => !u.on_leave);
   if (!pool.length) return null;
 
   const ids = pool.map((u: any) => u.id);
@@ -340,15 +344,16 @@ export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?:
   if (opts?.sim && opts.sim.st !== st) { st = { ...st, open: { ...st.open }, total: { ...st.total }, today: { ...st.today }, sqm: { ...st.sqm }, openT: { ...st.openT }, openU: { ...st.openU }, cc: { ...st.cc }, ccSqm: { ...st.ccSqm } }; opts.sim.st = st; }
   const { open, total, today, sqm, openT, openU, cc, ccSqm } = st;
   const leadSize = effectiveSqm(lead?.requiredSize, q);
-  const maxSqm = /call center/i.test(String(lead?.channel || "")) ? 0 : Number(q.maxSqmPerSalesperson) || 0;
+  const maxSqm = opts?.ignoreLimits || /call center/i.test(String(lead?.channel || "")) ? 0 : Number(q.maxSqmPerSalesperson) || 0;
   // call center leads are the most urgent: they ignore every limit (open leads, daily, sqm)
   const isCC = /call center/i.test(String(lead?.channel || ""));
   // two pools per person: untouched (new, nobody worked on it) and touched. A pool lead is always untouched, so it needs a free untouched
   // place, and the total (touched + untouched) must stay inside the sum of the two limits.
-  const maxU = isCC ? 0 : Number(q.maxUntouchedPerSalesperson) || 0;
-  const maxTot = isCC ? 0 : (Number(q.maxTouchedPerSalesperson) || 0) + (Number(q.maxUntouchedPerSalesperson) || 0);
-  const maxDay = isCC || opts?.ignoreDaily ? 0 : Number(q.maxDailyAssignment) || 0;
+  const maxU = isCC || opts?.ignoreLimits ? 0 : Number(q.maxUntouchedPerSalesperson) || 0;
+  const maxTot = isCC || opts?.ignoreLimits ? 0 : (Number(q.maxTouchedPerSalesperson) || 0) + (Number(q.maxUntouchedPerSalesperson) || 0);
+  const maxDay = isCC || opts?.ignoreDaily || opts?.ignoreLimits ? 0 : Number(q.maxDailyAssignment) || 0;
   let elig = pool.filter((u: any) => (!maxU || (openU[u.id] || 0) < maxU) && (!maxTot || (openT[u.id] || 0) + (openU[u.id] || 0) < maxTot) && (!maxDay || (today[u.id] || 0) < maxDay) && (!maxSqm || (sqm[u.id] || 0) + leadSize <= maxSqm || (sqm[u.id] || 0) === 0));
+  if (opts?.restrictTo) elig = elig.filter((u: any) => opts.restrictTo!.includes(u.id));
   if (opts?.trace) for (const u of pool) opts.trace.push({ id: u.id, name: u.name, open: open[u.id] || 0, touched: openT[u.id] || 0, untouched: openU[u.id] || 0, ccLeads: cc[u.id] || 0, ccSqm: ccSqm[u.id] || 0, sqm: sqm[u.id] || 0, eligible: elig.some((e: any) => e.id === u.id) });
   if (!elig.length) {
     // overflow: back-up person, else leave unassigned in the queue for a manager

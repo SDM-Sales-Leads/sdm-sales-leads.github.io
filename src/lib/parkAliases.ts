@@ -22,6 +22,7 @@ export function canonicalParks(text: string): string[] {
   if (has(/sokhna\s*360|سخنه\s*360|\b360\b/)) return ['Sokhna 360'];
   if (has(/borg\s*(el|al)?\s*arab|برج\s*(ال)?عرب/)) return ['Industria Borg El Arab'];
   if (has(/new\s*sadat|سادات\s*(ال)?جديد|(ال)?سادات\s*(ال)?جديد/)) return ['Industria New Sadat'];
+  if (has(/arady|aradi|اراضي/)) return [];   // 3 Nov 2026: "Asher Arady" / "Abou Rawash Arady" are land projects of their own, not Industria Asher plots
   if (has(/asher|اشر|عاشر\s*(?!من)|10th|tenth/) && !has(/10th of ramadan|tenth of ramadan|العاشر من رمضان|عاشر من رمضان/)) {
     const m10 = has(/\b10\b|plot\s*10|ten\b|عشره|بلوت\s*10/), m11 = has(/\b11\b|plot\s*11|eleven|احد عشر|اداشر/);
     if (m10 && !m11) return ['Industria Asher - Plot 10'];

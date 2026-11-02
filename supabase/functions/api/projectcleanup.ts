@@ -5,15 +5,16 @@ import { admin, nowIso, pageAll } from "./lib.ts";
 import { canonicalPark } from "./parks.ts";
 
 const NOT_A_PROJECT = /^(of interest|plan your visit|opportunities page|contact us|n\/a|none|-)$/i;
-const D75_NOTE = /Project of interest:\s*Asher D75/i;
+const D75_NOTE = /Project of interest:\s*(Asher )?D75/i;
 
 function target(d: any): { to: string; why: string } | null {
   const raw = String(d?.project ?? "").trim().replace(/\s+/g, " ");
   if (!raw) return null;
   if (NOT_A_PROJECT.test(raw)) return { to: "", why: "not a project" };
+  if (/^75$/.test(raw)) return { to: "D75", why: "owner: 75 means D75" };
   const park = canonicalPark(raw);
   if (park && park !== raw) return { to: park, why: "spelling" };
-  if (park === "Industria Asher" && D75_NOTE.test(String(d.description || ""))) return { to: "Asher D75", why: "D75 note" };
+  if (park === "Industria Asher" && D75_NOTE.test(String(d.description || ""))) return { to: "D75", why: "D75 note" };
   return null;
 }
 

@@ -111,13 +111,13 @@ const PROJECT_FIX: [RegExp, string][] = [
   [/^(industria|inustria)\s+west/i, 'Industria West'],
   [/^(industria|inustria)\s+new\s+sadat/i, 'Industria New Sadat'],
   [/^(industria|inustria)\s+sadat/i, 'Industria Sadat'],
-  [/^(industria|inustria)\s+borg\s*(al|el)\s*arab\s*$/i, 'Industria Borg El Arab'],
+  [/^(industria|inustria)\s+borg\s*(al|el)\s*arab\s*$/i, 'Industria Borg Al Arab'],
   [/^(industria|inustria)\s+(new\s+)?damietta/i, 'Industria New Damietta'],
-  [/^sokhna\s*360|^sokhna360/i, 'Sokhna 360'],
+  [/^sokhna\s*360|^sokhna360/i, 'SOKHNA360'],
   [/^al\s*oula/i, 'Al Oula'],
   [/^anadasataraya\s+alaashar/i, 'Industria Asher'],
   [/^enadasataraya\s+akatawabar/i, 'Industria October'],
-  [/^(egyptian industrial city|eic)/i, 'Egyptian Industrial City (EIC)'],
+  [/^(egyptian industrial city|eic)/i, 'Elsewedy Industrial City (EIC)'],
 ];
 /** website page names that were captured as a "project" by the ad forms: not a project */
 const NOT_A_PROJECT = /^(of interest|plan your visit|opportunities page|contact us|textile sector case study.*|n\/a|none|-)$/i;

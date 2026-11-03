@@ -28,7 +28,7 @@ export function usePagedList<T>(rows: T[], storageKey: string, resetKey: unknown
     try {
       const raw = localStorage.getItem(storageKey);
       const v = Number(raw);
-      if (raw !== null && (PAGE_SIZES as readonly number[]).includes(v)) return v as PageSize;
+      if (raw !== null && v !== 0 && (PAGE_SIZES as readonly number[]).includes(v)) return v as PageSize;
     } catch { /* default */ }
     return 25;
   });

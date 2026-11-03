@@ -21,7 +21,7 @@ import { CrmBulkMessage } from './CrmBulkMessage';
 import { ccState } from './leadMetrics';
 import { KanbanKey, LeadAuth, addDaysISO, withSideEffects, kanbanBucket, neglectInfo, prioKey, priorityClass, statusClass, todayISO } from './leadRules';
 import { fmtSize, formatLeadDateTime, getSlaStatus, isSlaAtRisk, localISO } from './leadView';
-import { KanbanCard, LeadRow, PAGE_SIZES, PageSize, PagerBar, ALL_CHUNK } from './LeadListParts';
+import { KanbanCard, LeadRow, PageSize, PagerBar, ALL_CHUNK } from './LeadListParts';
 import { LeadEditor, NATIONALITIES } from './LeadEditor';
 import { ChipBar, EMPTY_XF, XF, XFilterPanel, makeXfPredicate, xfChips, xfCount } from './LeadFilters';
 import { LeadAuditHistory } from './LeadAuditHistory';
@@ -186,13 +186,10 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   // minute clock: SLA texts are time based, memoised rows get a new `tick` once a minute
   const [tick, setTick] = useState(0);
   useEffect(() => { const t = setInterval(() => { if (document.visibilityState === 'visible') setTick((x) => x + 1); }, 60_000); return () => clearInterval(t); }, []);
-  // paging: 25 / 50 / 100 / All, remembered
-  const [pageSize, setPageSizeState] = useState<PageSize>(() => {
-    try { const raw = localStorage.getItem('sid_leads_page_size'); const v = Number(raw); if (raw !== null && (PAGE_SIZES as readonly number[]).includes(v)) return v as PageSize; } catch { /* default */ }
-    return 25;
-  });
+  // paging: 25 / 50 / 100 / All; always opens at 25 for every user (All on a big list freezes the page)
+  const [pageSize, setPageSizeState] = useState<PageSize>(25);
   const [page, setPage] = useState(0);
-  const setPageSize = (n: PageSize) => { setPageSizeState(n); setPage(0); try { localStorage.setItem('sid_leads_page_size', String(n)); } catch { /* ignore */ } };
+  const setPageSize = (n: PageSize) => { setPageSizeState(n); setPage(0); };
   const [kanbanCap, setKanbanCap] = useState<Record<string, number>>({});
   const [calDay, setCalDay] = useState<string | null>(null);
   const [calCap, setCalCap] = useState(50);

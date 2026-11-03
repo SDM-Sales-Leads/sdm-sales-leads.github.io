@@ -81,7 +81,7 @@ export const PROJECTS = [...PARKS, 'Other'];   // 2 Nov 2026: the names of the L
 export const QUALIFICATIONS = ['Qualified', 'Unqualified'];
 export const TEMPERATURES = ['Hot', 'Warm', 'Cold'];
 export const LOST_CATEGORIES = ['Price', 'Not Interested', 'Competitor', 'Location'];
-export const LOST_REASONS_TEAM = ['Low Budget', 'Need More Time', 'Need Small Area', 'Need Large Area', 'Collecting Information', 'Industry Not Available', 'Lack of Utilities', 'Not Interested', 'Broker', 'Bought From Another Developer', 'Bought From IDA', 'Bought From SCZone', 'Different Location', 'Plot Sold Out', 'Price Too High'];
+export const LOST_REASONS_TEAM = ['Low Budget', 'Need More Time', 'Need Small Area', 'Need Large Area', 'Collecting Information', 'Industry Not Available', 'Lack of Utilities', 'Not Interested', 'Broker', 'Bought From Another Developer', 'Bought From IDA', 'Bought From SCZone', 'Different Location', 'Plot Sold Out', 'Price Too High', 'Sent Whatsapp - No Reply'];
 
 const SOURCE_ALIASES: Record<string, string> = {
   'business development': 'BD Research', bd: 'BD Research',
@@ -211,7 +211,7 @@ export function applyLists(o: DropdownLists | null | undefined) {
     STATUS_GROUPS.splice(0, STATUS_GROUPS.length, ...groups);
     STATUSES.splice(0, STATUSES.length, ...groups.flatMap((g) => g.statuses));
   }
-  swap(SOURCES, o.sources); swap(PROJECTS, o.projects); swap(INDUSTRIES, o.industries); swap(LOST_REASONS_TEAM, o.lostReasons); swap(LOST_CATEGORIES, o.lostCategories); swap(TEMPERATURES, o.temperatures);
+  swap(SOURCES, o.sources); swap(PROJECTS, o.projects); swap(INDUSTRIES, o.industries); swap(LOST_REASONS_TEAM, o.lostReasons); if (!LOST_REASONS_TEAM.includes('Sent Whatsapp - No Reply')) LOST_REASONS_TEAM.push('Sent Whatsapp - No Reply');   // 3 Nov 2026: added for every team, also when an older saved list lacks it swap(LOST_CATEGORIES, o.lostCategories); swap(TEMPERATURES, o.temperatures);
 }
 try { const c = localStorage.getItem('crm_lists'); if (c) applyLists(JSON.parse(c)); } catch { /* defaults */ }
 /** ask the server for the saved lists; true when they differ from what this browser was using */

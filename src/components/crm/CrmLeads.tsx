@@ -268,9 +268,10 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   // a team leader opens the list on the leads assigned to him (the Owner filter or its chip shows the whole team again)
   useEffect(() => { if (user?.role === 'Sales Team Leader' && user?.name) setFilterSalesperson((cur) => (cur.length ? cur : [user.name])); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [showFilters, setShowFilters] = useState(false);
-  // filters the person pinned to the quick bar above the list: remembered for this person on this browser
-  const pinKey = `crm_pinned_filters_${user?.id ?? 'anon'}`;
-  const [pinned, setPinned] = useState<string[]>(() => { try { const v = JSON.parse(localStorage.getItem(pinKey) || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; } });
+  // filters the person pinned to the quick bar above the list: remembered for this person on this browser, also after
+  // sign-out (a "crm_" key would be wiped at sign-out by lib/storageGuard: this one holds no customer data)
+  const pinKey = `sdm-leads-pins-${user?.id ?? 'anon'}`;
+  const [pinned, setPinned] = useState<string[]>(() => { try { const v = JSON.parse(localStorage.getItem(pinKey) || localStorage.getItem(`crm_pinned_filters_${user?.id ?? 'anon'}`) || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; } });
   const togglePin = (k: string) => setPinned((cur) => { const next = cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]; try { localStorage.setItem(pinKey, JSON.stringify(next)); } catch { /* ignore */ } return next; });
   const [xf, setXf] = useState<XF>(EMPTY_XF);
   const [savedView, setSavedView] = useState<string>('All');
@@ -278,7 +279,17 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   const [idPreset, setIdPreset] = useState<{ ids: Set<string>; title: string } | null>(null);
 
   // Column management
-  const [visibleColumns, setVisibleColumns] = useState<string[]>(['id', 'date', 'customer', 'project', 'size', 'slaStatus', 'priority', 'score', 'status', 'touch', 'assigned', 'channel', 'leadSource']);
+  // the columns the person picked: remembered for this person on this browser, also after sign-out
+  const colsKey = `sdm-leads-cols-${user?.id ?? 'anon'}`;
+  const [visibleColumns, setVisibleColumnsState] = useState<string[]>(() => {
+    try { const v = JSON.parse(localStorage.getItem(colsKey) || 'null'); if (Array.isArray(v) && v.length) return v.filter((x) => typeof x === 'string'); } catch { /* default */ }
+    return ['id', 'date', 'customer', 'project', 'size', 'slaStatus', 'priority', 'score', 'status', 'touch', 'assigned', 'channel', 'leadSource'];
+  });
+  const setVisibleColumns: React.Dispatch<React.SetStateAction<string[]>> = (u) => setVisibleColumnsState((cur) => {
+    const next = typeof u === 'function' ? u(cur) : u;
+    try { localStorage.setItem(colsKey, JSON.stringify(next)); } catch { /* storage blocked */ }
+    return next;
+  });
   
 
   // column widths: each visible column keeps a share of the table; the user can drag the edge between two columns
@@ -867,6 +878,35 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
     onLeadsUpdated();
   };
 
+  // Bulk Close: pick the closing status (the "Closed" group), Lost asks for the lost reason, then a confirm page
+  const [bulkClose, setBulkClose] = useState<{ ids: string[]; status: string; reason: string; confirm: boolean } | null>(null);
+  const closeStatuses = (STATUS_GROUPS.find(g => g.group === 'Closed')?.statuses || ['Lost', 'Wrong Number']);
+  const confirmBulkClose = () => {
+    if (!bulkClose || !bulkClose.status || (bulkClose.status === 'Lost' && !bulkClose.reason)) return;
+    const ids = new Set(bulkClose.ids);
+    const now = new Date().toISOString();
+    const updated = crmService.getLeads().map(l => {
+      if (!ids.has(l.id)) return l;
+      const lost = bulkClose.status === 'Lost';
+      const next = withSideEffects(l, { ...l, status: bulkClose.status as LeadStatus, ...(lost ? { lostReason: bulkClose.reason } : {}), lastUpdated: now });
+      next.timeline = [...(l.timeline || []), {
+        id: Math.random().toString(36).substr(2, 9),
+        timestamp: now,
+        type: 'Status Change' as const,
+        user: user?.name || 'Bulk Operation',
+        title: lost ? 'Lead Closed as Lost' : `Lead Closed as ${bulkClose.status}`,
+        description: lost ? `Closed via bulk action. Lost: ${bulkClose.reason}.` : `Closed via bulk action as ${bulkClose.status}.`,
+      }];
+      return next;
+    });
+    crmService.saveLeads(updated);
+    toast.success(`${ids.size} lead(s) closed as ${bulkClose.status}`);
+    setBulkClose(null);
+    setSelectedLeadIds([]);
+    setBulkAction('');
+    onLeadsUpdated();
+  };
+
   const executeBulkAction = () => {
     if (selectedLeadIds.length === 0 || !bulkAction) return;
 
@@ -884,6 +924,11 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
       if (toWin.length === 0) { alert('None of the selected leads can be marked as Won.'); return; }
       if (toWin.length > BULK_WON_MAX) { alert(`Every Won lead needs its own deal value, so Bulk Won is limited to ${BULK_WON_MAX} leads at a time (you selected ${toWin.length}).`); return; }
       setBulkWon(toWin.map(l => ({ id: l.id, name: l.customerName, project: l.project, value: l.dealValue ? String(l.dealValue) : '' })));
+    } else if (bulkAction === 'close') {
+      if (currentRole === 'Read Only') return;
+      const toClose = crmService.getLeads().filter(l => selectedSet.has(l.id) && isOpenStatus(l.status)).map(l => l.id);
+      if (toClose.length === 0) { alert('All the selected leads are already closed.'); return; }
+      setBulkClose({ ids: toClose, status: '', reason: '', confirm: false });
     }
   };
 
@@ -1652,6 +1697,7 @@ ${user.name || ''}`);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      if (bulkClose) setBulkClose(null);
       if (bulkWon) setBulkWon(null);
       else if (showSourceEmailModal) setShowSourceEmailModal(false);
       else if (deleteConfirmLeadId) setDeleteConfirmLeadId(null);
@@ -1667,7 +1713,7 @@ ${user.name || ''}`);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [bulkWon, showSourceEmailModal, deleteConfirmLeadId, deleteConfirmBulk, showLostModal, showWhatsappTemplateModal, showEmailTemplateModal, showInteractionModal, showMergeModal, showAssignModal, showCreateModal, selectedLead]);
+  }, [bulkClose, bulkWon, showSourceEmailModal, deleteConfirmLeadId, deleteConfirmBulk, showLostModal, showWhatsappTemplateModal, showEmailTemplateModal, showInteractionModal, showMergeModal, showAssignModal, showCreateModal, selectedLead]);
 
   // Columns as one string (a memoised row compares it cheaply)
   const visibleColsKey = useMemo(() => effCols.join(','), [effCols]);
@@ -1946,6 +1992,9 @@ ${user.name || ''}`);
               )}
               {currentRole !== 'Read Only' && (
                 <option value="won" className="text-brand-black">Bulk Mark as Won</option>
+              )}
+              {currentRole !== 'Read Only' && (
+                <option value="close" className="text-brand-black">Bulk Mark as Closed</option>
               )}
               {isAdmin && (
                 <option value="delete" className="text-brand-black">Bulk Delete Records</option>
@@ -3083,6 +3132,51 @@ ${user.name || ''}`);
               </div>
             </div>
           </motion.div>
+        </div>
+      )}
+
+      {/* -------------------- BULK CLOSE: status, lost reason, then confirm -------------------- */}
+      {bulkClose && (
+        <div className="fixed inset-0 bg-brand-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white border border-brand-gray/20 rounded-2xl w-full max-w-md shadow-xl overflow-hidden flex flex-col">
+            <div className="p-5 border-b border-brand-gray/15 flex justify-between items-center bg-brand-black text-white">
+              <h4 className="font-bold text-sm uppercase tracking-wide">{bulkClose.confirm ? 'Confirm' : 'Close'} {bulkClose.ids.length} lead(s)</h4>
+              <button onClick={() => setBulkClose(null)} className="text-white/60 hover:text-white"><X size={18} /></button>
+            </div>
+            {!bulkClose.confirm ? (
+              <div className="p-5 text-xs space-y-4">
+                <label className="block">
+                  <span className="block text-[11px] font-bold text-brand-gray mb-1">Close reason</span>
+                  <select value={bulkClose.status} onChange={(e) => setBulkClose({ ...bulkClose, status: e.target.value, reason: '' })} className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-3 py-2 focus:outline-none">
+                    <option value="">Choose…</option>
+                    {closeStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </label>
+                {bulkClose.status === 'Lost' && (
+                  <label className="block">
+                    <span className="block text-[11px] font-bold text-brand-gray mb-1">Lost reason</span>
+                    <select value={bulkClose.reason} onChange={(e) => setBulkClose({ ...bulkClose, reason: e.target.value })} className="w-full bg-brand-gray/5 border border-brand-gray/20 rounded-xl px-3 py-2 focus:outline-none">
+                      <option value="">Choose…</option>
+                      {LOST_REASONS_TEAM.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </label>
+                )}
+              </div>
+            ) : (
+              <div className="p-5 text-xs space-y-2">
+                <p className="font-semibold text-brand-black">You are about to close <b>{bulkClose.ids.length}</b> lead(s) as <b>{bulkClose.status}</b>{bulkClose.status === 'Lost' && <> with the reason <b>{bulkClose.reason}</b></>}.</p>
+                <p className="text-[11px] text-brand-gray">Each lead gets a line in its timeline. Closed leads leave the open pipeline.</p>
+              </div>
+            )}
+            <div className="p-4 border-t border-brand-gray/10 flex justify-end gap-2.5">
+              {bulkClose.confirm
+                ? <button onClick={() => setBulkClose({ ...bulkClose, confirm: false })} className="bg-brand-gray/10 hover:bg-brand-gray/20 text-brand-black px-4 py-2 rounded-xl font-bold text-xs">Back</button>
+                : <button onClick={() => setBulkClose(null)} className="bg-brand-gray/10 hover:bg-brand-gray/20 text-brand-black px-4 py-2 rounded-xl font-bold text-xs">Cancel</button>}
+              {bulkClose.confirm
+                ? <button onClick={confirmBulkClose} className="bg-brand-red hover:bg-brand-red-dark text-white px-5 py-2 rounded-xl font-bold text-xs shadow">Confirm close</button>
+                : <button onClick={() => setBulkClose({ ...bulkClose, confirm: true })} disabled={!bulkClose.status || (bulkClose.status === 'Lost' && !bulkClose.reason)} className="bg-brand-red hover:bg-brand-red-dark disabled:opacity-40 text-white px-5 py-2 rounded-xl font-bold text-xs shadow">Next</button>}
+            </div>
+          </div>
         </div>
       )}
 

@@ -76,6 +76,7 @@ export const LeadRow = React.memo(({ lead: l, selected, cols, canAssign, winRate
       {has('touch') && (
         <td className="py-3.5 pl-2 pr-2">
           <span className={`inline-block px-2 py-0.5 rounded-lg text-center leading-snug text-[10px] font-bold ${isTouchedLead(l) ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{isTouchedLead(l) ? 'Touched' : 'Untouched'}</span>
+          {l.oldLead && <span title="Old lead from the Excel sheet (second priority, outside the limits)" className="ml-1 inline-block px-1.5 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-600">Old</span>}
         </td>
       )}
       {has('status') && (

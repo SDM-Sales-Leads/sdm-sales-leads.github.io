@@ -316,7 +316,7 @@ export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?:
   const statsKey = [...ids].sort().join(",");
   let st = opts?.sim?.st as RStats | undefined || ROUTE_STATS.get(statsKey);
   if (!st || (!opts?.sim?.st && Date.now() - st.at > 90_000)) {
-    const rows = await pageAll((a, b) => admin.from("crm_leads").select("assigned_to,status,created_at,data->assignedDate,data->requiredSize,data->touched,data->channel,data->legacyId,data->importedHistory").in("assigned_to", ids).is("deleted_at", null).order("id").range(a, b));
+    const rows = await pageAll((a, b) => admin.from("crm_leads").select("assigned_to,status,created_at,data->assignedDate,data->requiredSize,data->touched,data->channel,data->legacyId,data->importedHistory,data->oldLead").in("assigned_to", ids).is("deleted_at", null).order("id").range(a, b));
     const open: Record<string, number> = {};
     const total: Record<string, number> = {};
     const today: Record<string, number> = {};
@@ -324,9 +324,10 @@ export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?:
     const openT: Record<string, number> = {}, openU: Record<string, number> = {}, cc: Record<string, number> = {}, ccSqm: Record<string, number> = {};
     const day0 = (() => { const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).map((x) => [x.type, x.value])); return new Date(Date.now() - ((+p.hour * 60 + +p.minute) * 60 + +p.second) * 1000 - new Date().getMilliseconds()); })();   // 21 Oct 2026: the daily cap starts at midnight Cairo time, not UTC
     for (const r of rows || []) {
+      if ((r as any).oldLead === true) continue;   // the old-leads wallet is outside every limit and every fairness count
       const k = r.assigned_to as string;
       total[k] = (total[k] || 0) + 1;
-      if (!CLOSED.has(r.status || "") && (r as any).importedHistory !== true) {   // old Excel history does not count as a person's open load
+      if (!CLOSED.has(r.status || "") && (r as any).importedHistory !== true && (r as any).oldLead !== true) {   // old Excel history does not count as a person's open load
         open[k] = (open[k] || 0) + 1; sqm[k] = (sqm[k] || 0) + effectiveSqm((r as any).requiredSize, q);
         // touched = the person worked on it (marked on the lead; any status other than New also counts)
         if ((r as any).touched === true || (r.status || "New") !== "New") openT[k] = (openT[k] || 0) + 1; else openU[k] = (openU[k] || 0) + 1;

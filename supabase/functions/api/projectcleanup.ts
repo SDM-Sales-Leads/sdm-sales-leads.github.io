@@ -112,7 +112,7 @@ export async function staleUntouchedFlag(c: { id: string; name: string }, opts: 
   let noLegacy = 0;
   for (const r of rows) {
     const d = r.data || {};
-    if (d.importedHistory) continue;
+    if (d.importedHistory || d.oldLead) continue;
     if (!isUntouched(d)) { touched.push(r); continue; }
     const ms = Date.parse(d.date);
     if (!(ms < cutoff)) { tooNew.push(r); continue; }
@@ -122,7 +122,7 @@ export async function staleUntouchedFlag(c: { id: string; name: string }, opts: 
   const per: Record<string, number> = {};
   for (const r of hit) { const k = users.get(r.assigned_to) || r.assigned_to; per[k] = (per[k] || 0) + 1; }
   const keep: Record<string, number> = {};
-  for (const r of rows) if (!hit.includes(r) && isUntouched(r.data || {}) && !(r.data || {}).importedHistory) { const k = users.get(r.assigned_to) || r.assigned_to; keep[k] = (keep[k] || 0) + 1; }
+  for (const r of rows) if (!hit.includes(r) && isUntouched(r.data || {}) && !(r.data || {}).importedHistory && !(r.data || {}).oldLead) { const k = users.get(r.assigned_to) || r.assigned_to; keep[k] = (keep[k] || 0) + 1; }
   const out: any = { olderThanDays: opts.days, assignedNewLeads: rows.length, toFlag: hit.length, perOwner: Object.entries(per).sort((a, b) => b[1] - a[1]), untouchedLeftPerOwner: Object.entries(keep).sort((a, b) => b[1] - a[1]), skippedBecauseWorkedOn: touched.length, skippedBecauseRecent: tooNew.length, skippedNoOldCrmId: noLegacy, sampleIds: hit.slice(0, 8).map((r) => r.id) };
   if (!opts.apply) return out;
   const now = nowIso();

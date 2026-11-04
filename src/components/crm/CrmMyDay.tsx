@@ -60,7 +60,7 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
   const [tasks, setTasks] = useState<any[]>([]);
   const [salespeople, setSalespeople] = useState<any[]>([]);
   const [selectedSalespersonId, setSelectedSalespersonId] = useState<string>('');
-  const [queueMode, setQueueMode] = useState<'follow' | 'new'>('follow');
+  const [queueMode, setQueueMode] = useState<'follow' | 'new' | 'old'>('follow');
   const [cursor, setCursor] = useState(0);
   const [pinned, setPinned] = useState<string | null>(null);   // lead id picked from a fold
   const [batch, setBatch] = useState<number>(readBatch);
@@ -113,13 +113,17 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
   const mine = useMemo(() => leads.filter((l) => String(l.assignedSalespersonId) === String(selectedSalespersonId)), [leads, selectedSalespersonId]);
   const rates = useMemo(() => sourceWinRates(leads), [leads]);
   const today = todayISO();
-  const board: DayBoard = useMemo(() => buildDayBoard(mine, todayISO(), Date.now(), rates), [mine, rates]);
+  // old leads (the Excel the sales operation used before the CRM) are a separate, lower-priority wallet: they never mix into today's queues
+  const mineMain = useMemo(() => mine.filter((l) => !l.oldLead), [mine]);
+  const mineOld = useMemo(() => mine.filter((l) => l.oldLead), [mine]);
+  const board: DayBoard = useMemo(() => buildDayBoard(mineMain, todayISO(), Date.now(), rates), [mineMain, rates]);
+  const oldBoard: DayBoard = useMemo(() => buildDayBoard(mineOld, todayISO(), Date.now(), rates), [mineOld, rates]);
 
   const stats = useMemo(() => {
     let active = 0, won = 0, lost = 0, unworked = 0, working = 0, pipeline = 0, activeValue = 0, sizeSum = 0, sizeN = 0, vip = 0, high = 0;
     const L = { active: [] as Lead[], won: [] as Lead[], lost: [] as Lead[], unworked: [] as Lead[], pipeline: [] as Lead[] };
     const src: Record<string, number> = {}; const lostR: Record<string, number> = {};
-    for (const l of mine) {
+    for (const l of mineMain) {
       const st = statusStage(l.status);
       if (st === 'won') { won++; L.won.push(l); }
       else if (st === 'lost') { lost++; L.lost.push(l); const r = l.lostReason || l.lostCategory; if (r) lostR[r] = (lostR[r] || 0) + 1; }
@@ -134,16 +138,17 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
       else if (l.priority === 'High') high++;
     }
     const top = (o: Record<string, number>) => Object.entries(o).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
-    return { total: mine.length, active, won, lost, unworked, working, pipeline, activeValue, avgSize: sizeN ? Math.round(sizeSum / sizeN) : null, vip, high, topSource: top(src), topLost: top(lostR), win: pc(won, won + lost), L };
-  }, [mine]);
+    return { total: mineMain.length, active, won, lost, unworked, working, pipeline, activeValue, avgSize: sizeN ? Math.round(sizeSum / sizeN) : null, vip, high, topSource: top(src), topLost: top(lostR), win: pc(won, won + lost), L };
+  }, [mineMain]);
 
   // ---- queues ----
   const followQ = board.callList;
   const newQ = useMemo(() => board.first.slice(0, batch), [board.first, batch]);
-  const mode: 'follow' | 'new' = queueMode === 'new' || (!followQ.length && newQ.length) ? 'new' : 'follow';
-  const queue = mode === 'new' ? newQ : followQ;
+  const oldQ = useMemo(() => [...oldBoard.callList, ...oldBoard.first], [oldBoard]);
+  const mode: 'follow' | 'new' | 'old' = queueMode === 'old' ? 'old' : queueMode === 'new' || (!followQ.length && newQ.length) ? 'new' : 'follow';
+  const queue = mode === 'old' ? oldQ : mode === 'new' ? newQ : followQ;
   const idx = Math.min(cursor, Math.max(0, queue.length - 1));
-  const pinnedTask = pinned ? board.tasks.find((t) => t.lead.id === pinned) || null : null;
+  const pinnedTask = pinned ? board.tasks.find((t) => t.lead.id === pinned) || oldBoard.tasks.find((t) => t.lead.id === pinned) || null : null;
   const hero: DayTask | null = pinnedTask || queue[idx] || null;
   const doneN = board.doneToday;
   const pct = queue.length + doneN === 0 ? 100 : Math.round((doneN / (queue.length + doneN)) * 100);
@@ -407,6 +412,7 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
               <div className="flex bg-brand-gray/10 rounded-xl p-1">
                 <button onClick={() => { setQueueMode('follow'); setPinned(null); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold ${mode === 'follow' ? 'bg-white shadow-sm text-brand-black' : 'text-brand-gray'}`}>Follow-ups <span className="font-mono">{followQ.length}</span></button>
                 <button onClick={() => { setQueueMode('new'); setPinned(null); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold ${mode === 'new' ? 'bg-white shadow-sm text-brand-black' : 'text-brand-gray'}`}>Call first <span className="font-mono">{board.first.length}</span></button>
+                {oldQ.length > 0 && <button onClick={() => { setQueueMode('old'); setPinned(null); }} title="Old leads from the Excel sheet: lower priority, they do not count in your limits" className={`px-4 py-1.5 rounded-lg text-xs font-bold ${mode === 'old' ? 'bg-white shadow-sm text-brand-black' : 'text-brand-gray'}`}>Old leads <span className="font-mono">{oldQ.length}</span></button>}
               </div>
               <div className="flex items-center gap-2 text-[10px] font-bold text-brand-gray">
                 <Settings2 size={12} /> Today's batch of new leads
@@ -417,7 +423,7 @@ export const CrmMyDay: React.FC<CrmMyDayProps> = ({ leads, onLeadsUpdated, setAc
               </div>
             </div>
             <p className="text-[11px] text-brand-gray">
-              {mode === 'follow' ? 'Clients who were spoken to and are waiting to hear back, ranked by urgency. Nothing here is a lead nobody has opened.' : `Nobody has contacted these yet, so none is overdue. Today's batch is ${batch}.`}
+              {mode === 'old' ? 'Old leads from the Excel sheet. Lower priority: work on today\'s follow-ups and new leads first. These do not count in your 300 limits.' : mode === 'follow' ? 'Clients who were spoken to and are waiting to hear back, ranked by urgency. Nothing here is a lead nobody has opened.' : `Nobody has contacted these yet, so none is overdue. Today's batch is ${batch}.`}
             </p>
             <div className="flex items-center justify-between text-xs font-bold text-brand-black">
               <span>{parseLocalDay(today).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>

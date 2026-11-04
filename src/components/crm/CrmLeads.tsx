@@ -632,7 +632,8 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
       if (filterStatus.length && !filterStatus.some((st) => (st === 'OpenLeads' ? isOpenStatus(l.status) : l.status === st))) return false;
       if (filterProject.length && !filterProject.includes(l.project as string)) return false;
       if (filterPriority.length && !filterPriority.includes(prioKey(l.priority) as string)) return false;
-      if (filterTouch.length === 1 && (filterTouch[0] === 'Touched') !== isTouchedLead(l)) return false;
+      { const tk = filterTouch.filter((x) => x === 'Touched' || x === 'Untouched'); if (tk.length === 1 && (tk[0] === 'Touched') !== isTouchedLead(l)) return false;
+        const ok = filterTouch.filter((x) => x === 'Old leads' || x === 'Current leads'); if (ok.length === 1 && (ok[0] === 'Old leads') !== !!l.oldLead) return false; }
       if (filterSource.length && !filterSource.includes(l.source as string)) return false;
       if (filterSalesperson.length && !filterSalesperson.some((n) => (n === 'Unassigned' ? !l.assignedSalespersonId : l.assignedSalespersonName === n))) return false;
       if (xfPred && !xfPred(l)) return false;
@@ -669,7 +670,9 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
       if (b.k === null) return -1;
       return a.k < b.k ? -dir : a.k > b.k ? dir : 0;
     });
-    const sorted = keyed.map((x) => x.l);
+    let sorted = keyed.map((x) => x.l);
+    // old leads (Excel wallet) are second priority: in the normal date order they come after the current leads
+    if (sortField === 'date' && sorted.some((l) => l.oldLead)) sorted = [...sorted.filter((l) => !l.oldLead), ...sorted.filter((l) => l.oldLead)];
     // call center leads waiting for their first contact come first (most urgent on top) while the list is in its normal date order
     if (sortField === 'date') {
       const now = Date.now(); const cc: { l: Lead; left: number }[] = []; const rest: Lead[] = [];
@@ -1884,7 +1887,7 @@ ${user.name || ''}`);
             <MultiSelect options={projects.map((x) => ({ value: x, label: x }))} value={filterProject} onChange={setFilterProject} allLabel="All projects" name="projects" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterProject.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
           )}
           {pinned.includes('touch') && (
-            <MultiSelect options={[{ value: 'Touched', label: 'Touched' }, { value: 'Untouched', label: 'Untouched' }]} value={filterTouch} onChange={setFilterTouch} allLabel="Touched + untouched" name="kinds" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterTouch.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
+            <MultiSelect options={[{ value: 'Touched', label: 'Touched' }, { value: 'Untouched', label: 'Untouched' }, { value: 'Old leads', label: 'Old leads (Excel)' }, { value: 'Current leads', label: 'Current leads (not old)' }]} value={filterTouch} onChange={setFilterTouch} allLabel="All leads" name="kinds" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterTouch.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
           )}
           {pinned.includes('priority') && (
             <MultiSelect options={PRIORITIES.map((x) => ({ value: x as string, label: x as string }))} value={filterPriority} onChange={setFilterPriority} allLabel="All priorities" name="priorities" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterPriority.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
@@ -1925,7 +1928,7 @@ ${user.name || ''}`);
 
               <div>
                 <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('touch')} onChange={() => togglePin('touch')} className="accent-brand-red" /> Touched / Untouched</label>
-                <MultiSelect options={[{ value: 'Touched', label: 'Touched' }, { value: 'Untouched', label: 'Untouched' }]} value={filterTouch} onChange={setFilterTouch} allLabel="Touched + untouched" name="kinds" />
+                <MultiSelect options={[{ value: 'Touched', label: 'Touched' }, { value: 'Untouched', label: 'Untouched' }, { value: 'Old leads', label: 'Old leads (Excel)' }, { value: 'Current leads', label: 'Current leads (not old)' }]} value={filterTouch} onChange={setFilterTouch} allLabel="All leads" name="kinds" />
               </div>
 
               <div>

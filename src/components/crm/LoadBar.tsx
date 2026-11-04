@@ -3,7 +3,7 @@ import { crmService } from './crmService';
 import { useAuth } from '../../services/AuthContext';
 import { isTouchedLead } from './leadConfig';
 
-interface Person { id: string; name: string; touched: number; untouched: number }
+interface Person { id: string; name: string; touched: number; untouched: number; old: number }
 
 const CLOSED = new Set(['Won', 'Lost', 'Duplicate', 'Invalid', 'Not Interested', 'Low Budget', 'Wrong Number', 'Closed']);
 
@@ -31,13 +31,15 @@ export const LoadBar: React.FC<{ showPeople?: boolean; defaultOpen?: boolean }> 
     for (const l of crmService.getLeads() as any[]) {
       const id = String(l.assignedSalespersonId || '');
       if (!id || l.mergedInto || CLOSED.has(String(l.status))) continue;
-      const p = m.get(id) || { id, name: String(l.assignedSalespersonName || id), touched: 0, untouched: 0 };
-      if (isTouchedLead(l)) p.touched++; else p.untouched++;
+      const p = m.get(id) || { id, name: String(l.assignedSalespersonName || id), touched: 0, untouched: 0, old: 0 };
+      if (l.oldLead) p.old++;   // the old-leads wallet is outside the two limits
+      else if (l.importedHistory) { /* history: not a working lead */ }
+      else if (isTouchedLead(l)) p.touched++; else p.untouched++;
       m.set(id, p);
     }
     return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [ver]); // eslint-disable-line react-hooks/exhaustive-deps
-  const me = people.find((p) => p.id === String(user?.id)) || { id: String(user?.id), name: user?.name || '', touched: 0, untouched: 0 };
+  const me = people.find((p) => p.id === String(user?.id)) || { id: String(user?.id), name: user?.name || '', touched: 0, untouched: 0, old: 0 };
   const many = people.filter((p) => p.id !== me.id).length > 0;
   if (!user) return null;
   return (
@@ -46,6 +48,7 @@ export const LoadBar: React.FC<{ showPeople?: boolean; defaultOpen?: boolean }> 
         <span className="text-[10px] uppercase font-extrabold text-brand-gray">{many && showPeople ? 'My open leads' : 'Open leads'}</span>
         <Meter label="Touched" n={me.touched} max={maxTouched} tone="bg-emerald-500" />
         <Meter label="Untouched" n={me.untouched} max={maxUntouched} tone="bg-amber-500" />
+        {me.old > 0 && <span className="text-[11px] font-bold text-brand-gray" title="Old leads from the Excel sheet: lower priority, outside the limits">Old leads <span className="font-mono text-brand-black">{me.old}</span></span>}
         {many && (
           <button type="button" onClick={() => setOpen((v) => !v)} className="text-[11px] font-bold text-brand-red hover:underline">{open ? 'Hide team' : 'Show team'}</button>
         )}
@@ -53,13 +56,14 @@ export const LoadBar: React.FC<{ showPeople?: boolean; defaultOpen?: boolean }> 
       {many && open && (
         <div className="mt-2 overflow-x-auto">
           <table className="w-full text-xs">
-            <thead><tr className="text-left text-[10px] uppercase text-brand-gray"><th className="py-1 pr-3">Salesperson</th><th className="py-1 pr-3">Touched</th><th className="py-1 pr-3">Untouched</th><th className="py-1">Total</th></tr></thead>
+            <thead><tr className="text-left text-[10px] uppercase text-brand-gray"><th className="py-1 pr-3">Salesperson</th><th className="py-1 pr-3">Touched</th><th className="py-1 pr-3">Untouched</th><th className="py-1 pr-3">Old leads</th><th className="py-1">Total</th></tr></thead>
             <tbody>
               {people.map((p) => (
                 <tr key={p.id} className="border-t border-brand-gray/10">
                   <td className="py-1 pr-3 font-semibold">{p.name}</td>
                   <td className={`py-1 pr-3 font-mono ${maxTouched > 0 && p.touched >= maxTouched ? 'text-rose-600 font-bold' : ''}`}>{p.touched}</td>
                   <td className={`py-1 pr-3 font-mono ${maxUntouched > 0 && p.untouched >= maxUntouched ? 'text-rose-600 font-bold' : ''}`}>{p.untouched}</td>
+                  <td className="py-1 pr-3 font-mono text-brand-gray">{p.old}</td>
                   <td className="py-1 font-mono">{p.touched + p.untouched}</td>
                 </tr>
               ))}

@@ -13,7 +13,7 @@ const NOT_A_TOUCH = new Set(["Assignment", "Import", "Creation"]);
 const isCC = (d: any) => /call center/i.test(String(d?.channel || ""));
 // the lead fields fillPool needs: isTouched (leadrules.ts), the pool filter/sort and chooseAgent (requiredSize, channel)
 const LIGHT_FIELDS = ["mergedInto", "assignedSalespersonId", "touched", "status", "firstContactAt", "lastContactDate", "meetingDate", "offerSent", "qualNotes",
-  "comments", "timeline", "channel", "date", "requiredSize", "importedHistory"];
+  "comments", "timeline", "channel", "date", "requiredSize", "importedHistory", "oldLead"];
 const LIGHT_SEL = LIGHT_FIELDS.map((f) => `j_${f}:data->${f}`).join(",");
 /** rebuilds a partial `data` from the light select (missing keys stay missing, as in the full record); never written back */
 const lightData = (r: any) => { const d: any = {}; for (const f of LIGHT_FIELDS) { const v = r[`j_${f}`]; if (v !== null && v !== undefined) d[f] = v; } return d; };
@@ -34,7 +34,7 @@ export async function unassignUntouched(dryRun: boolean, everyLead = false) {
   const rows = await pageAll((a, b) => { let q: any = admin.from("crm_leads").select("id,assigned_to,data").is("deleted_at", null).not("assigned_to", "is", null).eq("status", "New"); if (!everyLead) q = q.not("data->>legacyId", "is", null); return q.order("id").range(a, b); }, 20000);
   // Business Development and the Sales Director get leads only by hand: never taken back to the pool automatically
   const bdIds = new Set(((await admin.from("app_users").select("id").in("role", ["Business Development", "Sales Director"])).data || []).map((u: any) => u.id));
-  const hit = (rows || []).filter((r: any) => isUntouched(r.data) && !r.data?.importedHistory && !bdIds.has(r.assigned_to));
+  const hit = (rows || []).filter((r: any) => isUntouched(r.data) && !r.data?.importedHistory && !r.data?.oldLead && !bdIds.has(r.assigned_to));
   const byOwner: Record<string, number> = {};
   for (const r of hit) { const n = r.data?.assignedSalespersonName || "?"; byOwner[n] = (byOwner[n] || 0) + 1; }
   if (dryRun) return { scanned: (rows || []).length, toPool: hit.length, byOwner };
@@ -62,7 +62,7 @@ export async function fillPool(limit = 300, force = false) {
   const raw = await pageAll((a, b) => admin.from("crm_leads").select(`id,${LIGHT_SEL}`).is("assigned_to", null).is("deleted_at", null).eq("status", "New").order("id").range(a, b), 20000);
   const rows = (raw || []).map((r: any) => ({ id: r.id, data: lightData(r) }));
   // a touched lead never goes back to the pool automatically (somebody already spoke to the customer)
-  const pool = (rows || []).filter((r: any) => !r.data?.mergedInto && !r.data?.assignedSalespersonId && !r.data?.importedHistory && !isTouched(r.data))   // old Excel history is never handed out
+  const pool = (rows || []).filter((r: any) => !r.data?.mergedInto && !r.data?.assignedSalespersonId && !r.data?.importedHistory && !r.data?.oldLead && !isTouched(r.data))   // old Excel history is never handed out
     .sort((x: any, y: any) => Number(isCC(y.data)) - Number(isCC(x.data)) || String(x.data?.date || "").localeCompare(String(y.data?.date || "")) || String(x.id).localeCompare(String(y.id)));
   const per: Record<string, { name: string; n: number }> = {};
   let assigned = 0, stop = false;
@@ -112,10 +112,10 @@ route("GET", "/crm/pool/people", async ({ c }) => {
   const q = await loadQueue();
   const { data: users } = await admin.from("app_users").select("id,name,role,active,on_leave").in("role", [...SALES_ROLES, ...MANUAL_ONLY]).eq("active", true).order("name");
   const ids = (users || []).map((u: any) => u.id);
-  const rows = ids.length ? await pageAll((a, b) => admin.from("crm_leads").select("assigned_to,status,data->touched,data->importedHistory").in("assigned_to", ids).is("deleted_at", null).order("id").range(a, b), 20000) : [];
+  const rows = ids.length ? await pageAll((a, b) => admin.from("crm_leads").select("assigned_to,status,data->touched,data->importedHistory,data->oldLead").in("assigned_to", ids).is("deleted_at", null).order("id").range(a, b), 20000) : [];
   const per: Record<string, { open: number; touched: number; untouched: number }> = {};
   for (const r of (rows || []) as any[]) {
-    if (CLOSED.has(r.status || "") || r.importedHistory === true) continue;
+    if (CLOSED.has(r.status || "") || r.importedHistory === true || r.oldLead === true) continue;
     const p = (per[r.assigned_to] ||= { open: 0, touched: 0, untouched: 0 });
     p.open++; if (r.touched === true || (r.status || "New") !== "New") p.touched++; else p.untouched++;
   }
@@ -136,7 +136,7 @@ export async function handOutPool(c: { id: string; name: string }, o: { count: n
   const pids = people.map((u: any) => u.id);
   const raw = await pageAll((a, b) => admin.from("crm_leads").select(`id,created_at,${LIGHT_SEL}`).is("assigned_to", null).is("deleted_at", null).eq("status", "New").order("id").range(a, b), 20000);
   const pool = (raw || []).map((r: any) => ({ id: r.id, at: String(r.created_at || ""), data: lightData(r) }))
-    .filter((r: any) => !r.data?.mergedInto && !r.data?.assignedSalespersonId && !r.data?.importedHistory && !isTouched(r.data))
+    .filter((r: any) => !r.data?.mergedInto && !r.data?.assignedSalespersonId && !r.data?.importedHistory && !r.data?.oldLead && !isTouched(r.data))
     .sort((x: any, y: any) => Number(isCC(y.data)) - Number(isCC(x.data)) || String(x.data?.date || "").localeCompare(String(y.data?.date || "")) || x.at.localeCompare(y.at) || String(x.id).localeCompare(String(y.id)));
   const want = Math.max(1, Math.min(5000, Math.floor(Number(o.count) || 0) || pool.length));
   const sim: any = {};

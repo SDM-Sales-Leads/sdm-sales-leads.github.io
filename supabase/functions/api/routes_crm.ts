@@ -13,6 +13,7 @@ import {
 import { route } from "./router.ts";
 import { canonicalPark } from "./parks.ts";
 import { closedStatusCleanup } from "./closedcleanup.ts";
+import { oldLeadsImport } from "./oldleads.ts";
 import { archiveImportBatch, projectCleanup, queueTextCleanup, staleUntouchedFlag } from "./projectcleanup.ts";
 import { nameRecovery } from "./namerecovery.ts";
 import { nameProblem, repairName } from "./namecheck.ts";
@@ -349,7 +350,7 @@ for (const [name, spec] of Object.entries(SPECS)) {
         (ins.data || []).forEach((x: any) => saved.push({ id: x.id, _rev: x.updated_at || x.created_at }));
         if (name === "leads") {
           await ensureContactsAndCompaniesBulk(newRows.map((n) => n.lead)).catch(() => {});
-          for (const n of newRows) { const as = asUuid(n.lead?.assignedSalespersonId); if (as && !n.lead?.legacyId && !n.lead?.importedHistory) touched.push({ id: n.id, prev: null, next: as, d: n.lead, fresh: [] }); }
+          for (const n of newRows) { const as = asUuid(n.lead?.assignedSalespersonId); if (as && !n.lead?.legacyId && !n.lead?.importedHistory && !n.lead?.oldLead) touched.push({ id: n.id, prev: null, next: as, d: n.lead, fresh: [] }); }
         }
       } else {
         // one bad row must not sink the batch: fall back to row-by-row so the culprit is named
@@ -601,6 +602,15 @@ route("POST", "/crm/stale-untouched", async ({ c, req }) => {
   const b: any = await body(req).catch(() => ({}));
   const r = await staleUntouchedFlag(c, { apply: b?.apply === true, revert: b?.revert === true, days: Math.max(7, Math.min(365, Number(b?.days) || 30)), tag: String(b?.tag || "STALE-2026-11-03") });
   if (b?.apply === true) await logActivity(c, b?.revert ? "Stale untouched leads: flag removed" : "Stale untouched leads flagged as history", `${r.flagged ?? r.reverted ?? 0} lead(s)`, "admin");
+  return r;
+});
+// admin only: loads the old Excel leads (cleaned beforehand) as the "Old leads" wallet. Preview first ({apply:false}); duplicates of the system are never loaded
+route("POST", "/crm/old-leads-import", async ({ c, req }) => {
+  needAdmin(c);
+  await rateLimit(`oldleads:${c.id}`, 3600, 60);
+  const b: any = await body(req, 3_000_000).catch(() => ({}));
+  const r: any = await oldLeadsImport(c, { apply: b?.apply === true, batch: String(b?.batch || ""), allowDupRows: b?.allowDupRows, leads: b?.leads });
+  if (b?.apply === true && !r.error) await logActivity(c, "Old leads imported", `${r.batch}: ${r.saved ?? 0} lead(s)`, "admin");
   return r;
 });
 route("POST", "/crm/sync-inbox", async ({ c }) => { needCrm(c); return await runIngest(c); });

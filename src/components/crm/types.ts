@@ -101,6 +101,7 @@ export interface Lead {
   // ---- fields carried over from the sales team's previous CRM (all optional) ----
   legacyId?: string;               // id in the previous system
   legacyOwnerName?: string;        // owner as written in the previous system (linked to a user by name)
+  oldLead?: boolean;               // old lead from the Excel the sales operation used before the CRM: its own low-priority wallet, outside the 300/600/50 limits, never notified, no call-center clock
   importedHistory?: boolean;       // old lead loaded from the old Excel sheet: history only (never handed out, never notified, no call-center clock)
   importBatch?: string;            // tag of the import that created it (a bad batch can be archived)
   refNo?: string;

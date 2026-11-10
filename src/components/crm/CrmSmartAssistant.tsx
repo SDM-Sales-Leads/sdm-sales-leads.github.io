@@ -224,7 +224,7 @@ export const CrmSmartAssistant: React.FC<Props> = ({ leads, setActiveSubTab }) =
                 {Object.entries(week.byType).sort((a, b) => b[1] - a[1]).map(([k, v]) => <span key={k} className="text-[11px] bg-brand-gray/10 rounded-full px-2 py-0.5"><b>{v}</b> {k}</span>)}
               </div>
             )}
-            {week.sources.length > 0 && (
+            {week.sources.some((s) => s.won > 0) && (
               <div>
                 <p className="text-[10px] uppercase font-bold text-brand-gray mb-1">Won by source (5+ leads)</p>
                 {week.sources.map((s) => (

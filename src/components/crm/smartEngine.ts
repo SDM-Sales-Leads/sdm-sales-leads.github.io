@@ -96,7 +96,7 @@ export function signals(mine: Lead[], plots: Plot[], byPark: Map<string, Plot[]>
   const out: Signal[] = [];
   const byKey = new Map(plots.map((p) => [p.key, p]));
   const offerSilent: Lead[] = []; const gone: { l: Lead; units: string[] }[] = []; const fits: Lead[] = []; const neg: Lead[] = []; const moving: Lead[] = []; const neglected: Lead[] = [];
-  let fitPlots = 0;
+  let fitMax = 0;
   for (const l of mine) {
     if (!isOpen(l) || l.oldLead) continue;
     const gap = lastTouch(l) ? daysBetween(lastTouch(l), today) : NaN;
@@ -105,7 +105,7 @@ export function signals(mine: Lead[], plots: Plot[], byPark: Map<string, Plot[]>
     if (isNeglected(l, nowMs)) neglected.push(l);
     const units = (l.assignedPlots || []).filter((a) => { const p = byKey.get(a.key); return p && p.status !== 'available'; }).map((a) => `${a.unit} (${byKey.get(a.key)!.status})`);
     if (units.length) gone.push({ l, units });
-    if (isEngaged(l) && !(l.assignedPlots || []).length) { const f = plotFit(l, byPark); if (f && f.count > 0) { fits.push(l); fitPlots += f.count; } }
+    if (isEngaged(l) && !(l.assignedPlots || []).length) { const f = plotFit(l, byPark); if (f && f.count > 0) { fits.push(l); fitMax = Math.max(fitMax, f.count); } }
     const tl = l.timeline || [];
     for (let i = tl.length - 1; i >= 0 && i >= tl.length - 6; i--) {
       const e = tl[i];
@@ -117,7 +117,7 @@ export function signals(mine: Lead[], plots: Plot[], byPark: Map<string, Plot[]>
   if (offerSilent.length) out.push({ id: 'offer', tone: 'red', title: `${offerSilent.length} offer${offerSilent.length > 1 ? 's' : ''} sent, no follow-up for 3+ days`, why: 'An offer without a follow-up call is usually lost to a competitor.', leadIds: ids(offerSilent) });
   if (gone.length) out.push({ id: 'plotgone', tone: 'amber', title: `${gone.length} customer${gone.length > 1 ? 's' : ''} asked for a plot that is no longer available`, why: gone.slice(0, 3).map((g) => `${g.l.customerName || g.l.id}: ${g.units.join(', ')}`).join(' · ') + (gone.length > 3 ? ' …' : '') + '. Offer an alternative before they hear it elsewhere.', leadIds: gone.map((g) => g.l.id) });
   if (neg.length) out.push({ id: 'neg', tone: 'amber', title: `${neg.length} negotiation${neg.length > 1 ? 's' : ''} silent for 7+ days`, why: 'Deals in negotiation that go quiet need a call from you, not a message.', leadIds: ids(neg) });
-  if (fits.length) out.push({ id: 'fits', tone: 'blue', title: `${fits.length} active customer${fits.length > 1 ? 's' : ''} have matching available plots`, why: `Land Bank has ${fitPlots} available plots that fit their park and size, and none is assigned to them yet. Assign plots on the lead card.`, leadIds: ids(fits) });
+  if (fits.length) out.push({ id: 'fits', tone: 'blue', title: `${fits.length} active customer${fits.length > 1 ? 's' : ''} have matching available plots`, why: `Each has at least one available Land Bank plot in their park and size range (up to ${fitMax} for one customer), and none is assigned to them yet. Assign plots on the lead card.`, leadIds: ids(fits) });
   if (moving.length) out.push({ id: 'moving', tone: 'green', title: `${moving.length} lead${moving.length > 1 ? 's' : ''} moved forward in the last 3 days`, why: 'Meeting, site visit, offer or negotiation. Keep the momentum: set the next step today.', leadIds: ids(moving) });
   return out;
 }

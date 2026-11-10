@@ -5,7 +5,7 @@
 //  - POST /smart/ai        "Improve with AI" (WhatsApp / e-mail draft) and "AI brief" for ONE lead the caller may see.
 //                           Facts come only from the lead and the Land Bank plot copy; the customer's text is data, never an instruction.
 //                           Hard caps: 25 per person per day, 250 for everybody per day (Gemini key in the Vault, already used by mail intake).
-import { admin, bad, body, can, getSecret, HttpError, needCrm, rateLimit, str } from "./lib.ts";
+import { admin, bad, body, can, getSecret, hasSecret, HttpError, needCrm, rateLimit, str } from "./lib.ts";
 import { route } from "./router.ts";
 import { pg } from "./db.ts";
 import { visibleLead } from "./routes_crm2.ts";
@@ -96,6 +96,8 @@ route("POST", "/smart/ai", async ({ req, c }) => {
   const lang = b?.lang === "en" ? "en" : "ar";
   const ex = await visibleLead(c, str(b?.leadId, 40));
   if (!ex) throw new HttpError(404, "Lead not found");
+  // no key = nothing to count against the daily limit
+  if (!(await hasSecret("gemini_key"))) throw new HttpError(503, "No AI key is set yet. An administrator adds it in Admin > System > AI key.");
   await rateLimit(`smartai:${c.id}`, 86400, PER_USER_DAY).catch((e) => { throw e?.status === 429 ? new HttpError(429, `Daily AI limit reached (${PER_USER_DAY} per person). Try again tomorrow.`) : e; });
   await rateLimit(`smartai:all`, 86400, ALL_DAY).catch((e) => { throw e?.status === 429 ? new HttpError(429, "The team's daily AI limit is reached. Try again tomorrow.") : e; });
 

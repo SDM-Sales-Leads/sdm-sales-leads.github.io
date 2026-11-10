@@ -531,6 +531,7 @@ route("GET", "/lara/drafts", async ({ c, query }) => {
   if (kind) dq = dq.eq("kind", kind);
   if (qs) dq = dq.or(`customer.ilike.%${qs}%,owner_name.ilike.%${qs}%,lead_id.ilike.%${qs}%`);
   const { data, error, count } = await dq.order(status === "shadow" ? "created_at" : "decided_at", { ascending: false }).range((page - 1) * size, page * size - 1);
+  if (error && (error as any).code === "PGRST103") return { success: true, page, size, total: (await admin.from("lara_drafts").select("id", { count: "exact", head: true }).eq("status", status)).count || 0, rows: [] };   // a page past the end
   if (error) throw new HttpError(500, "Could not read the drafts");
   return { success: true, page, size, total: count || 0, rows: data || [] };
 });
@@ -637,7 +638,8 @@ route("GET", "/lara/log", async ({ c, query }) => {
   let lq: any = admin.from("lara_log").select("id,at,kind,actor,text", { count: "exact" });
   if (kind) lq = lq.eq("kind", kind);
   if (qs) lq = lq.ilike("text", `%${qs}%`);
-  const { data, count } = await lq.order("at", { ascending: false }).range((page - 1) * size, page * size - 1);
+  const { data, count, error } = await lq.order("at", { ascending: false }).range((page - 1) * size, page * size - 1);
+  if (error) return { success: true, page, size, total: 0, rows: [] };
   return { success: true, page, size, total: count || 0, rows: data || [] };
 });
 

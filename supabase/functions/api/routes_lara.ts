@@ -402,7 +402,7 @@ route("GET", "/lara/overview", async ({ c }) => {
   const labels: Record<string, string> = { ...RULE_LABEL, customer_reply: "Customer replied", test: "Test" };
   for (const w of wfl) labels[`wf:${w.id}`] = w.name;
   const testLock = (await getConfig<any>("lara_test_lock", true)) !== false;
-  return { success: true, testLock, ruleLabels: labels, workflows: wfl.map((w) => ({ id: w.id, name: w.name, enabled: w.enabled })), mailbox: { address: mb.address, user: mb.user, host: mb.host, shared: !!mb.shared, status: mb.status || null }, threads, unmatched: um.count || 0, send, config: cfg, drafts30: t, openBySituation: bySituation, openByRule: byRule, kbActive: kb.count || 0, missedOpen: missed.count || 0, lastRun: lastRun.data || null, channels: { email: !!mb.status?.ok, whatsapp: false }, ai: false };
+  return { success: true, testLock, ruleLabels: labels, workflows: wfl.map((w) => ({ id: w.id, name: w.name, enabled: w.enabled })), mailbox: { address: mb.address, user: mb.user, host: mb.host, shared: !!mb.shared, status: mb.status || null }, threads, unmatched: um.count || 0, send, config: cfg, drafts30: t, openBySituation: bySituation, openByRule: byRule, kbActive: kb.count || 0, missedOpen: missed.count || 0, lastRun: lastRun.data || null, channels: { email: !!mb.status?.ok, whatsapp: await waReady() }, ai: false };
 });
 
 route("PUT", "/lara/config", async ({ req, c }) => {

@@ -9,6 +9,7 @@ import {
 import type { Lead } from '../crm/types';
 import { crmNav } from '../crm/crmNav';
 import { SITUATION_LABEL } from '../crm/smartWriter';
+import { LaraWorkflows } from './LaraWorkflows';
 
 const api = async (path: string, init?: RequestInit) => {
   const r = await fetch(`/api${path}`, init ? { ...init, headers: { 'Content-Type': 'application/json', ...(init.headers || {}) } } : undefined);
@@ -74,6 +75,7 @@ export const LaraModule: React.FC<Props> = ({ sub, leads, setActiveSubTab }) => 
       {sub === 'lara' && <Control ov={ov} reload={load} go={setActiveSubTab} />}
       {sub === 'lara-inbox' && <DraftInbox leadName={leadName} reload={load} ov={ov} />}
       {sub === 'lara-convos' && <Conversations reload={load} />}
+      {sub === 'lara-flows' && <LaraWorkflows reload={load} />}
       {sub === 'lara-kb' && <Knowledge reload={load} />}
       {sub === 'lara-missed' && <Missed reload={load} />}
       {sub === 'lara-settings' && <SettingsTab ov={ov} reload={load} />}
@@ -120,7 +122,7 @@ const Control: React.FC<{ ov: any; reload: () => void; go: (t: string) => void }
       </Card>
       <Card title={<><Sparkles size={16} className="text-brand-red" />How Lara works (no AI)</>} className="lg:col-span-2">
         <ol className="text-xs text-brand-black space-y-1.5 list-decimal pl-4">
-          <li><b>Finds</b> open leads the team did not follow up: no first contact after the limit, overdue follow-up, offer without follow-up, "no answer" with no new try. Old imported leads, closed leads and leads with a planned meeting are left alone.</li>
+          <li><b>Follows your Workflows</b>: each one says when she starts on a lead (no first contact, overdue follow-up, offer without follow-up, no answer, stuck status, old lead), which leads, the steps and when she stops. Closed leads and leads with a planned meeting are left alone.</li>
           <li><b>Writes</b> the message with the team's smart writer: the customer's situation, name, park, size and real available Land Bank plots, in Arabic or English. No prices, no invented claims.</li>
           <li><b>Answers</b> customer questions only from the approved Q&A and the Land Bank list. A question she cannot answer goes to <b>Missed questions</b> for you.</li>
           <li><b>Learns from you</b>: every approval, edit and rejection is counted, so you see her quality before she gets a channel (phase 3).</li>
@@ -391,10 +393,7 @@ const SettingsTab: React.FC<{ ov: any; reload: () => void }> = ({ ov, reload }) 
             ))}
           </div>
         </label>
-        {n('firstContactHours', 'No first contact after', 'A new lead with an owner and no first contact', 'hours')}
-        {n('overdueDays', 'Follow-up overdue by', 'The follow-up date passed by at least', 'days')}
-        {n('offerSilentDays', 'Offer without follow-up for', 'An offer was sent and nothing was logged since', 'days')}
-        {n('noAnswerDays', '"No answer" without a new try for', 'Status is "No answer / Sent WhatsApp" and the last try is older than', 'days')}
+        <p className="text-xs bg-sky-50 text-sky-900 rounded-xl px-3 py-2">When Lara starts on a lead (hours, days, statuses) is now set in each <b>Workflow</b>.</p>
         {n('maxPerRun', 'Drafts per run, at most', 'Keeps the list reviewable', 'drafts')}
         <div className="grid sm:grid-cols-2 gap-2">
           <label className="text-xs block"><span className="font-bold">Name in English messages</span><input value={c.nameEn} onChange={(e) => setC({ ...c, nameEn: e.target.value })} className="input-field w-full text-sm mt-0.5" /></label>

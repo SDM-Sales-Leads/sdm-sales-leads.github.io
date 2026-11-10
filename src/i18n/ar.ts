@@ -68,7 +68,7 @@ export const AR: Record<string, string> = {
   // placeholders / tooltips
   'Search by name, phone, email…': 'ابحث بالاسم أو الهاتف أو البريد…', 'View Lead Details': 'عرض تفاصيل العميل', 'Route to Salesperson': 'توزيع على مندوب', 'Notifications unread': 'إشعارات غير مقروءة',
   // Lara
-  'Lara Sales AI': 'لارا للمبيعات', 'Control room': 'غرفة التحكم', 'Drafts': 'المسودات', 'Conversations': 'المحادثات', 'Knowledge': 'المعرفة', 'Missed questions': 'أسئلة بلا إجابة', 'Settings & channels': 'الإعدادات والقنوات',
+  'Lara Sales AI': 'لارا للمبيعات', 'Control room': 'غرفة التحكم', 'Drafts': 'المسودات', 'Conversations': 'المحادثات', 'Workflows': 'سير العمل', 'Knowledge': 'المعرفة', 'Missed questions': 'أسئلة بلا إجابة', 'Settings & channels': 'الإعدادات والقنوات',
   // Smart Assistant
   'Smart Assistant': 'المساعد الذكي', 'Do these next': 'ابدأ بهذه', 'What changed and needs you': 'ما الذي تغيّر ويحتاجك', 'Tips for you': 'نصائح لك',
   'Fix my data': 'أكمل بياناتي', 'Team: load and risk': 'الفريق: الحمل والمخاطر', 'Write it for me': 'اكتبها لي', 'Brief me': 'ملخص قبل المكالمة', 'Improve with AI': 'حسّنها بالذكاء الاصطناعي',

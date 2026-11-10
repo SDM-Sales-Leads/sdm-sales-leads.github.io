@@ -5,7 +5,7 @@
 //   Nothing is sent and no lead is changed.
 // - Q&A: approved answers, matched by words and concepts (lara_match.ts). Unmatched questions go to "Missed questions".
 // - Availability questions ("is there land in October around 3,000 m?") are answered from the Land Bank plot list.
-import { admin, bad, body, Caller, getConfig, HttpError, needAdmin, nowIso, setConfig, str, tryLock, unlock } from "./lib.ts";
+import { admin, bad, body, Caller, getConfig, HttpError, needAdmin, nowIso, rateLimit, setConfig, str, tryLock, unlock } from "./lib.ts";
 import { route } from "./router.ts";
 import { pg } from "./db.ts";
 import { analyse, isArabic, KbEntry, matchQuestion, normText, THRESHOLD } from "./lara_match.ts";
@@ -13,6 +13,8 @@ import { canonicalParks } from "../../../src/lib/parkAliases.ts";
 import { PARK_AR, plotsAr, preferredLang, situationOf, writeFor } from "../../../src/components/crm/smartWriter.ts";
 import { availableByPark, plotFit } from "../../../src/components/crm/smartEngine.ts";
 import { firstNameOf } from "../../../src/lib/personName.ts";
+import { triggerHit, condsOk, stopReason, validateWorkflow, hasEmail, hasPhone, TRIGGERS, Workflow, Step } from "./lara_flow.ts";
+import { addNotifications } from "./notify.ts";
 import { handleReply, laraMailCfg, pollLaraInbox, saveMailbox, sendDraft, sendQueued, SendRules } from "./lara_mail.ts";
 
 export interface LaraConfig {
@@ -52,10 +54,8 @@ const RULE_LABEL: Record<string, string> = {
   no_first_contact: "No first contact", followup_overdue: "Follow-up overdue", offer_silent: "Offer without follow-up", no_answer: "No answer, no new try",
 };
 
-/** the open leads that may need Lara, with only the fields she uses (a few hundred bytes each, never the whole lead) */
-async function candidateLeads(cfg: LaraConfig): Promise<any[]> {
-  const today = cairoDay();
-  const cut = new Date(Date.parse(today) - cfg.overdueDays * 864e5).toISOString().slice(0, 10);
+/** the open leads Lara may act on, with only the fields she uses (a few hundred bytes each, never the whole lead) */
+async function candidateLeads(includeOld: boolean): Promise<any[]> {
   const rows: any[] = await pg(async (q) => await q`
     select id, assigned_to,
       data->>'status' as status, data->>'customerName' as "customerName", data->>'companyName' as "companyName", data->>'project' as project,
@@ -64,104 +64,209 @@ async function candidateLeads(cfg: LaraConfig): Promise<any[]> {
       data->>'nextFollowUpDate' as "nextFollowUpDate", data->>'lastContactDate' as "lastContactDate", data->>'firstContactAt' as "firstContactAt",
       data->>'offerSent' as "offerSent", data->>'offerDate' as "offerDate", data->>'meetingDate' as "meetingDate", data->>'meetingTime' as "meetingTime",
       data->>'date' as date, data->>'assignedDate' as "assignedDate", data->>'priority' as priority, data->>'channel' as channel, data->>'source' as source,
-      data->>'dealValue' as "dealValue", data->>'nationality' as nationality, data->'assignedPlots' as "assignedPlots",
+      data->>'dealValue' as "dealValue", data->>'nationality' as nationality, data->>'oldLead' as "oldLead", data->'assignedPlots' as "assignedPlots",
       (select coalesce(jsonb_agg(x.e order by x.i), '[]'::jsonb) from (
-         select jsonb_build_object('type', e->>'type', 'title', left(e->>'title', 80), 'description', left(e->>'description', 120), 'timestamp', e->>'timestamp') as e, i
+         select jsonb_build_object('type', e->>'type', 'user', e->>'user', 'title', left(e->>'title', 80), 'description', left(e->>'description', 120), 'timestamp', e->>'timestamp') as e, i
          from jsonb_array_elements(case when jsonb_typeof(data->'timeline') = 'array' then data->'timeline' else '[]'::jsonb end) with ordinality t(e, i)
          order by i desc limit 8) x) as timeline
     from crm_leads
     where deleted_at is null and status <> all(${CLOSED})
-      and coalesce(data->>'oldLead', '') <> 'true' and coalesce(data->>'mergedInto', '') = ''
-      and assigned_to is not null
-      and ( (data->>'nextFollowUpDate') between '2000-01-01' and ${cut}
-         or coalesce(data->>'firstContactAt', '') = ''
-         or data->>'offerSent' = 'true'
-         or status = any(${NO_ANS}) )
-    limit 8000`,
+      and coalesce(data->>'mergedInto', '') = '' and assigned_to is not null
+      and (${includeOld} or coalesce(data->>'oldLead', '') <> 'true')
+    limit 12000`,
     async () => { throw new HttpError(503, "The database link is busy, try again in a minute."); });
   return rows.map((r) => ({ ...r, offerSent: r.offerSent === "true", timeline: Array.isArray(r.timeline) ? r.timeline : [], assignedPlots: Array.isArray(r.assignedPlots) ? r.assignedPlots : [] }));
 }
 
-function pickRule(l: any, cfg: LaraConfig, today: string, now: number): { rule: string; why: string; rank: number } | null {
-  const meet = d10(l.meetingDate);
-  if (meet && meet >= today) return null;                                     // a meeting is planned: the owner is on it
-  if (!l.phoneNumber && !l.email) return null;                                // no way to reach the customer
-  const last = d10(l.lastContactDate) || d10(l.firstContactAt);
-  const gap = last ? dayDiff(last, today) : null;
-  const vip = l.priority === "VIP" ? 300 : 0;
-  const cc = l.channel === "Call Center" ? 200 : 0;
-  const value = Math.min(100, (Number(l.dealValue) || 0) / 1e6);
-  if ((l.status === "New" || l.status === "Assigned") && !l.firstContactAt) {
-    const start = Math.max(Date.parse(l.assignedDate || "") || 0, Date.parse(l.date || "") || 0);
-    const h = start ? (now - start) / 36e5 : 0;
-    if (h >= cfg.firstContactHours) return { rule: "no_first_contact", why: `New lead, no first contact for ${Math.floor(h)} h (limit ${cfg.firstContactHours} h)`, rank: 500 + vip + cc + value + Math.min(h, 240) / 4 };
-    return null;
-  }
-  if (l.offerSent && gap != null && gap >= cfg.offerSilentDays) return { rule: "offer_silent", why: `Offer sent, nothing logged for ${gap} days`, rank: 700 + vip + value + gap };
-  if (NO_ANS.includes(l.status) && (gap == null || gap >= cfg.noAnswerDays)) return { rule: "no_answer", why: `"${l.status}"${gap != null ? `, last try ${gap} days ago` : ""}`, rank: 300 + vip + value + (gap || 0) };
-  const fu = d10(l.nextFollowUpDate);
-  if (fu && dayDiff(fu, today) >= cfg.overdueDays) { const n = dayDiff(fu, today); return { rule: "followup_overdue", why: `Follow-up was due ${fu} (${n} days ago)`, rank: 400 + vip + value + Math.min(n, 60) }; }
-  return null;
+async function loadWorkflows(onlyEnabled: boolean): Promise<Workflow[]> {
+  let q: any = admin.from("lara_workflows").select("*").eq("status", "active").order("priority").order("created_at");
+  if (onlyEnabled) q = q.eq("enabled", true);
+  const { data } = await q;
+  return (data || []) as Workflow[];
 }
 
+/** everything a run needs, read once */
+async function runContext(includeOld: boolean) {
+  const now = Date.now();
+  const [leads, openDrafts, rejected, snap, threads, optout] = await Promise.all([
+    candidateLeads(includeOld),
+    admin.from("lara_drafts").select("lead_id").eq("status", "shadow").eq("kind", "followup").limit(5000),
+    admin.from("lara_drafts").select("lead_id").eq("status", "rejected").eq("feedback", "Do not contact").gte("decided_at", new Date(now - 60 * 864e5).toISOString()).limit(5000),
+    admin.from("plots_snapshot").select("data").eq("id", 1).maybeSingle(),
+    admin.from("lara_threads").select("lead_id,status,unanswered,last_out_at,last_in_at").limit(20000),
+    admin.from("lara_optout").select("contact").limit(20000),
+  ]);
+  const plots = (Array.isArray(snap.data?.data) ? snap.data!.data : []).map((p: any) => ({ ...p, areaSqM: Number(p.areaSqm) || 0 }));
+  const blocked = new Set((optout.data || []).map((r: any) => String(r.contact).toLowerCase()));
+  const digits = (p: string) => String(p || "").replace(/\D/g, "");
+  return {
+    now, today: cairoDay(), leads, byId: new Map(leads.map((l) => [l.id, l])),
+    pending: new Set((openDrafts.data || []).map((r: any) => r.lead_id)),
+    dnc: new Set((rejected.data || []).map((r: any) => r.lead_id)),
+    threads: new Map<string, any>((threads.data || []).map((t: any) => [t.lead_id, t])),
+    optedOut: (l: any) => (l.email && blocked.has(String(l.email).toLowerCase())) || (l.phoneNumber && blocked.has(digits(l.phoneNumber))),
+    byPark: availableByPark(plots as any), byKey: new Map(plots.map((p: any) => [p.key, p])),
+  };
+}
+type Ctx = Awaited<ReturnType<typeof runContext>>;
+
+/** the message draft for one step (null when the lead cannot get one now) */
+function draftFor(cfg: LaraConfig, x: Ctx, wf: Workflow, step: Step, i: number, l: any, why: string, runId: string) {
+  const ctx = { rep: cfg.nameEn, repAr: cfg.nameAr, fit: plotFit(l, x.byPark as any), byKey: x.byKey as any, owner: str(l.assignedSalespersonName, 60) };
+  const sit = step.situation && step.situation !== "auto" ? step.situation : situationOf(l, ctx);
+  const d = writeFor(l, ctx, sit as any)[0];
+  const lang = preferredLang(l);
+  const mail = hasEmail(l) ? String(l.email).trim().toLowerCase() : "";
+  let channel: "email" | "whatsapp";
+  if (step.channel === "email") { if (!mail) return null; channel = "email"; }
+  else if (step.channel === "whatsapp") { if (!hasPhone(l)) return null; channel = "whatsapp"; }
+  else channel = (cfg.mode === "approve" && mail) || !hasPhone(l) ? "email" : "whatsapp";   // e-mail is live from phase 3; WhatsApp is sent by hand until phase 6
+  if (channel === "email" && !mail) return null;
+  return {
+    lead_id: l.id, run_id: runId, rule: `wf:${wf.id}`, situation: sit, channel, lang,
+    subject: lang === "ar" ? d.subjectAr : d.subjectEn, body: lang === "ar" ? d.ar : d.en,
+    reason: `${wf.name} · step ${i + 1} of ${wf.steps.length}: ${why}`,
+    customer: str(l.customerName || l.companyName || l.id, 120), owner_id: l.assigned_to, owner_name: str(l.assignedSalespersonName, 80),
+    kind: "followup", to_addr: mail || null,
+  };
+}
+
+async function directors(): Promise<string[]> {
+  const { data } = await admin.from("app_users").select("id").in("role", ["Sales Director"]).neq("active", false).limit(20);
+  return (data || []).map((r: any) => r.id);
+}
+
+/** run one step; returns what happened ('' = skipped, try again next run) */
+async function doStep(cfg: LaraConfig, x: Ctx, wf: Workflow, i: number, l: any, why: string, runId: string, budget: { left: number }): Promise<string> {
+  const step = wf.steps[i];
+  if (step.action === "message") {
+    if (x.pending.has(l.id)) return "";                                           // a draft for this lead is still waiting
+    if (budget.left <= 0) return "";
+    const t = x.threads.get(l.id);
+    if (t && t.last_out_at && x.now - Date.parse(t.last_out_at) < cfg.minDaysBetween * 864e5) return "";
+    const row = draftFor(cfg, x, wf, step, i, l, why, runId);
+    if (!row) return "skipped (no e-mail / phone for this channel)";
+    const ins = await admin.from("lara_drafts").insert(row);
+    if (ins.error) return "";
+    x.pending.add(l.id); budget.left--;
+    return "draft";
+  }
+  const title = step.action === "handover" ? `Lara hands ${l.customerName || l.id} back to you` : `Lara: ${l.customerName || l.id} needs you`;
+  const body = `${wf.name} — ${why}`;
+  if (step.action === "notify_director") {
+    const ids = await directors();
+    if (ids.length) await addNotifications(ids.map((userId) => ({ userId, type: "escalation", leadId: l.id, title: `Sales Director: ${l.customerName || l.id} (${l.assignedSalespersonName || "no owner"})`, body })));
+    return "notified director";
+  }
+  if (l.assigned_to) await addNotifications([{ userId: l.assigned_to, type: step.action === "handover" ? "escalation" : "reminder", leadId: l.id, title, body }]);
+  if (step.action === "handover") {
+    const t = x.threads.get(l.id);
+    if (t) await admin.from("lara_threads").update({ status: "handover", note: `${wf.name}: handed back`, updated_at: nowIso() }).eq("lead_id", l.id);
+    return "handed over";
+  }
+  return "notified owner";
+}
+
+/** the daily run: move due enrollments one step (or stop them), then enroll new leads by workflow priority */
 export async function runShadow(by: string): Promise<any> {
   const cfg = await laraConfig();
   if (cfg.mode === "off") return { skipped: true, reason: "Lara is off" };
   if (!(await tryLock("lara-run", 300))) return { skipped: true, reason: "another run is busy" };
   const runId = `R${Date.now().toString(36)}`;
   try {
-    const now = Date.now(); const today = cairoDay();
-    // drafts nobody looked at for 7 days are stale: expire them (kept, never deleted)
+    const wfs = await loadWorkflows(true);
+    if (!wfs.length) return { skipped: true, reason: "no workflow is switched on" };
+    const now = Date.now();
     await admin.from("lara_drafts").update({ status: "expired", updated_at: nowIso() }).eq("status", "shadow").lt("created_at", new Date(now - 7 * 864e5).toISOString());
-    const skip = new Set<string>();
-    const [leads, open, recent, snap, threads, optout] = await Promise.all([
-      candidateLeads(cfg),
-      admin.from("lara_drafts").select("lead_id").eq("status", "shadow").limit(5000),
-      admin.from("lara_drafts").select("lead_id").eq("status", "rejected").eq("feedback", "Do not contact").gte("decided_at", new Date(now - 30 * 864e5).toISOString()).limit(5000),
-      admin.from("plots_snapshot").select("data").eq("id", 1).maybeSingle(),
-      admin.from("lara_threads").select("lead_id,status,unanswered,last_out_at").limit(20000),
-      admin.from("lara_optout").select("contact").limit(20000),
-    ]);
-    // conversations that must not get a new follow-up: handed over / stopped / closed, too many unanswered, written to recently
-    for (const t of threads.data || []) {
-      if (t.status !== "open" || t.unanswered >= cfg.maxUnanswered || (t.last_out_at && now - Date.parse(t.last_out_at) < cfg.minDaysBetween * 864e5)) skip.add(t.lead_id);
+    const x = await runContext(wfs.some((w) => w.trigger.type === "old_lead"));
+    const budget = { left: Math.max(1, Math.min(200, cfg.maxPerRun)) };
+    const wfById = new Map(wfs.map((w) => [w.id, w]));
+    const res = { runId, scanned: x.leads.length, moved: 0, stopped: 0, finished: 0, enrolled: 0, drafted: 0, notified: 0, byWorkflow: {} as Record<string, number> };
+    const count = (wf: Workflow) => { res.byWorkflow[wf.name] = (res.byWorkflow[wf.name] || 0) + 1; };
+
+    // 1. running enrollments
+    const { data: active } = await admin.from("lara_enrollments").select("*").eq("status", "active").limit(20000);
+    const enrolled = new Set<string>();
+    for (const e of active || []) {
+      enrolled.add(e.lead_id);
+      const wf = wfById.get(e.workflow_id);
+      const l = x.byId.get(e.lead_id);
+      const t = x.threads.get(e.lead_id);
+      const stop = !wf ? "Workflow switched off" : x.dnc.has(e.lead_id) ? "Rejected: do not contact" : stopReason(wf, l, Date.parse(e.started_at), x.today, Date.parse(t?.last_in_at || "") || 0, t?.status || "", !!(l && x.optedOut(l)));
+      if (stop) { await admin.from("lara_enrollments").update({ status: "stopped", stop_reason: stop, updated_at: nowIso() }).eq("id", e.id); res.stopped++; continue; }
+      if (Date.parse(e.next_at) > now || !wf) continue;
+      if (e.step >= wf.steps.length) { await admin.from("lara_enrollments").update({ status: "done", updated_at: nowIso() }).eq("id", e.id); res.finished++; continue; }
+      const did = await doStep(cfg, x, wf, e.step, l, e.why, runId, budget);
+      if (!did) continue;
+      if (did === "draft") res.drafted++; else if (did.startsWith("notified") || did === "handed over") res.notified++;
+      const next = e.step + 1;
+      const done = next >= wf.steps.length;
+      await admin.from("lara_enrollments").update({ step: next, status: done ? "done" : "active", next_at: new Date(now + (done ? 0 : Number(wf.steps[next].waitDays) || 0) * 864e5).toISOString(), updated_at: nowIso() }).eq("id", e.id);
+      res.moved++; if (done) res.finished++; count(wf);
     }
-    const blocked = new Set((optout.data || []).map((r: any) => String(r.contact).toLowerCase()));
-    const digits = (p: string) => String(p || "").replace(/\D/g, "");
-    const plots = (Array.isArray(snap.data?.data) ? snap.data!.data : []).map((p: any) => ({ ...p, areaSqM: Number(p.areaSqm) || 0 }));
-    const byPark = availableByPark(plots as any); const byKey = new Map(plots.map((p: any) => [p.key, p]));
-    const picked: { l: any; r: { rule: string; why: string; rank: number } }[] = [];
-    const counts: Record<string, number> = {};
-    for (const r0 of [...(open.data || []), ...(recent.data || [])]) skip.add((r0 as any).lead_id);
-    for (const l of leads) {
-      if (skip.has(l.id)) continue;
-      if ((l.email && blocked.has(String(l.email).toLowerCase())) || (l.phoneNumber && blocked.has(digits(l.phoneNumber)))) continue;
-      const r = pickRule(l, cfg, today, now);
-      if (!r) continue;
-      counts[r.rule] = (counts[r.rule] || 0) + 1;
-      picked.push({ l, r });
+
+    // 2. new enrollments (not again into the same workflow within 30 days)
+    const { data: recentDone } = await admin.from("lara_enrollments").select("workflow_id,lead_id").neq("status", "active").gte("started_at", new Date(now - 30 * 864e5).toISOString()).limit(20000);
+    const recently = new Set((recentDone || []).map((r: any) => `${r.workflow_id}|${r.lead_id}`));
+    const cands: { wf: Workflow; l: any; why: string; rank: number }[] = [];
+    for (const l of x.leads) {
+      if (enrolled.has(l.id) || x.dnc.has(l.id) || x.optedOut(l)) continue;
+      if (!hasEmail(l) && !hasPhone(l)) continue;
+      const t = x.threads.get(l.id);
+      if (t && (t.status !== "open" || t.unanswered >= cfg.maxUnanswered)) continue;
+      if (d10(l.meetingDate) && d10(l.meetingDate) >= x.today) continue;
+      for (const wf of wfs) {
+        if (recently.has(`${wf.id}|${l.id}`)) continue;
+        const hit = triggerHit(wf, l, x.today, now);
+        if (!hit || !condsOk(wf, l, now)) continue;
+        cands.push({ wf, l, why: hit.why, rank: hit.rank - wf.priority });
+        break;                                                                     // the first matching workflow by priority
+      }
     }
-    picked.sort((a, b) => b.r.rank - a.r.rank);
-    const take = picked.slice(0, Math.max(1, Math.min(200, cfg.maxPerRun)));
-    const rows = take.map(({ l, r }) => {
-      const ctx = { rep: cfg.nameEn, repAr: cfg.nameAr, fit: plotFit(l, byPark as any), byKey: byKey as any, owner: str(l.assignedSalespersonName, 60) };
-      const d = writeFor(l, ctx)[0];
-      const lang = preferredLang(l);
-      const mail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(l.email || "").trim()) ? String(l.email).trim().toLowerCase() : "";
-      // e-mail is Lara's live channel from phase 3; WhatsApp drafts are for the salesperson to send by hand until phase 6
-      const channel = (cfg.mode === "approve" && mail) || !l.phoneNumber ? "email" : "whatsapp";
-      return {
-        lead_id: l.id, run_id: runId, rule: r.rule, situation: situationOf(l, ctx), channel, lang,
-        subject: lang === "ar" ? d.subjectAr : d.subjectEn, body: lang === "ar" ? d.ar : d.en, reason: r.why,
-        customer: str(l.customerName || l.companyName || l.id, 120), owner_id: l.assigned_to, owner_name: str(l.assignedSalespersonName, 80),
-        kind: "followup", to_addr: mail || null,
-      };
-    });
-    if (rows.length) { const ins = await admin.from("lara_drafts").insert(rows); if (ins.error) throw new HttpError(500, "Could not save the drafts"); }
-    const res = { runId, scanned: leads.length, eligible: picked.length, drafted: rows.length, byRule: counts, alreadyOpen: open.data?.length || 0 };
-    await log("run", by, `Shadow run: ${rows.length} drafts written (${picked.length} leads needed a follow-up, ${leads.length} checked). Nothing sent.`, res);
+    cands.sort((a, b) => b.rank - a.rank);
+    for (const c of cands) {
+      const first = c.wf.steps[0];
+      const needsBudget = first.action === "message" && Number(first.waitDays) === 0;
+      if (needsBudget && budget.left <= 0) break;
+      const ins = await admin.from("lara_enrollments").insert({ workflow_id: c.wf.id, lead_id: c.l.id, why: c.why, next_at: new Date(now + (Number(first.waitDays) || 0) * 864e5).toISOString() }).select("*").single();
+      if (ins.error || !ins.data) continue;
+      res.enrolled++; count(c.wf);
+      if (Number(first.waitDays) > 0) continue;
+      const did = await doStep(cfg, x, c.wf, 0, c.l, c.why, runId, budget);
+      if (!did) continue;
+      if (did === "draft") res.drafted++; else res.notified++;
+      const done = c.wf.steps.length <= 1;
+      await admin.from("lara_enrollments").update({ step: 1, status: done ? "done" : "active", next_at: new Date(now + (done ? 0 : Number(c.wf.steps[1].waitDays) || 0) * 864e5).toISOString(), updated_at: nowIso() }).eq("id", ins.data.id);
+    }
+    await log("run", by, `Run: ${res.enrolled} leads started a workflow, ${res.moved} moved a step, ${res.stopped} stopped; ${res.drafted} drafts, ${res.notified} notifications. Only approved e-mails are sent.`, res);
     return res;
   } finally { await unlock("lara-run"); }
+}
+
+/** test run: who a workflow would act on right now, with sample messages. Nothing is written. */
+export async function testWorkflow(w: Workflow) {
+  const cfg = await laraConfig();
+  const x = await runContext(w.trigger.type === "old_lead");
+  const { data: active } = await admin.from("lara_enrollments").select("lead_id").eq("status", "active").limit(20000);
+  const busy = new Set((active || []).map((r: any) => r.lead_id));
+  const hits: { l: any; why: string; rank: number; busy: boolean }[] = [];
+  for (const l of x.leads) {
+    if (x.dnc.has(l.id) || x.optedOut(l) || (!hasEmail(l) && !hasPhone(l))) continue;
+    if (d10(l.meetingDate) && d10(l.meetingDate) >= x.today) continue;
+    const hit = triggerHit(w, l, x.today, x.now);
+    if (hit && condsOk(w, l, x.now)) hits.push({ l, why: hit.why, rank: hit.rank, busy: busy.has(l.id) });
+  }
+  hits.sort((a, b) => b.rank - a.rank);
+  const firstMsg = w.steps.findIndex((s) => s.action === "message");
+  const samples = firstMsg < 0 ? [] : hits.filter((h) => !h.busy).slice(0, 3).map((h) => { const d = draftFor(cfg, x, w, w.steps[firstMsg], firstMsg, h.l, h.why, "TEST"); return d ? { customer: d.customer, channel: d.channel, subject: d.subject, body: d.body } : null; }).filter(Boolean);
+  const owners: Record<string, number> = {};
+  for (const h of hits) owners[h.l.assignedSalespersonName || "—"] = (owners[h.l.assignedSalespersonName || "—"] || 0) + 1;
+  return {
+    matched: hits.length, alreadyInAWorkflow: hits.filter((h) => h.busy).length, perRunLimit: cfg.maxPerRun,
+    leads: hits.slice(0, 40).map((h) => ({ id: h.l.id, customer: h.l.customerName || h.l.companyName || h.l.id, owner: h.l.assignedSalespersonName || "—", status: h.l.status, why: h.why, busy: h.busy, email: hasEmail(h.l), phone: hasPhone(h.l) })),
+    byOwner: Object.entries(owners).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([name, n]) => ({ name, n })),
+    samples,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -244,7 +349,10 @@ route("GET", "/lara/overview", async ({ c }) => {
   const threads: Record<string, number> = {}; for (const r of th.data || []) threads[r.status] = (threads[r.status] || 0) + 1;
   const send = { queued: 0, failed: 0, sent: 0, sentToday: 0 };
   for (const r of q.data || []) { (send as any)[r.send_status]++; if (r.send_status === "sent" && r.sent_at && Date.now() - Date.parse(r.sent_at) < 864e5) send.sentToday++; }
-  return { success: true, mailbox: { address: mb.address, user: mb.user, host: mb.host, shared: !!mb.shared, status: mb.status || null }, threads, unmatched: um.count || 0, send, config: cfg, drafts30: t, openBySituation: bySituation, openByRule: byRule, ruleLabels: RULE_LABEL, kbActive: kb.count || 0, missedOpen: missed.count || 0, lastRun: lastRun.data || null, channels: { email: !!mb.status?.ok, whatsapp: false }, ai: false };
+  const wfl = await loadWorkflows(false);
+  const labels: Record<string, string> = { ...RULE_LABEL, customer_reply: "Customer replied", test: "Test" };
+  for (const w of wfl) labels[`wf:${w.id}`] = w.name;
+  return { success: true, ruleLabels: labels, workflows: wfl.map((w) => ({ id: w.id, name: w.name, enabled: w.enabled })), mailbox: { address: mb.address, user: mb.user, host: mb.host, shared: !!mb.shared, status: mb.status || null }, threads, unmatched: um.count || 0, send, config: cfg, drafts30: t, openBySituation: bySituation, openByRule: byRule, kbActive: kb.count || 0, missedOpen: missed.count || 0, lastRun: lastRun.data || null, channels: { email: !!mb.status?.ok, whatsapp: false }, ai: false };
 });
 
 route("PUT", "/lara/config", async ({ req, c }) => {
@@ -484,4 +592,71 @@ route("GET", "/lara/optout", async ({ c }) => {
   needAdmin(c);
   const { data } = await admin.from("lara_optout").select("*").order("at", { ascending: false }).limit(500);
   return { success: true, rows: data || [] };
+});
+
+// ---------------------------------------------------------------------------------------------
+// phase 4: workflows
+// ---------------------------------------------------------------------------------------------
+const cleanWf = (b: any) => ({
+  name: str(b.name, 80), description: str(b.description, 400), enabled: b.enabled === true, priority: Math.max(1, Math.min(999, Math.round(Number(b.priority) || 100))),
+  trigger: { type: String(b.trigger?.type || ""), value: Math.max(0, Math.min(3650, Number(b.trigger?.value) || 0)), statuses: Array.isArray(b.trigger?.statuses) ? b.trigger.statuses.map((x: any) => str(x, 60)).slice(0, 20) : undefined },
+  conditions: (Array.isArray(b.conditions) ? b.conditions : []).slice(0, 10).map((c: any) => ({ field: str(c.field, 30), op: str(c.op, 10) || "in", value: typeof c.value === "boolean" ? c.value : Array.isArray(c.value) ? c.value.map((v: any) => str(v, 80)).slice(0, 30) : str(c.value, 400) })),
+  steps: (Array.isArray(b.steps) ? b.steps : []).slice(0, 8).map((s: any) => ({ waitDays: Math.max(0, Math.min(60, Math.round(Number(s.waitDays) || 0))), action: str(s.action, 20), channel: ["auto", "email", "whatsapp"].includes(s.channel) ? s.channel : "auto", situation: str(s.situation, 30) || "auto" })),
+  stop: { onActivity: b.stop?.onActivity !== false, onReply: b.stop?.onReply !== false, onMeeting: b.stop?.onMeeting !== false },
+});
+
+route("GET", "/lara/workflows", async ({ c }) => {
+  needAdmin(c);
+  const [wfs, en] = await Promise.all([
+    admin.from("lara_workflows").select("*").eq("status", "active").order("priority").order("created_at"),
+    admin.from("lara_enrollments").select("workflow_id,status,stop_reason").gte("started_at", new Date(Date.now() - 30 * 864e5).toISOString()).limit(50000),
+  ]);
+  const stats: Record<string, any> = {};
+  for (const e of en.data || []) {
+    const s = stats[e.workflow_id] ||= { active: 0, done: 0, stopped: 0, reasons: {} as Record<string, number> };
+    s[e.status]++;
+    if (e.status === "stopped" && e.stop_reason) s.reasons[e.stop_reason] = (s.reasons[e.stop_reason] || 0) + 1;
+  }
+  return { success: true, rows: wfs.data || [], stats, triggers: TRIGGERS };
+});
+route("POST", "/lara/workflows", async ({ req, c }) => {
+  needAdmin(c);
+  const b = await body(req, 30000);
+  const w = cleanWf(b);
+  const err = validateWorkflow(w);
+  if (err) throw bad(err);
+  if (b.id) {
+    const u = await admin.from("lara_workflows").update({ ...w, updated_by: who(c), updated_at: nowIso() }).eq("id", str(b.id, 40)).select("*").single();
+    if (u.error) throw new HttpError(500, "Could not save the workflow");
+    await log("workflow", who(c), `Workflow saved: ${w.name}${w.enabled ? " (on)" : " (off)"}`);
+    return { success: true, row: u.data };
+  }
+  const i = await admin.from("lara_workflows").insert({ ...w, created_by: who(c), updated_by: who(c) }).select("*").single();
+  if (i.error) throw new HttpError(500, "Could not save the workflow");
+  await log("workflow", who(c), `Workflow created: ${w.name}`);
+  return { success: true, row: i.data };
+});
+route("POST", "/lara/workflows/:id/toggle", async ({ req, c, params }) => {
+  needAdmin(c);
+  const b = await body(req, 500);
+  const { data } = await admin.from("lara_workflows").update({ enabled: b.enabled === true, updated_by: who(c), updated_at: nowIso() }).eq("id", params.id).select("name").single();
+  // switching a workflow off stops the leads running in it (the next run would stop them anyway)
+  if (b.enabled !== true) await admin.from("lara_enrollments").update({ status: "stopped", stop_reason: "Workflow switched off", updated_at: nowIso() }).eq("workflow_id", params.id).eq("status", "active");
+  await log("workflow", who(c), `Workflow ${b.enabled === true ? "switched on" : "switched off"}: ${data?.name || params.id}`);
+  return { success: true };
+});
+route("POST", "/lara/workflows/:id/archive", async ({ c, params }) => {
+  needAdmin(c);
+  await admin.from("lara_workflows").update({ status: "archived", enabled: false, updated_by: who(c), updated_at: nowIso() }).eq("id", params.id);
+  await admin.from("lara_enrollments").update({ status: "stopped", stop_reason: "Workflow archived", updated_at: nowIso() }).eq("workflow_id", params.id).eq("status", "active");
+  await log("workflow", who(c), "Workflow archived");
+  return { success: true };
+});
+route("POST", "/lara/workflows/test", async ({ req, c }) => {
+  needAdmin(c);
+  await rateLimit(`laratest:${c.id}`, 60, 6);
+  const w = cleanWf(await body(req, 30000));
+  const err = validateWorkflow({ ...w, name: w.name || "Test" });
+  if (err) throw bad(err);
+  return { success: true, ...(await testWorkflow({ ...w, id: "test", name: w.name || "Test" } as any)) };
 });

@@ -106,7 +106,27 @@ async function runContext(includeOld: boolean) {
     threads: new Map<string, any>((threads.data || []).map((t: any) => [t.lead_id, t])),
     optedOut: (l: any) => (l.email && blocked.has(String(l.email).toLowerCase())) || (l.phoneNumber && blocked.has(digits(l.phoneNumber))),
     byPark: availableByPark(plots as any), byKey: new Map(plots.map((p: any) => [p.key, p])),
+    notes: { owner: {} as Record<string, { handover: NoteItem[]; remind: NoteItem[] }>, director: [] as NoteItem[] },
   };
+}
+interface NoteItem { leadId: string; text: string; owner: string }
+
+/** one notification per salesperson (and one summary for the Sales Director) instead of one per lead */
+async function flushNotes(x: { notes: { owner: Record<string, { handover: NoteItem[]; remind: NoteItem[] }>; director: NoteItem[] } }) {
+  const list = (a: NoteItem[]) => a.slice(0, 15).map((i) => `• ${i.text}`).join("\n") + (a.length > 15 ? `\n… and ${a.length - 15} more (Leads page)` : "");
+  const rows: { userId: string; type: string; leadId?: string; title: string; body: string }[] = [];
+  for (const [userId, g] of Object.entries(x.notes.owner)) {
+    if (g.handover.length) rows.push({ userId, type: "escalation", leadId: g.handover.length === 1 ? g.handover[0].leadId : undefined, title: g.handover.length === 1 ? `Lara hands a lead back to you: ${g.handover[0].text.split(" — ")[0]}` : `Lara hands ${g.handover.length} leads back to you`, body: list(g.handover) });
+    if (g.remind.length) rows.push({ userId, type: "reminder", leadId: g.remind.length === 1 ? g.remind[0].leadId : undefined, title: g.remind.length === 1 ? `Lara: ${g.remind[0].text.split(" — ")[0]} needs you` : `Lara: ${g.remind.length} of your leads need you`, body: list(g.remind) });
+  }
+  if (x.notes.director.length) {
+    const ids = await directors();
+    const by: Record<string, number> = {}; for (const i of x.notes.director) by[i.owner] = (by[i.owner] || 0) + 1;
+    const head = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([o, n]) => `${o}: ${n}`).join(" · ");
+    for (const userId of ids) rows.push({ userId, type: "escalation", title: `Lara: ${x.notes.director.length} leads need the Sales Director`, body: `${head}\n${list(x.notes.director)}` });
+  }
+  if (rows.length) await addNotifications(rows).catch(() => {});
+  return rows.length;
 }
 type Ctx = Awaited<ReturnType<typeof runContext>>;
 
@@ -151,14 +171,10 @@ async function doStep(cfg: LaraConfig, x: Ctx, wf: Workflow, i: number, l: any, 
     x.pending.add(l.id); budget.left--;
     return "draft";
   }
-  const title = step.action === "handover" ? `Lara hands ${l.customerName || l.id} back to you` : `Lara: ${l.customerName || l.id} needs you`;
-  const body = `${wf.name} — ${why}`;
-  if (step.action === "notify_director") {
-    const ids = await directors();
-    if (ids.length) await addNotifications(ids.map((userId) => ({ userId, type: "escalation", leadId: l.id, title: `Sales Director: ${l.customerName || l.id} (${l.assignedSalespersonName || "no owner"})`, body })));
-    return "notified director";
-  }
-  if (l.assigned_to) await addNotifications([{ userId: l.assigned_to, type: step.action === "handover" ? "escalation" : "reminder", leadId: l.id, title, body }]);
+  // notifications are collected and sent GROUPED after the run (one per salesperson, one summary for the Sales Director)
+  const item = { leadId: l.id, text: `${l.customerName || l.id} — ${wf.name}: ${why}`, owner: l.assignedSalespersonName || "no owner" };
+  if (step.action === "notify_director") { x.notes.director.push(item); return "notified director"; }
+  if (l.assigned_to) { const k = l.assigned_to; (x.notes.owner[k] ||= { handover: [], remind: [] })[step.action === "handover" ? "handover" : "remind"].push(item); }
   if (step.action === "handover") {
     const t = x.threads.get(l.id);
     if (t) await admin.from("lara_threads").update({ status: "handover", note: `${wf.name}: handed back`, updated_at: nowIso() }).eq("lead_id", l.id);
@@ -227,7 +243,7 @@ export async function runShadow(by: string): Promise<any> {
     for (const c of cands) {
       const first = c.wf.steps[0];
       const needsBudget = first.action === "message" && Number(first.waitDays) === 0;
-      if (needsBudget && budget.left <= 0) break;
+      if (needsBudget && budget.left <= 0) continue;   // drafts for today are used up; notification-only workflows still start
       const ins = await admin.from("lara_enrollments").insert({ workflow_id: c.wf.id, lead_id: c.l.id, why: c.why, next_at: new Date(now + (Number(first.waitDays) || 0) * 864e5).toISOString() }).select("*").single();
       if (ins.error || !ins.data) continue;
       res.enrolled++; count(c.wf);
@@ -238,7 +254,8 @@ export async function runShadow(by: string): Promise<any> {
       const done = c.wf.steps.length <= 1;
       await admin.from("lara_enrollments").update({ step: 1, status: done ? "done" : "active", next_at: new Date(now + (done ? 0 : Number(c.wf.steps[1].waitDays) || 0) * 864e5).toISOString(), updated_at: nowIso() }).eq("id", ins.data.id);
     }
-    await log("run", by, `Run: ${res.enrolled} leads started a workflow, ${res.moved} moved a step, ${res.stopped} stopped; ${res.drafted} drafts, ${res.notified} notifications. Only approved e-mails are sent.`, res);
+    const sentNotes = await flushNotes(x);
+    await log("run", by, `Run: ${sentNotes} grouped notifications; ${res.enrolled} leads started a workflow, ${res.moved} moved a step, ${res.stopped} stopped; ${res.drafted} drafts, ${res.notified} notifications. Only approved e-mails are sent.`, res);
     return res;
   } finally { await unlock("lara-run"); }
 }

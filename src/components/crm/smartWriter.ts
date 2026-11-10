@@ -192,8 +192,8 @@ function build(s: Situation, x: Facts, rep: string, owner = ''): { ar: string; e
       ];
     }
     case 'cold': return [
-      { ar: A(join(`اتكلمنا قبل كده بخصوص ${needAr}، وحبيت أطمن على مشروع حضرتك.`, fitLineAr, 'لو الطلب لسه قائم أقدر أبعت لحضرتك المتاح حالياً.')),
-        en: E(join(`We spoke a while ago about ${needEn}, and I wanted to check how your project is going.`, fitLineEn, 'If it is still on your plans I can send you what is available now.')) },
+      { ar: A(join(`حضرتك تواصلت معانا قبل كده بخصوص ${needAr}، وحبيت أطمن على مشروع حضرتك.`, fitLineAr, 'لو الطلب لسه قائم أقدر أبعت لحضرتك المتاح حالياً.')),
+        en: E(join(`You contacted us a while ago about ${needEn}, and I wanted to check how your project is going.`, fitLineEn, 'If it is still on your plans I can send you what is available now.')) },
       { ar: A(join(fitLineAr || `عندي تفاصيل المتاح حالياً في ${x.parkAr}.`, 'أبعتلك التفاصيل؟')), en: E(join(fitLineEn || `I have the details of what is available now in ${x.parkEn}.`, 'Shall I send them?')) },
       { ar: A('مشروع حضرتك لسه قائم؟ أقدر أبعتلك المتاح حالياً.'), en: E('Is your project still on? I can send you what is available now.') },
     ];

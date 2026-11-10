@@ -33,7 +33,7 @@ export const AR: Record<string, string> = {
   'My leads': 'عملائي', 'My Active Leads': 'عملائي النشطون', 'My Tasks': 'مهامي', 'My week': 'أسبوعي', 'Open leads': 'العملاء المفتوحون', 'Open my leads': 'افتح عملائي', 'Unassigned Leads': 'عملاء غير معيّنين', 'No leads': 'لا يوجد عملاء', 'No leads here.': 'لا يوجد عملاء هنا.', 'No leads yet': 'لا يوجد عملاء بعد',
   'No matching leads in active database queue. Apply filters or register inbound leads.': 'لا يوجد عملاء مطابقون. غيّر التصفية أو سجّل عملاء جدداً.', 'Showing': 'عرض', 'Rows': 'الصفوف', 'Columns': 'الأعمدة', 'Display Columns': 'عرض الأعمدة', 'List View': 'عرض قائمة', 'Grid View': 'عرض شبكي', 'Kanban Board': 'لوحة كانبان', 'Calendar': 'التقويم',
   'All Statuses': 'كل الحالات', 'All statuses': 'كل الحالات', 'All Projects': 'كل المشاريع', 'All projects': 'كل المشاريع', 'All Priorities': 'كل الأولويات', 'All Lead Sources': 'كل المصادر', 'All sources': 'كل المصادر', 'All Agents': 'كل المندوبين', 'All salespeople': 'كل المندوبين', 'All channels': 'كل القنوات', 'All owners': 'كل المالكين', 'All companies': 'كل الشركات', 'All customers': 'كل العملاء',
-  'Overdue follow-ups': 'متابعات متأخرة', 'Follow-ups': 'المتابعات', 'Follow-up due': 'متابعة مستحقة', 'Due today': 'مستحق اليوم', 'Needs attention': 'يحتاج اهتماماً', 'Neglected': 'مهمل', 'Never contacted': 'لم يتم التواصل', 'Not yet contacted': 'لم يتم التواصل بعد', 'Assigned today': 'معيّن اليوم',
+  'Overdue follow-ups': 'متابعات متأخرة', 'Follow-ups': 'المتابعات', 'Follow-up due': 'متابعة مستحقة', 'Due today': 'مستحق اليوم', 'Needs attention': 'يحتاج اهتماماً', 'Neglected': 'مهمل', 'Not yet contacted': 'لم يتم التواصل بعد', 'Assigned today': 'معيّن اليوم',
   'Leaderboard': 'لوحة المتصدرين', 'Win rate': 'نسبة النجاح', 'Won': 'تم البيع', 'Lost': 'خسارة', 'Won deals': 'الصفقات الناجحة', 'Won customers': 'العملاء الناجحون', 'Open pipeline value': 'قيمة المسار المفتوح', 'Weighted value': 'القيمة المرجحة', 'Pipeline Volume': 'حجم المسار', 'Expected deals': 'الصفقات المتوقعة', 'Conv.': 'التحويل',
   'Recent Activity': 'النشاط الأخير', 'Real-time IT operations overview': 'نظرة عامة فورية على العمليات', 'Open Tickets': 'التذاكر المفتوحة', 'Resolved Today': 'تم حلها اليوم', 'Avg. Resolution': 'متوسط الحل', 'Tickets by Priority': 'التذاكر حسب الأولوية', 'Tickets by Category': 'التذاكر حسب الفئة', 'Critical': 'حرجة', 'High': 'عالية', 'Medium': 'متوسطة', 'Low': 'منخفضة',
   // reports & dashboard
@@ -67,5 +67,11 @@ export const AR: Record<string, string> = {
   'Offer Sent': 'تم إرسال العرض', 'An offer was sent': 'تم إرسال عرض', 'Offer Date': 'تاريخ العرض', 'Follow-up Time': 'وقت المتابعة', 'Next Follow-up Date': 'تاريخ المتابعة القادم', 'Phone 2': 'هاتف 2',
   // placeholders / tooltips
   'Search by name, phone, email…': 'ابحث بالاسم أو الهاتف أو البريد…', 'View Lead Details': 'عرض تفاصيل العميل', 'Route to Salesperson': 'توزيع على مندوب', 'Notifications unread': 'إشعارات غير مقروءة',
+  // Smart Assistant
+  'Smart Assistant': 'المساعد الذكي', 'Do these next': 'ابدأ بهذه', 'What changed and needs you': 'ما الذي تغيّر ويحتاجك', 'Tips for you': 'نصائح لك',
+  'Fix my data': 'أكمل بياناتي', 'Team: load and risk': 'الفريق: الحمل والمخاطر', 'Write it for me': 'اكتبها لي', 'Brief me': 'ملخص قبل المكالمة', 'Improve with AI': 'حسّنها بالذكاء الاصطناعي',
+  'Call now': 'اتصل الآن', 'Send WhatsApp': 'أرسل واتساب', 'Send e-mail': 'أرسل بريدًا', 'Confirm the appointment': 'أكّد الموعد', 'Follow up the offer': 'تابع العرض', 'All my tasks': 'كل مهامي',
+  'Show these leads': 'اعرض هؤلاء العملاء', 'Must do today': 'مطلوب اليوم', 'Never contacted': 'لم يتم التواصل', 'Actions this week': 'إجراءات هذا الأسبوع', 'First call (median)': 'أول مكالمة (الوسيط)',
+  'Open the lead': 'افتح العميل', 'Brief before the call': 'ملخص قبل المكالمة', 'Show the assistant of': 'اعرض مساعد',
   'Open the leads': 'افتح العملاء', 'Unique Mobile Key *': 'رقم الموبايل المميز *', 'Phone Call': 'مكالمة هاتفية', 'Reminder': 'تذكير', 'Task': 'مهمة', 'Reschedule': 'إعادة جدولة', 'Skip': 'تخطي', 'Reopened': 'أعيد فتحه', 'Re-open': 'إعادة فتح',
 };

@@ -9,7 +9,7 @@ async function teamIds(c: Caller): Promise<string[]> {
 }
 
 /** may this caller see this lead row? (same rule as the list) */
-async function visibleLead(c: Caller, id: string) {
+export async function visibleLead(c: Caller, id: string) {
   const { data: ex } = await admin.from("crm_leads").select("*").eq("id", id).is("deleted_at", null).maybeSingle();
   if (!ex) return null;
   const scope = crmScope(c);

@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Sparkles, Phone, MessageSquare, Mail, CalendarCheck, FileText, ChevronRight, Wand2, BookOpen, Copy, X, Map as MapIcon, Lightbulb,
-  Wrench, TrendingUp, TrendingDown, Users, AlertTriangle, CheckCircle2, Clock, Target, Loader2,
+  Wrench, TrendingUp, TrendingDown, Users, AlertTriangle, CheckCircle2, Clock, Target, RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '../../services/AuthContext';
 import type { Lead } from './types';
@@ -13,13 +13,14 @@ import { crmNav } from './crmNav';
 import { logAttempt } from './attemptLog';
 import { phoneIntl } from './leadConfig';
 import { crmScopeOf, fmtEGP, isManagerScope, sourceWinRates, todayISO } from './leadMetrics';
-import { suggestTemplate, waCompose, waFill } from './waTemplates';
-import { repNameFromEmail, signOff } from '../../lib/repName';
-import { PlotsState, getPlotsSnapshot, loadPlots, plotsAreStale } from '../../lib/plotsService';
+import { repNameFromEmail } from '../../lib/repName';
+import { Plot, PlotsState, getPlotsSnapshot, loadPlots, plotsAreStale } from '../../lib/plotsService';
 import {
   NextAction, Signal, availableByPark, briefOf, dataFixes, myWeek, nextActions, plotFit, signals, teamInsight, tips,
 } from './smartEngine';
-import { askAi, trackFeature } from './smartService';
+import { trackFeature } from './smartService';
+import { SITUATION_LABEL, Situation, preferredLang, situationsFor, writeFor } from './smartWriter';
+import type { PlotFit } from './smartEngine';
 
 interface Props { leads: Lead[]; onLeadsUpdated: () => void; setActiveSubTab: (t: string) => void }
 
@@ -82,6 +83,7 @@ export const CrmSmartAssistant: React.FC<Props> = ({ leads, setActiveSubTab }) =
   const mine = useMemo(() => leads.filter((l) => String(l.assignedSalespersonId) === String(personId)), [leads, personId]);
   const rates = useMemo(() => sourceWinRates(leads), [leads]);
   const byPark = useMemo(() => availableByPark(plots?.plots || []), [plots]);
+  const byKey = useMemo(() => new Map((plots?.plots || []).map((p) => [p.key, p])), [plots]);
   const na = useMemo(() => nextActions(mine, today, now, rates, byPark, 8), [mine, today, now, rates, byPark]);
   const sig = useMemo(() => signals(mine, plots?.plots || [], byPark, today, now), [mine, plots, byPark, today, now]);
   const week = useMemo(() => myWeek(mine, personName, now), [mine, personName, now]);
@@ -255,7 +257,7 @@ export const CrmSmartAssistant: React.FC<Props> = ({ leads, setActiveSubTab }) =
         </div>
       </div>
 
-      {compose && <Composer lead={compose.lead} channel={compose.channel} me={me} user={user} onClose={() => setCompose(null)} />}
+      {compose && <Composer lead={compose.lead} channel={compose.channel} me={me} user={user} fit={plotFit(compose.lead, byPark)} byKey={byKey} onClose={() => setCompose(null)} />}
       {brief && <BriefPanel lead={brief} fit={plotFit(brief, byPark)} onClose={() => setBrief(null)} onOpen={() => { crmNav.lead(brief.id); setBrief(null); }} />}
     </div>
   );
@@ -304,38 +306,32 @@ const ActionRow: React.FC<{ a: NextAction; onCall: (l: Lead) => void; onWrite: (
 };
 
 // ---------------------------------------------------------------------------------------------
-// 2. Write it for me: the team's template filled for this customer; "Improve with AI" rewrites it from the lead's history
+// 2. Write it for me: the smart writer reads where the lead stands and the Land Bank plots (no AI, no cost)
 // ---------------------------------------------------------------------------------------------
-const Composer: React.FC<{ lead: Lead; channel: 'whatsapp' | 'email'; me: string; user: any; onClose: () => void }> = ({ lead, channel: ch0, me, user, onClose }) => {
+const Composer: React.FC<{ lead: Lead; channel: 'whatsapp' | 'email'; me: string; user: any; fit: PlotFit | null; byKey: Map<string, Plot>; onClose: () => void }> = ({ lead, channel: ch0, me, user, fit, byKey, onClose }) => {
+  const ctx = useMemo(() => ({ rep: me, fit, byKey }), [me, fit, byKey]);
+  const options = useMemo(() => situationsFor(lead, ctx), [lead, ctx]);
   const [channel, setChannel] = useState<'whatsapp' | 'email'>(ch0);
-  const [lang, setLang] = useState<'ar' | 'en'>('ar');   // the team writes to customers in Arabic first
-  const base = useMemo(() => signOff(waFill(waCompose(suggestTemplate(lead), lang), lead, me), me), [lead, lang, me]);
-  const [text, setText] = useState(base);
-  const [subject, setSubject] = useState(`Elsewedy Industrial Development — ${lead.project || 'industrial land'}`);
-  const [busy, setBusy] = useState(false);
-  const [aiNote, setAiNote] = useState('');
-  useEffect(() => { setText(base); }, [base]);
+  const [lang, setLang] = useState<'ar' | 'en'>(() => preferredLang(lead));
+  const [sit, setSit] = useState<Situation>(options[0]);
+  const [ver, setVer] = useState(0);
+  const drafts = useMemo(() => writeFor(lead, ctx, sit), [lead, ctx, sit]);
+  const d = drafts[ver % drafts.length];
+  const [text, setText] = useState('');
+  const [subject, setSubject] = useState('');
+  useEffect(() => { setText(lang === 'ar' ? d.ar : d.en); setSubject(lang === 'ar' ? d.subjectAr : d.subjectEn); }, [d, lang]);
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
 
   const phone = phoneIntl(lead.phoneNumber).replace('+', '');
   const email = String(lead.email || '').trim();
-  const improve = async () => {
-    setBusy(true); setAiNote(''); trackFeature('smart_ai_write');
-    const r = await askAi(lead.id, channel, lang, text);
-    setBusy(false);
-    if (!r.ok) { setAiNote(r.error || 'The AI could not answer.'); return; }
-    if (r.text) setText(r.text);
-    if (r.subject && channel === 'email') setSubject(r.subject);
-    setAiNote(r.left != null ? `Written by AI from this lead's history. Check it before sending. ${r.left} AI uses left today.` : 'Written by AI from this lead\'s history. Check it before sending.');
-  };
   const send = () => {
     if (channel === 'whatsapp') {
       if (!phone) { toast.error('No usable phone number on this lead.'); return; }
-      trackFeature('smart_send_wa'); logAttempt(lead, 'whatsapp', user, text);
+      trackFeature(`smart_send_wa_${sit}`); logAttempt(lead, 'whatsapp', user, text);
       window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
     } else {
       if (!email) { toast.error('No e-mail address on this lead.'); return; }
-      trackFeature('smart_send_mail'); logAttempt(lead, 'email', user, `${subject}\n\n${text}`);
+      trackFeature(`smart_send_mail_${sit}`); logAttempt(lead, 'email', user, `${subject}\n\n${text}`);
       window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
     }
     onClose();
@@ -351,6 +347,16 @@ const Composer: React.FC<{ lead: Lead; channel: 'whatsapp' | 'email'; me: string
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-brand-gray/10"><X size={18} /></button>
         </div>
+        <div>
+          <p className="text-[10px] uppercase font-bold text-brand-gray mb-1">Where this lead stands</p>
+          <div className="flex flex-wrap gap-1.5">
+            {options.map((o, i) => (
+              <button key={o} onClick={() => { setSit(o); setVer(0); trackFeature('smart_write_situation'); }} className={`text-[11px] font-bold rounded-full px-2.5 py-1 border ${sit === o ? 'bg-brand-red text-white border-brand-red' : 'border-brand-gray/25 text-brand-black hover:bg-brand-gray/5'}`}>
+                {SITUATION_LABEL[o]}{i === 0 ? ' ✓' : ''}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="flex flex-wrap gap-2">
           <div className="flex rounded-xl border border-brand-gray/20 overflow-hidden text-xs font-bold">
             <button onClick={() => setChannel('whatsapp')} className={`px-3 py-1.5 flex items-center gap-1 ${channel === 'whatsapp' ? 'bg-green-600 text-white' : ''}`}><MessageSquare size={13} />WhatsApp</button>
@@ -360,16 +366,14 @@ const Composer: React.FC<{ lead: Lead; channel: 'whatsapp' | 'email'; me: string
             <button onClick={() => setLang('ar')} className={`px-3 py-1.5 ${lang === 'ar' ? 'bg-brand-black text-white' : ''}`}>العربية</button>
             <button onClick={() => setLang('en')} className={`px-3 py-1.5 ${lang === 'en' ? 'bg-brand-black text-white' : ''}`}>English</button>
           </div>
+          <button onClick={() => { setVer((v) => v + 1); trackFeature('smart_write_version'); }} className="text-xs font-bold rounded-xl px-3 py-1.5 border border-brand-red/30 text-brand-red flex items-center gap-1 hover:bg-brand-red/5"><RefreshCw size={13} />Another version ({(ver % drafts.length) + 1}/{drafts.length})</button>
         </div>
-        {channel === 'email' && <input value={subject} onChange={(e) => setSubject(e.target.value)} className="input-field w-full text-sm" placeholder="Subject" />}
-        <textarea value={text} onChange={(e) => setText(e.target.value)} dir={lang === 'ar' ? 'rtl' : 'ltr'} rows={9} className="input-field w-full text-sm leading-relaxed" />
-        {aiNote && <p className="text-[11px] text-brand-gray bg-brand-gray/5 rounded-lg px-2 py-1.5">{aiNote}</p>}
-        <div className="flex flex-wrap items-center gap-2 justify-between">
-          <button onClick={improve} disabled={busy} className="text-xs font-bold rounded-xl px-3 py-2 border border-brand-red/30 text-brand-red flex items-center gap-1.5 hover:bg-brand-red/5 disabled:opacity-50">{busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}Improve with AI</button>
-          <div className="flex gap-2">
-            <button onClick={() => { void navigator.clipboard?.writeText(text).then(() => toast.success('Copied')); trackFeature('smart_copy'); }} className="btn-secondary text-xs font-bold rounded-xl px-3 py-2 flex items-center gap-1"><Copy size={13} />Copy</button>
-            <button onClick={send} className={`text-xs font-extrabold rounded-xl px-4 py-2 text-white flex items-center gap-1.5 ${channel === 'whatsapp' ? 'bg-green-600' : 'bg-sky-600'}`}>{channel === 'whatsapp' ? <MessageSquare size={14} /> : <Mail size={14} />}Open {channel === 'whatsapp' ? 'WhatsApp' : 'e-mail'}</button>
-          </div>
+        {channel === 'email' && <input value={subject} onChange={(e) => setSubject(e.target.value)} dir={lang === 'ar' ? 'rtl' : 'ltr'} className="input-field w-full text-sm" placeholder="Subject" />}
+        <textarea value={text} onChange={(e) => setText(e.target.value)} dir={lang === 'ar' ? 'rtl' : 'ltr'} rows={10} className="input-field w-full text-sm leading-relaxed" />
+        {fit && fit.count > 0 && <p className="text-[11px] text-sky-800 bg-sky-50 rounded-lg px-2 py-1.5">Uses the Land Bank list: {fit.count} available plot{fit.count > 1 ? 's' : ''} in {fit.park} fit this customer. No prices are put in the message.</p>}
+        <div className="flex flex-wrap items-center gap-2 justify-end">
+          <button onClick={() => { void navigator.clipboard?.writeText(text).then(() => toast.success('Copied')); trackFeature('smart_copy'); }} className="btn-secondary text-xs font-bold rounded-xl px-3 py-2 flex items-center gap-1"><Copy size={13} />Copy</button>
+          <button onClick={send} className={`text-xs font-extrabold rounded-xl px-4 py-2 text-white flex items-center gap-1.5 ${channel === 'whatsapp' ? 'bg-green-600' : 'bg-sky-600'}`}>{channel === 'whatsapp' ? <MessageSquare size={14} /> : <Mail size={14} />}Open {channel === 'whatsapp' ? 'WhatsApp' : 'e-mail'}</button>
         </div>
         <p className="text-[10px] text-brand-gray">Nothing is sent by the system: your WhatsApp or mail app opens with the text, and the attempt is logged on the lead.</p>
       </div>
@@ -382,15 +386,7 @@ const Composer: React.FC<{ lead: Lead; channel: 'whatsapp' | 'email'; me: string
 // ---------------------------------------------------------------------------------------------
 const BriefPanel: React.FC<{ lead: Lead; fit: ReturnType<typeof plotFit>; onClose: () => void; onOpen: () => void }> = ({ lead, fit, onClose, onOpen }) => {
   const b = useMemo(() => briefOf(lead, fit), [lead, fit]);
-  const [ai, setAi] = useState<{ brief?: string[]; nextStep?: string; err?: string } | null>(null);
-  const [busy, setBusy] = useState(false);
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
-  const run = async () => {
-    setBusy(true); trackFeature('smart_ai_brief');
-    const r = await askAi(lead.id, 'brief', 'en');
-    setBusy(false);
-    setAi(r.ok ? { brief: r.brief, nextStep: r.nextStep } : { err: r.error });
-  };
   return (
     <div className="fixed inset-0 z-[80] bg-black/40 flex justify-end" onClick={onClose}>
       <aside className="bg-white w-full sm:max-w-md h-full shadow-2xl p-5 space-y-4 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -415,12 +411,6 @@ const BriefPanel: React.FC<{ lead: Lead; fit: ReturnType<typeof plotFit>; onClos
           </div>
           <div><dt className="text-[10px] uppercase font-bold text-brand-gray">Next</dt><dd>{b.next}</dd></div>
         </dl>
-        <div className="border-t border-brand-gray/10 pt-3 space-y-2">
-          {!ai && <button onClick={run} disabled={busy} className="text-xs font-bold rounded-xl px-3 py-2 border border-brand-red/30 text-brand-red flex items-center gap-1.5 disabled:opacity-50">{busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}AI brief and suggested next step</button>}
-          {ai?.err && <p className="text-xs text-brand-gray">{ai.err}</p>}
-          {ai?.brief && <ul className="text-sm space-y-1 list-disc pl-5">{ai.brief.map((x, i) => <li key={i}>{x}</li>)}</ul>}
-          {ai?.nextStep && <p className="text-sm font-bold text-brand-black">Next step: <span className="font-normal">{ai.nextStep}</span></p>}
-        </div>
         <button onClick={onOpen} className="btn-primary w-full rounded-xl py-2.5 text-sm font-bold">Open the lead</button>
       </aside>
     </div>

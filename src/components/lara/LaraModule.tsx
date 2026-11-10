@@ -1,0 +1,406 @@
+// Lara Sales AI — phase 2 (docs/LARA-SALES-AI-PLAN.md). Admin only (the server checks too). SHADOW mode: Lara writes the follow-ups
+// she would send; the admin approves or rejects them to judge her quality. Nothing is sent. No AI: rules, templates, approved Q&A.
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import {
+  Bot, Play, Inbox, BookOpen, HelpCircle, Settings, ScrollText, CheckCircle2, XCircle, MessageSquare, Mail, Loader2, Search, Plus, Archive,
+  RotateCcw, Send, ShieldCheck, Sparkles, ChevronRight, Database, Pencil,
+} from 'lucide-react';
+import type { Lead } from '../crm/types';
+import { crmNav } from '../crm/crmNav';
+import { SITUATION_LABEL } from '../crm/smartWriter';
+
+const api = async (path: string, init?: RequestInit) => {
+  const r = await fetch(`/api${path}`, init ? { ...init, headers: { 'Content-Type': 'application/json', ...(init.headers || {}) } } : undefined);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || `Server answered ${r.status}`);
+  return j;
+};
+const post = (path: string, b: any, method = 'POST') => api(path, { method, body: JSON.stringify(b) });
+const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
+const isAr = (t: string) => /[؀-ۿ]/.test(t || '');
+
+const Card: React.FC<{ title?: React.ReactNode; right?: React.ReactNode; children: React.ReactNode; className?: string }> = ({ title, right, children, className = '' }) => (
+  <section className={`bento-card bg-white border border-brand-gray/20 rounded-2xl p-5 shadow-sm space-y-3 ${className}`}>
+    {(title || right) && <div className="flex items-center justify-between gap-2">{title && <h3 className="font-extrabold text-sm text-brand-black flex items-center gap-2">{title}</h3>}{right}</div>}
+    {children}
+  </section>
+);
+const Kpi: React.FC<{ label: string; value: React.ReactNode; sub?: string; tone?: string }> = ({ label, value, sub, tone = '' }) => (
+  <div className="bg-white/10 rounded-2xl px-4 py-3"><p className="text-[10px] uppercase tracking-wider font-bold text-white/70">{label}</p><p className={`text-2xl font-extrabold ${tone}`}>{value}</p>{sub && <p className="text-[10px] text-white/70">{sub}</p>}</div>
+);
+
+interface Props { sub: string; leads: Lead[]; setActiveSubTab: (t: string) => void }
+
+export const LaraModule: React.FC<Props> = ({ sub, leads, setActiveSubTab }) => {
+  const [ov, setOv] = useState<any>(null);
+  const [err, setErr] = useState('');
+  const load = useCallback(async () => { try { setOv(await api('/lara/overview')); setErr(''); } catch (e: any) { setErr(e.message); } }, []);
+  useEffect(() => { void load(); }, [load, sub]);
+  const leadName = useMemo(() => new Map(leads.map((l) => [l.id, l])), [leads]);
+
+  return (
+    <div className="space-y-5" id="lara-module">
+      <div className="rounded-3xl p-6 text-white shadow-lg bg-gradient-to-br from-brand-black via-[#3b2a33] to-brand-red relative overflow-hidden">
+        <div className="absolute -right-12 -bottom-16 w-56 h-56 rounded-full bg-brand-red/40 blur-3xl" />
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-xs font-bold uppercase tracking-widest text-white/70 flex items-center gap-1.5"><Bot size={14} />Lara Sales AI · admin preview</p>
+            <h2 className="text-2xl font-extrabold">{ov?.config?.mode === 'off' ? 'Lara is switched off' : 'Lara is working in Shadow mode'}</h2>
+            <p className="text-sm text-white/85 max-w-2xl">She finds the leads nobody followed up and writes the message she would send. <b>Nothing is sent</b> and no lead is changed: you approve or reject each draft to judge her before she gets a channel. She uses rules, the team's message writer and your approved answers — <b>no AI, no cost</b>.</p>
+          </div>
+          <span className="text-[11px] font-bold bg-white/15 rounded-full px-3 py-1 flex items-center gap-1"><ShieldCheck size={13} />Safe: no messages leave the system</span>
+        </div>
+        {ov && (
+          <div className="relative grid grid-cols-2 md:grid-cols-5 gap-3 mt-5">
+            <Kpi label="Drafts waiting" value={ov.drafts30.shadow} />
+            <Kpi label="Approved (30 d)" value={ov.drafts30.approved} sub={ov.drafts30.edited ? `${ov.drafts30.edited} edited first` : undefined} />
+            <Kpi label="Rejected (30 d)" value={ov.drafts30.rejected} />
+            <Kpi label="Approved answers" value={ov.kbActive} />
+            <Kpi label="Missed questions" value={ov.missedOpen} tone={ov.missedOpen ? 'text-amber-200' : ''} />
+          </div>
+        )}
+      </div>
+      {err && <p className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{err}</p>}
+
+      {sub === 'lara' && <Control ov={ov} reload={load} go={setActiveSubTab} />}
+      {sub === 'lara-inbox' && <DraftInbox leadName={leadName} reload={load} />}
+      {sub === 'lara-kb' && <Knowledge reload={load} />}
+      {sub === 'lara-missed' && <Missed reload={load} />}
+      {sub === 'lara-settings' && <SettingsTab ov={ov} reload={load} />}
+      {sub === 'lara-log' && <LogTab />}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------------------------
+// Control room
+// ---------------------------------------------------------------------------------------------
+const Control: React.FC<{ ov: any; reload: () => void; go: (t: string) => void }> = ({ ov, reload, go }) => {
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try { const r = await post('/lara/run', {}); toast.success(r.skipped ? `Not run: ${r.reason}` : `Lara wrote ${r.drafted} drafts (${r.eligible} leads needed a follow-up). Nothing was sent.`); reload(); }
+    catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
+  };
+  const labels = ov?.ruleLabels || {};
+  return (
+    <div className="grid lg:grid-cols-3 gap-5">
+      <Card title={<><Play size={16} className="text-brand-red" />Run Lara</>} className="lg:col-span-1">
+        <p className="text-xs text-brand-gray">Lara runs by herself every working day (Sun–Thu) at 09:00 Cairo time. You can also run her now. A lead that already has a draft waiting is skipped.</p>
+        <button onClick={run} disabled={busy || ov?.config?.mode === 'off'} className="btn-primary w-full rounded-xl py-2.5 text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50">{busy ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}Run Shadow now</button>
+        <div className="text-xs bg-brand-gray/5 rounded-xl p-3">
+          <p className="font-bold text-brand-black mb-1">Last run</p>
+          {ov?.lastRun ? <><p>{when(ov.lastRun.at)} · {ov.lastRun.actor}</p><p className="text-brand-gray">{ov.lastRun.text}</p></> : <p className="text-brand-gray">Not run yet.</p>}
+        </div>
+      </Card>
+      <Card title={<><Inbox size={16} className="text-brand-red" />Drafts waiting for you</>} right={<button onClick={() => go('lara-inbox')} className="text-xs font-bold text-brand-red flex items-center">Open inbox<ChevronRight size={14} /></button>} className="lg:col-span-2">
+        {!ov ? <Loader2 className="animate-spin text-brand-gray" /> : (
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <p className="text-[10px] uppercase font-bold text-brand-gray mb-1">Why Lara picked them</p>
+              {Object.keys(ov.openByRule).length === 0 && <p className="text-xs text-brand-gray">No drafts waiting.</p>}
+              {Object.entries(ov.openByRule).map(([k, v]: any) => <Row key={k} label={labels[k] || k} value={v} />)}
+            </div>
+            <div>
+              <p className="text-[10px] uppercase font-bold text-brand-gray mb-1">What she would say</p>
+              {Object.entries(ov.openBySituation).map(([k, v]: any) => <Row key={k} label={(SITUATION_LABEL as any)[k] || k} value={v} />)}
+            </div>
+          </div>
+        )}
+      </Card>
+      <Card title={<><Sparkles size={16} className="text-brand-red" />How Lara works (no AI)</>} className="lg:col-span-2">
+        <ol className="text-xs text-brand-black space-y-1.5 list-decimal pl-4">
+          <li><b>Finds</b> open leads the team did not follow up: no first contact after the limit, overdue follow-up, offer without follow-up, "no answer" with no new try. Old imported leads, closed leads and leads with a planned meeting are left alone.</li>
+          <li><b>Writes</b> the message with the team's smart writer: the customer's situation, name, park, size and real available Land Bank plots, in Arabic or English. No prices, no invented claims.</li>
+          <li><b>Answers</b> customer questions only from the approved Q&A and the Land Bank list. A question she cannot answer goes to <b>Missed questions</b> for you.</li>
+          <li><b>Learns from you</b>: every approval, edit and rejection is counted, so you see her quality before she gets a channel (phase 3).</li>
+        </ol>
+      </Card>
+      <Card title={<><ShieldCheck size={16} className="text-emerald-600" />Channels</>}>
+        <Row label="E-mail (own mailbox)" value={<span className="text-brand-gray">Phase 3</span>} />
+        <Row label="WhatsApp (Meta Cloud API)" value={<span className="text-brand-gray">Phase 6</span>} />
+        <Row label="AI model" value={<span className="text-emerald-700 font-bold">Not used</span>} />
+        <button onClick={() => go('lara-settings')} className="text-xs font-bold text-brand-red flex items-center">Settings<ChevronRight size={14} /></button>
+      </Card>
+    </div>
+  );
+};
+const Row: React.FC<{ label: React.ReactNode; value: React.ReactNode }> = ({ label, value }) => (
+  <div className="flex items-center justify-between text-xs py-1 border-b border-brand-gray/10 last:border-0"><span>{label}</span><b>{value}</b></div>
+);
+
+// ---------------------------------------------------------------------------------------------
+// Inbox: shadow drafts to approve / reject
+// ---------------------------------------------------------------------------------------------
+const REJECT = ['Wrong situation', 'Wrong tone', 'Wrong facts', 'Owner is already on it', 'Do not contact'];
+const DraftInbox: React.FC<{ leadName: Map<string, Lead>; reload: () => void }> = ({ leadName, reload }) => {
+  const [status, setStatus] = useState<'shadow' | 'approved' | 'rejected' | 'expired'>('shadow');
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [q, setQ] = useState('');
+  const load = useCallback(async () => { setRows(null); try { setRows((await api(`/lara/drafts?status=${status}&limit=200`)).rows); } catch (e: any) { toast.error(e.message); setRows([]); } }, [status]);
+  useEffect(() => { void load(); }, [load]);
+  const shown = (rows || []).filter((r) => !q || `${r.customer} ${r.owner_name} ${r.lead_id} ${r.body}`.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <Card title={<><Inbox size={16} className="text-brand-red" />Shadow inbox</>} right={
+      <div className="flex rounded-xl border border-brand-gray/20 overflow-hidden text-xs font-bold">
+        {(['shadow', 'approved', 'rejected', 'expired'] as const).map((s) => <button key={s} onClick={() => setStatus(s)} className={`px-3 py-1.5 ${status === s ? 'bg-brand-red text-white' : ''}`}>{s === 'shadow' ? 'Waiting' : s[0].toUpperCase() + s.slice(1)}</button>)}
+      </div>}>
+      <div className="relative"><Search size={14} className="absolute left-3 top-2.5 text-brand-gray" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search customer, salesperson, text…" className="input-field w-full pl-8 text-sm" /></div>
+      {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : shown.length === 0 ? <p className="text-sm text-brand-gray py-6 text-center">{status === 'shadow' ? 'No drafts waiting. Run Lara from the Control room.' : 'Nothing here.'}</p> : (
+        <div className="space-y-3">{shown.map((d) => <DraftCard key={d.id} d={d} lead={leadName.get(d.lead_id)} onDone={() => { setRows((r) => (r || []).filter((x) => x.id !== d.id)); reload(); }} />)}</div>
+      )}
+    </Card>
+  );
+};
+const DraftCard: React.FC<{ d: any; lead?: Lead; onDone: () => void }> = ({ d, lead, onDone }) => {
+  const [text, setText] = useState(d.body);
+  const [editing, setEditing] = useState(false);
+  const [rej, setRej] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const decide = async (decision: 'approved' | 'rejected', feedback = '') => {
+    setBusy(true);
+    try { await post(`/lara/drafts/${d.id}/decide`, { decision, feedback, body: text }); toast.success(decision === 'approved' ? 'Approved. In Shadow mode nothing is sent.' : 'Rejected. Lara will learn from it.'); onDone(); }
+    catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
+  };
+  const open = d.status === 'shadow';
+  return (
+    <div className="border border-brand-gray/15 rounded-2xl p-4 space-y-2 hover:shadow-sm transition">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <button onClick={() => crmNav.lead(d.lead_id)} className="font-extrabold text-sm text-brand-black hover:text-brand-red">{d.customer}</button>
+          <p className="text-[11px] text-brand-gray">{d.lead_id} · owner {d.owner_name || '—'}{lead ? ` · ${lead.status}` : ''} · {when(d.created_at)}</p>
+        </div>
+        <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
+          <span className="bg-brand-red/10 text-brand-red rounded-full px-2 py-0.5">{(SITUATION_LABEL as any)[d.situation] || d.situation}</span>
+          <span className={`rounded-full px-2 py-0.5 flex items-center gap-1 ${d.channel === 'whatsapp' ? 'bg-green-100 text-green-800' : 'bg-sky-100 text-sky-800'}`}>{d.channel === 'whatsapp' ? <MessageSquare size={11} /> : <Mail size={11} />}{d.channel === 'whatsapp' ? 'WhatsApp' : 'E-mail'}</span>
+        </div>
+      </div>
+      <p className="text-xs text-amber-900 bg-amber-50 rounded-lg px-2 py-1"><b>Why:</b> {d.reason}</p>
+      {d.channel === 'email' && d.subject && <p className="text-xs"><b>Subject:</b> {d.subject}</p>}
+      {editing ? <textarea value={text} onChange={(e) => setText(e.target.value)} dir={isAr(text) ? 'rtl' : 'ltr'} rows={9} className="input-field w-full text-sm leading-relaxed" />
+        : <p dir={isAr(text) ? 'rtl' : 'ltr'} className="text-sm whitespace-pre-line bg-brand-gray/5 rounded-xl p-3 leading-relaxed">{text}</p>}
+      {!open && <p className="text-[11px] text-brand-gray">{d.status} by {d.decided_by || '—'} · {when(d.decided_at)}{d.feedback ? ` · "${d.feedback}"` : ''}{d.edited ? ' · edited' : ''}</p>}
+      {open && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button disabled={busy} onClick={() => decide('approved')} className="bg-emerald-600 text-white rounded-xl px-3 py-1.5 text-xs font-extrabold flex items-center gap-1 disabled:opacity-50"><CheckCircle2 size={14} />{text !== d.body ? 'Approve with my edit' : 'Approve'}</button>
+          <button disabled={busy} onClick={() => setEditing((v) => !v)} className="btn-secondary rounded-xl px-3 py-1.5 text-xs font-bold flex items-center gap-1"><Pencil size={13} />{editing ? 'Done editing' : 'Edit'}</button>
+          <button disabled={busy} onClick={() => setRej((v) => !v)} className="rounded-xl px-3 py-1.5 text-xs font-bold border border-rose-200 text-rose-700 flex items-center gap-1"><XCircle size={14} />Reject</button>
+          {rej && <div className="flex flex-wrap gap-1.5 w-full">{REJECT.map((r) => <button key={r} disabled={busy} onClick={() => decide('rejected', r)} className="text-[11px] rounded-full border border-rose-200 text-rose-700 px-2.5 py-1 hover:bg-rose-50">{r}</button>)}</div>}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------------------------
+// Knowledge (approved Q&A) + Ask Lara test box
+// ---------------------------------------------------------------------------------------------
+const EMPTY = { id: '', topic: 'General', q_ar: '', q_en: '', phrasings: '', a_ar: '', a_en: '' };
+const TOPICS = ['General', 'Prices', 'Payment plans', 'Utilities', 'Land & building', 'Licences & incentives', 'Reservation & contract', 'Location & access', 'Visits'];
+const Knowledge: React.FC<{ reload: () => void }> = ({ reload }) => {
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [arch, setArch] = useState(false);
+  const [edit, setEdit] = useState<any | null>(null);
+  const [q, setQ] = useState('');
+  const load = useCallback(async () => { setRows(null); try { setRows((await api(`/lara/kb?status=${arch ? 'archived' : 'active'}`)).rows); } catch (e: any) { toast.error(e.message); setRows([]); } }, [arch]);
+  useEffect(() => { void load(); }, [load]);
+  const save = async () => {
+    try { await post('/lara/kb', edit); toast.success('Saved'); setEdit(null); void load(); reload(); } catch (e: any) { toast.error(e.message); }
+  };
+  const setStatus = async (id: string, status: string) => { try { await post(`/lara/kb/${id}/status`, { status }); void load(); reload(); } catch (e: any) { toast.error(e.message); } };
+  const shown = (rows || []).filter((r) => !q || `${r.topic} ${r.q_ar} ${r.q_en} ${r.a_ar} ${r.a_en}`.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div className="grid lg:grid-cols-3 gap-5">
+      <Card title={<><BookOpen size={16} className="text-brand-red" />Approved answers</>} className="lg:col-span-2" right={
+        <div className="flex gap-2">
+          <button onClick={() => setArch((v) => !v)} className="text-xs font-bold text-brand-gray">{arch ? 'Show active' : 'Show archived'}</button>
+          <button onClick={() => setEdit({ ...EMPTY })} className="btn-primary rounded-xl px-3 py-1.5 text-xs font-bold flex items-center gap-1"><Plus size={14} />Add</button>
+        </div>}>
+        <div className="relative"><Search size={14} className="absolute left-3 top-2.5 text-brand-gray" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search questions and answers…" className="input-field w-full pl-8 text-sm" /></div>
+        {edit && <KbForm v={edit} set={setEdit} onSave={save} onCancel={() => setEdit(null)} />}
+        {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : shown.length === 0 ? <p className="text-sm text-brand-gray py-4 text-center">{arch ? 'No archived answers.' : 'No answers yet. Start with Missed questions: 25 common customer questions are waiting for SDM\'s real answers.'}</p> : (
+          <ul className="divide-y divide-brand-gray/10">
+            {shown.map((r) => (
+              <li key={r.id} className="py-3 space-y-1">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-bold text-brand-black" dir={isAr(r.q_ar || r.q_en) ? 'rtl' : 'ltr'}>{r.q_ar || r.q_en}</p>
+                  <span className="text-[10px] font-bold bg-brand-gray/10 rounded-full px-2 py-0.5 whitespace-nowrap">{r.topic}</span>
+                </div>
+                {r.a_ar && <p className="text-xs text-brand-black whitespace-pre-line" dir="rtl">{r.a_ar}</p>}
+                {r.a_en && <p className="text-xs text-brand-gray whitespace-pre-line">{r.a_en}</p>}
+                <div className="flex gap-3 text-[11px] text-brand-gray"><span>Used {r.uses} times</span><span>by {r.updated_by || r.created_by || '—'}</span>
+                  <button onClick={() => setEdit({ ...r })} className="font-bold text-brand-red">Edit</button>
+                  {arch ? <button onClick={() => setStatus(r.id, 'active')} className="font-bold flex items-center gap-0.5"><RotateCcw size={11} />Restore</button> : <button onClick={() => setStatus(r.id, 'archived')} className="font-bold flex items-center gap-0.5"><Archive size={11} />Archive</button>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+      <AskBox reload={reload} />
+    </div>
+  );
+};
+const KbForm: React.FC<{ v: any; set: (v: any) => void; onSave: () => void; onCancel: () => void; fixedQuestion?: string }> = ({ v, set, onSave, onCancel, fixedQuestion }) => {
+  const f = (k: string) => (e: any) => set({ ...v, [k]: e.target.value });
+  return (
+    <div className="border border-brand-red/20 bg-brand-red/[0.03] rounded-2xl p-4 space-y-2">
+      <label className="text-[11px] font-bold block">Topic
+        <select value={v.topic} onChange={f('topic')} className="input-field w-full text-sm mt-0.5">{TOPICS.map((t) => <option key={t}>{t}</option>)}</select>
+      </label>
+      {fixedQuestion ? <p className="text-sm font-bold" dir={isAr(fixedQuestion) ? 'rtl' : 'ltr'}>{fixedQuestion}</p> : (
+        <div className="grid sm:grid-cols-2 gap-2">
+          <input value={v.q_ar} onChange={f('q_ar')} dir="rtl" placeholder="السؤال بالعربي" className="input-field text-sm" />
+          <input value={v.q_en} onChange={f('q_en')} placeholder="Question in English" className="input-field text-sm" />
+        </div>
+      )}
+      <textarea value={v.phrasings} onChange={f('phrasings')} rows={2} placeholder="Other ways customers ask it (one per line) — helps Lara recognise the question" className="input-field w-full text-xs" />
+      <div className="grid sm:grid-cols-2 gap-2">
+        <textarea value={v.a_ar} onChange={f('a_ar')} dir="rtl" rows={4} placeholder="الإجابة المعتمدة بالعربي" className="input-field text-sm" />
+        <textarea value={v.a_en} onChange={f('a_en')} rows={4} placeholder="Approved answer in English" className="input-field text-sm" />
+      </div>
+      <p className="text-[10px] text-brand-gray">Lara repeats this answer word for word to customers. Write only facts SDM stands behind.</p>
+      <div className="flex gap-2 justify-end"><button onClick={onCancel} className="btn-secondary rounded-xl px-3 py-1.5 text-xs font-bold">Cancel</button><button onClick={onSave} className="btn-primary rounded-xl px-3 py-1.5 text-xs font-bold">Save answer</button></div>
+    </div>
+  );
+};
+const AskBox: React.FC<{ reload: () => void }> = ({ reload }) => {
+  const [q, setQ] = useState('');
+  const [r, setR] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const ask = async (record = false) => {
+    if (q.trim().length < 3) return;
+    setBusy(true);
+    try { setR(await post('/lara/ask', { question: q, record })); if (record) { toast.success('Added to Missed questions'); reload(); } } catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <Card title={<><HelpCircle size={16} className="text-brand-red" />Ask Lara (test)</>}>
+      <p className="text-xs text-brand-gray">Type a question the way a customer would (Arabic or English). See what Lara would answer.</p>
+      <textarea value={q} onChange={(e) => setQ(e.target.value)} dir={isAr(q) ? 'rtl' : 'ltr'} rows={3} placeholder="مثال: فيه أرض متاحة في أكتوبر حوالي 3000 متر؟" className="input-field w-full text-sm" />
+      <button onClick={() => ask(false)} disabled={busy} className="btn-primary w-full rounded-xl py-2 text-sm font-bold flex items-center justify-center gap-1.5 disabled:opacity-50">{busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}Ask</button>
+      {r && (
+        <div className="space-y-2 text-sm">
+          {r.data && <div className="bg-sky-50 border border-sky-200 rounded-xl p-3"><p className="text-[10px] uppercase font-bold text-sky-800 flex items-center gap-1"><Database size={11} />From the Land Bank list</p><p dir="rtl">{r.data.ar}</p><p className="text-xs text-brand-gray">{r.data.en}</p></div>}
+          {r.matches.map((m: any, i: number) => (
+            <div key={m.id} className={`rounded-xl p-3 border ${i === 0 && m.score >= r.threshold ? 'border-emerald-200 bg-emerald-50' : 'border-brand-gray/15'}`}>
+              <p className="text-[10px] uppercase font-bold text-brand-gray">{i === 0 && m.score >= r.threshold ? 'Lara answers with' : 'Close, not sure enough'} · match {Math.round(m.score * 100)}%</p>
+              <p className="text-xs font-bold" dir={isAr(m.q) ? 'rtl' : 'ltr'}>{m.q}</p>
+              <p className="text-xs whitespace-pre-line" dir="rtl">{m.a_ar}</p>
+            </div>
+          ))}
+          {!r.answered && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs space-y-2">
+              <p className="text-amber-900">Lara has no approved answer for this. With a customer she would not guess: she would tell them a specialist will answer and put the question in Missed questions.</p>
+              {!r.missedId && <button onClick={() => ask(true)} className="font-bold text-amber-900 underline">Add it to Missed questions</button>}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+};
+
+// ---------------------------------------------------------------------------------------------
+// Missed questions
+// ---------------------------------------------------------------------------------------------
+const Missed: React.FC<{ reload: () => void }> = ({ reload }) => {
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [st, setSt] = useState<'open' | 'answered' | 'dismissed'>('open');
+  const [open, setOpen] = useState<string | null>(null);
+  const [v, setV] = useState<any>({ ...EMPTY });
+  const load = useCallback(async () => { setRows(null); try { setRows((await api(`/lara/missed?status=${st}`)).rows); } catch (e: any) { toast.error(e.message); setRows([]); } }, [st]);
+  useEffect(() => { void load(); }, [load]);
+  const answer = async (id: string) => { try { await post(`/lara/missed/${id}/answer`, v); toast.success('Answer saved. Lara will use it from now on.'); setOpen(null); void load(); reload(); } catch (e: any) { toast.error(e.message); } };
+  const dismiss = async (id: string) => { try { await post(`/lara/missed/${id}/dismiss`, {}); void load(); reload(); } catch (e: any) { toast.error(e.message); } };
+  return (
+    <Card title={<><HelpCircle size={16} className="text-brand-red" />Missed questions</>} right={
+      <div className="flex rounded-xl border border-brand-gray/20 overflow-hidden text-xs font-bold">{(['open', 'answered', 'dismissed'] as const).map((s) => <button key={s} onClick={() => setSt(s)} className={`px-3 py-1.5 ${st === s ? 'bg-brand-red text-white' : ''}`}>{s[0].toUpperCase() + s.slice(1)}</button>)}</div>}>
+      <p className="text-xs text-brand-gray">Questions Lara could not answer from the approved Q&A. Answer each once with SDM's real facts: it becomes an approved answer and Lara uses it from then on. The first 25 are the questions customers ask most (prepared by the Sales Director role); they have no answers on purpose.</p>
+      {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : rows.length === 0 ? <p className="text-sm text-brand-gray py-4 text-center">Nothing here.</p> : (
+        <ul className="divide-y divide-brand-gray/10">
+          {rows.map((m) => (
+            <li key={m.id} className="py-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm font-bold text-brand-black" dir={isAr(m.question) ? 'rtl' : 'ltr'}>{m.question}</p>
+                <span className="text-[10px] text-brand-gray whitespace-nowrap">{m.source === 'seed' ? 'Common question' : m.source === 'customer' ? 'From a customer' : 'From a test'}{m.asked > 1 ? ` · asked ${m.asked}×` : ''}</span>
+              </div>
+              {st === 'open' && open !== m.id && (
+                <div className="flex gap-3 text-xs font-bold"><button onClick={() => { setOpen(m.id); setV({ ...EMPTY }); }} className="text-brand-red">Answer</button><button onClick={() => dismiss(m.id)} className="text-brand-gray">Dismiss</button></div>
+              )}
+              {open === m.id && <KbForm v={v} set={setV} fixedQuestion={m.question} onSave={() => answer(m.id)} onCancel={() => setOpen(null)} />}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+};
+
+// ---------------------------------------------------------------------------------------------
+// Settings & channels
+// ---------------------------------------------------------------------------------------------
+const SettingsTab: React.FC<{ ov: any; reload: () => void }> = ({ ov, reload }) => {
+  const [c, setC] = useState<any>(null);
+  useEffect(() => { if (ov?.config && !c) setC({ ...ov.config }); }, [ov, c]);
+  if (!c) return <Loader2 className="animate-spin text-brand-gray" />;
+  const n = (k: string, label: string, hint: string, unit: string) => (
+    <label className="text-xs block"><span className="font-bold">{label}</span>
+      <div className="flex items-center gap-2 mt-0.5"><input type="number" value={c[k]} onChange={(e) => setC({ ...c, [k]: e.target.value })} className="input-field w-24 text-sm" /><span className="text-brand-gray">{unit}</span></div>
+      <span className="text-[10px] text-brand-gray">{hint}</span>
+    </label>
+  );
+  const save = async () => { try { const r = await post('/lara/config', c, 'PUT'); setC(r.config); toast.success('Saved'); reload(); } catch (e: any) { toast.error(e.message); } };
+  return (
+    <div className="grid lg:grid-cols-2 gap-5">
+      <Card title={<><Settings size={16} className="text-brand-red" />Lara's rules</>}>
+        <label className="text-xs block"><span className="font-bold">Mode</span>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1">
+            {[['off', 'Off', true], ['shadow', 'Shadow', true], ['approve', 'Approve first', false], ['auto', 'Autopilot', false]].map(([k, l, ok]: any) => (
+              <button key={k} disabled={!ok} onClick={() => setC({ ...c, mode: k })} className={`rounded-xl border px-2 py-2 text-xs font-bold ${c.mode === k ? 'bg-brand-red text-white border-brand-red' : 'border-brand-gray/20'} disabled:opacity-40`}>{l}{!ok && <span className="block text-[9px] font-normal">phase 3+</span>}</button>
+            ))}
+          </div>
+        </label>
+        {n('firstContactHours', 'No first contact after', 'A new lead with an owner and no first contact', 'hours')}
+        {n('overdueDays', 'Follow-up overdue by', 'The follow-up date passed by at least', 'days')}
+        {n('offerSilentDays', 'Offer without follow-up for', 'An offer was sent and nothing was logged since', 'days')}
+        {n('noAnswerDays', '"No answer" without a new try for', 'Status is "No answer / Sent WhatsApp" and the last try is older than', 'days')}
+        {n('maxPerRun', 'Drafts per run, at most', 'Keeps the inbox reviewable', 'drafts')}
+        <div className="grid sm:grid-cols-2 gap-2">
+          <label className="text-xs block"><span className="font-bold">Name in English messages</span><input value={c.nameEn} onChange={(e) => setC({ ...c, nameEn: e.target.value })} className="input-field w-full text-sm mt-0.5" /></label>
+          <label className="text-xs block"><span className="font-bold">Name in Arabic messages</span><input value={c.nameAr} dir="rtl" onChange={(e) => setC({ ...c, nameAr: e.target.value })} className="input-field w-full text-sm mt-0.5" /></label>
+        </div>
+        <button onClick={save} className="btn-primary rounded-xl px-4 py-2 text-sm font-bold">Save settings</button>
+      </Card>
+      <div className="space-y-5">
+        <Card title={<><Mail size={16} className="text-sky-600" />E-mail channel — phase 3</>}>
+          <p className="text-xs text-brand-gray">Lara gets her own mailbox on the company Exchange. Every mail she sends carries a code in the subject, so replies join the right conversation and never create a duplicate lead. Needed from you: a new mailbox from IT (you enter its password yourself).</p>
+        </Card>
+        <Card title={<><MessageSquare size={16} className="text-green-600" />WhatsApp channel — phase 6</>}>
+          <p className="text-xs text-brand-gray">Meta WhatsApp Cloud API, direct. Setup wizard: verified Meta business, a number only for Lara, permanent token, webhook. Meta's rules are built in: consent, the 24-hour window, approved templates outside it, "stop" handling, human hand-over.</p>
+        </Card>
+        <Card title={<><ShieldCheck size={16} className="text-emerald-600" />Cost</>}>
+          <p className="text-xs text-brand-gray">No AI model is used. Lara's daily run reads only the few fields she needs from open leads (a few hundred kilobytes) and writes at most {c.maxPerRun} drafts. It runs inside the Supabase free plan.</p>
+        </Card>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------------------------
+// Log
+// ---------------------------------------------------------------------------------------------
+const KIND: Record<string, string> = { run: 'Run', decision: 'Decision', kb: 'Q&A', missed: 'Missed', config: 'Settings' };
+const LogTab: React.FC = () => {
+  const [rows, setRows] = useState<any[] | null>(null);
+  useEffect(() => { void api('/lara/log?limit=300').then((r) => setRows(r.rows)).catch((e) => { toast.error(e.message); setRows([]); }); }, []);
+  return (
+    <Card title={<><ScrollText size={16} className="text-brand-red" />Everything Lara did</>}>
+      {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : rows.length === 0 ? <p className="text-sm text-brand-gray">Nothing yet.</p> : (
+        <ul className="divide-y divide-brand-gray/10">{rows.map((r) => (
+          <li key={r.id} className="py-2 text-xs flex gap-3"><span className="text-brand-gray w-28 shrink-0">{when(r.at)}</span><span className="font-bold w-20 shrink-0">{KIND[r.kind] || r.kind}</span><span className="flex-1">{r.text}{r.actor ? <span className="text-brand-gray"> · {r.actor}</span> : null}</span></li>
+        ))}</ul>
+      )}
+    </Card>
+  );
+};

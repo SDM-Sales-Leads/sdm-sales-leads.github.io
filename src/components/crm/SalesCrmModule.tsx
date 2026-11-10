@@ -32,6 +32,7 @@ const CrmTeamPerformance = lazy(() => import('./CrmTeamPerformance').then(m => (
 const CrmBdTracker = lazy(() => import('./CrmBdTracker').then(m => ({ default: m.CrmBdTracker })));
 const CrmOffers = lazy(() => import('./CrmOffers').then(m => ({ default: m.CrmOffers })));
 const CrmDuplicates = lazy(() => import('./CrmDuplicates').then(m => ({ default: m.CrmDuplicates })));
+const LaraModule = lazy(() => import('../lara/LaraModule').then(m => ({ default: m.LaraModule })));
 const CrmSmartAssistant = lazy(() => import('./CrmSmartAssistant').then(m => ({ default: m.CrmSmartAssistant })));
 import { 
   TrendingUp, 
@@ -271,6 +272,7 @@ export const SalesCrmModule: React.FC<SalesCrmModuleProps> = ({
         {activeSubTab === 'contracts' && <CrmContracts leads={leads} onLeadsUpdated={() => afterChange()} currentRole={currentRole} setActiveSubTab={setActiveSubTab} />}
         {activeSubTab === 'targets' && <CrmTargets leads={leads} onLeadsUpdated={() => afterChange()} currentRole={currentRole} setActiveSubTab={setActiveSubTab} />}
         {activeSubTab === 'external-sales' && <CrmExternalSales leads={leads} onLeadsUpdated={() => afterChange()} currentRole={currentRole} setActiveSubTab={setActiveSubTab} />}
+        {activeSubTab.startsWith('lara') && <LaraModule sub={activeSubTab} leads={leads} setActiveSubTab={setActiveSubTab} />}
         {activeSubTab === 'smart' && <CrmSmartAssistant leads={leads} onLeadsUpdated={() => afterChange()} setActiveSubTab={setActiveSubTab} />}
         {activeSubTab === 'duplicates' && <CrmDuplicates leads={leads} onLeadsUpdated={() => afterChange()} currentRole={currentRole} setActiveSubTab={setActiveSubTab} />}
         {activeSubTab === 'audit' && <CrmAudit leads={leads} onLeadsUpdated={() => afterChange()} currentRole={currentRole} setActiveSubTab={setActiveSubTab} />}

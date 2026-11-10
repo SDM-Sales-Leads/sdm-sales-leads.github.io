@@ -20,7 +20,7 @@ export const SITUATION_LABEL: Record<Situation, string> = {
   visit: 'Confirm the site visit', cold: 'Wake up a quiet lead', plotgone: 'Their plot is gone: offer an alternative', won: 'Thank you / next steps',
 };
 export interface Draft { situation: Situation; version: number; ar: string; en: string; subjectAr: string; subjectEn: string }
-export interface WriterCtx { rep: string; fit: PlotFit | null; byKey?: Map<string, Plot>; now?: number }
+export interface WriterCtx { rep: string; repAr?: string; fit: PlotFit | null; byKey?: Map<string, Plot>; now?: number }
 
 const PARK_AR: Record<string, string> = {
   'Industria October': 'إندستريا أكتوبر', 'Industria New Sadat': 'إندستريا السادات الجديدة', 'Industria Sadat': 'إندستريا السادات',
@@ -212,7 +212,9 @@ export function writeFor(l: Lead, ctx: WriterCtx, situation?: Situation): Draft[
   const x = factsOf(l, ctx);
   const subjectEn = s === 'meeting' || s === 'visit' ? `Confirmation — ${x.parkEn}` : s === 'offer' || s === 'study' ? `Your offer — ${x.parkEn}` : s === 'plotgone' ? `Alternatives for your plot — ${x.parkEn}` : `Industrial land in ${x.parkEn}${x.company ? ` — ${x.company}` : ''}`;
   const subjectAr = s === 'meeting' || s === 'visit' ? `تأكيد الموعد — ${x.parkAr}` : s === 'offer' || s === 'study' ? `العرض الخاص بحضرتك — ${x.parkAr}` : s === 'plotgone' ? `بدائل للقطعة — ${x.parkAr}` : `أرض صناعية في ${x.parkAr}`;
-  return build(s, x, ctx.rep).map((v, i) => ({ situation: s, version: i, ar: v.ar, en: v.en, subjectAr, subjectEn }));
+  const en = build(s, x, ctx.rep);
+  const ar = ctx.repAr && ctx.repAr !== ctx.rep ? build(s, x, ctx.repAr) : en;   // Lara signs in Arabic as لارا
+  return en.map((v, i) => ({ situation: s, version: i, ar: ar[i].ar, en: v.en, subjectAr, subjectEn }));
 }
 /** situations worth offering for this lead (the detected one first) */
 export function situationsFor(l: Lead, ctx: WriterCtx): Situation[] {

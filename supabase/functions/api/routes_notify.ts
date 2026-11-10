@@ -7,6 +7,7 @@ import { crmScope, needCrm as _nc } from "./lib.ts";
 import { SPECS, teamIds } from "./routes_crm.ts";
 import { fillPool } from "./pool.ts";
 import { usageGuard } from "./usage.ts";
+import { runShadow } from "./routes_lara.ts";
 import { appBase, escalateCallCenter, notifyOnHold, resetHoldCache, runReminders, sendAssignDigest } from "./notify.ts";
 
 // ---------------------------------------------------------------------------------------------
@@ -161,7 +162,14 @@ route("POST", "/cron/reminders", async ({ req }) => {
   let pool: any = {}; try { pool = await lap("pool", () => fillPool(300)); } catch (e: any) { pool = { poolError: String(e?.message || e).slice(0, 120) }; }
   let dg: any = {}; try { dg = await lap("digest", () => sendAssignDigest()); } catch (e: any) { dg = { digestError: String(e?.message || e).slice(0, 120) }; }
   let ug: any = {}; try { if (+new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", hourCycle: "h23" }).format(new Date()) >= 8) ug = await lap("usage", () => usageGuard()); } catch { /* ignore */ }
-  return { ...r, ...cc, pool, ...dg, ...ug, ms: T };
+  // Lara (shadow mode): one run a day at 09:00 Cairo, Sunday to Thursday. She only writes drafts; nothing is sent.
+  let lara: any = {};
+  try {
+    const cp = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", minute: "2-digit", weekday: "short", hourCycle: "h23" }).formatToParts(new Date());
+    const gp = (t: string) => cp.find((x) => x.type === t)?.value || "";
+    if (gp("hour") === "09" && +gp("minute") < 5 && !["Fri", "Sat"].includes(gp("weekday"))) lara = { lara: await lap("lara", () => runShadow("Daily run")) };
+  } catch (e: any) { lara = { laraError: String(e?.message || e).slice(0, 120) }; }
+  return { ...r, ...cc, pool, ...dg, ...ug, ...lara, ms: T };
 }, { public: true });
 
 void isObj;

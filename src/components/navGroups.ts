@@ -1,7 +1,7 @@
 // The ONE menu for all three looks: 11 groups, each with its own tabs. A group opens its first tab; the tabs sit above the page.
 // The old 36 entries still exist as pages (same ids, same links); only the way to reach them is grouped.
 import { crmScopeOf, isManagerScope } from './crm/leadMetrics';
-import { Banknote, BarChart3, Briefcase, GraduationCap, Home, Inbox, Layers, LifeBuoy, Map, Settings, Target, Users } from 'lucide-react';
+import { Banknote, BarChart3, Bot, Briefcase, GraduationCap, Home, Inbox, Layers, LifeBuoy, Map, Settings, Target, Users } from 'lucide-react';
 
 export interface NavItem { id: string; label: string; tab: string; sub?: string }
 export interface NavGroup { id: string; label: string; icon: any; emoji: string; items: NavItem[] }
@@ -36,6 +36,8 @@ export function buildGroups(p: any, role?: string): NavGroup[] {
     G('intake', 'Intake', Inbox, '⇅', [s('queue', 'Mail', 'queue', p?.canViewSalesMail && MAIL_ROLES.includes(role || '')), s('import', 'Excel import / export', 'import-export', p?.canViewSalesTransfer), s('duplicates', 'Duplicates', 'duplicates', p?.canViewSalesTransfer || p?.canViewSalesRules)]),
     G('setup', 'Setup', Settings, '⚙', [s('rules', 'Routing rules', 'rules', p?.canViewSalesRules), s('audit', 'Audit trail', 'audit', p?.canViewSalesAudit), t('admin', 'Users & settings', 'admin', p?.canViewAdminPanel), t('health', 'System health', 'health', p?.canViewAdminPanel)]),
     G('bd', 'BD & External', Briefcase, '↗', [s('bd-tracker', 'BD tracker', 'bd-tracker', BD_ROLES.includes(role || '')), s('external', 'External sales', 'external-sales', p?.canViewSalesExternal)]),
+    // Lara Sales AI (phase 2, 10 Nov 2026): admin only while it is tested; the server checks too
+    G('lara', 'Lara Sales AI', Bot, '✦', [s('lara', 'Control room', 'lara', role === 'Admin'), s('lara-inbox', 'Shadow inbox', 'lara-inbox', role === 'Admin'), s('lara-kb', 'Knowledge', 'lara-kb', role === 'Admin'), s('lara-missed', 'Missed questions', 'lara-missed', role === 'Admin'), s('lara-settings', 'Settings & channels', 'lara-settings', role === 'Admin'), s('lara-log', 'Log', 'lara-log', role === 'Admin')]),
     G('help', 'Help', GraduationCap, '🎓', [s('guide', 'How to use', 'guide', crmAny)]),
     G('service', 'Service desk', LifeBuoy, '🎫', [t('svc-dash', 'Overview', 'dashboard', p?.canViewDashboard), t('tickets', 'My tickets', 'tickets', p?.canViewTickets), t('new-ticket', 'New ticket', 'new-ticket', p?.canViewTickets), t('workflow', 'Workflow & SLA', 'workflow-sla', p?.canViewWorkflowBuilder), t('kb', 'Knowledge base', 'kb', p?.canViewKnowledgeBase)]),
   ].filter(Boolean) as NavGroup[];

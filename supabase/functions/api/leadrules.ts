@@ -43,6 +43,8 @@ export function cleanAssignedPlots(v: any): any[] {
 
 const SYSTEM_TEXT = /^(\[merged\]\s*)*(imported from excel|imported via smart paste|auto-assigned|requested area|sole owner set|transferred to|project changed|merged |assigned to |status changed)/i;
 const NOT_A_TOUCH = new Set(["Assignment", "Import", "Creation"]);
+// Lara (the digital assistant) writing to a customer is not the salesperson touching the lead (fairness rules)
+const NOT_A_PERSON = new Set(["System", "Lara"]);
 
 /** "touched" = a salesperson did anything on the lead (call, WhatsApp, e-mail, meeting, comment, status change ...).
  *  It is stamped once (data.touched = true) and never goes back, so two people never call the same customer. */
@@ -53,7 +55,7 @@ export function isTouched(d: any): boolean {
   if ((d.status || "New") !== "New") return true;
   if (d.firstContactAt || d.lastContactDate || d.meetingDate || d.offerSent || d.qualNotes) return true;
   if ((d.comments || []).some((c: any) => !SYSTEM_TEXT.test(String(c?.comment || "").trim()))) return true;
-  if ((d.timeline || []).some((e: any) => e && !NOT_A_TOUCH.has(e.type) && String(e.user || "") !== "System")) return true;
+  if ((d.timeline || []).some((e: any) => e && !NOT_A_TOUCH.has(e.type) && !NOT_A_PERSON.has(String(e.user || "")))) return true;
   return false;
 }
 

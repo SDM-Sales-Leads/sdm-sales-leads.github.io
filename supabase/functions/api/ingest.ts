@@ -41,7 +41,10 @@ const CLOSED = new Set(["Won", "Lost", "Duplicate", "Invalid", "Not Interested",
 const PRIORITIES = ["Urgent", "High", "Normal", "Low"];
 const SUBJECT_HINTS = ["sales lead", "inquiry", "enquiry", "contact", "form", "lead", "request", "new submission", "plan your visit"];
 
+/** a mail of a Lara conversation (code in the subject): it belongs to that conversation, never a new lead */
+export const LARA_CODE_RE = /\[(SDM-[A-Z0-9]+-\d+-[A-Z0-9]{4})\]/i;
 export const subjectLooksLikeLead = (s: string) => {
+  if (LARA_CODE_RE.test(s || "")) return false;
   const l = (s || "").toLowerCase();
   return SUBJECT_HINTS.some((h) => l.includes(h));
 };

@@ -7,7 +7,7 @@ import { crmScope, needCrm as _nc } from "./lib.ts";
 import { SPECS, teamIds } from "./routes_crm.ts";
 import { fillPool } from "./pool.ts";
 import { usageGuard } from "./usage.ts";
-import { runShadow } from "./routes_lara.ts";
+import { laraMailTick, runShadow } from "./routes_lara.ts";
 import { appBase, escalateCallCenter, notifyOnHold, resetHoldCache, runReminders, sendAssignDigest } from "./notify.ts";
 
 // ---------------------------------------------------------------------------------------------
@@ -169,6 +169,8 @@ route("POST", "/cron/reminders", async ({ req }) => {
     const gp = (t: string) => cp.find((x) => x.type === t)?.value || "";
     if (gp("hour") === "09" && +gp("minute") < 5 && !["Fri", "Sat"].includes(gp("weekday"))) lara = { lara: await lap("lara", () => runShadow("Daily run")) };
   } catch (e: any) { lara = { laraError: String(e?.message || e).slice(0, 120) }; }
+  // Lara's mailbox (approve-first mode only): read replies and send approved mails every 10 minutes
+  try { if (new Date().getMinutes() % 10 < 5) lara = { ...lara, laraMail: await lap("laramail", () => laraMailTick()) }; } catch (e: any) { lara = { ...lara, laraMailError: String(e?.message || e).slice(0, 120) }; }
   return { ...r, ...cc, pool, ...dg, ...ug, ...lara, ms: T };
 }, { public: true });
 

@@ -10,7 +10,7 @@
 import { admin, getConfig, getSecret, HttpError, nowIso, setConfig, setSecret, str, tryLock, unlock } from "./lib.ts";
 import { pg } from "./db.ts";
 import { EwsConfig, getBodies, htmlToText, listFolder, loadEws, sendMail, sendMailWithAttachment, verify } from "./ews.ts";
-import { offerPdf, recordOfferPrint } from "./lara_offer.ts";
+import { offerFileName, offerPdf, recordOfferPrint } from "./lara_offer.ts";
 import { toBase64 } from "./pdf.ts";
 import { addNotifications } from "./notify.ts";
 import { LARA_CODE_RE } from "./ingest.ts";
@@ -170,7 +170,7 @@ export async function sendDraft(draftId: string, r: SendRules, by: string): Prom
   try {
     if (d.kind === "offer") {
       const pdf = offerPdf(d.offer);
-      await sendMailWithAttachment(await ewsCfg(), { to: [d.to_addr], subject, html: mailHtml(d.body), replyTo: mbox.address }, { name: `${d.offer.ref}.pdf`, contentType: "application/pdf", base64: toBase64(pdf) });
+      await sendMailWithAttachment(await ewsCfg(), { to: [d.to_addr], subject, html: mailHtml(d.body), replyTo: mbox.address }, { name: offerFileName(d.offer), contentType: "application/pdf", base64: toBase64(pdf) });
     } else await sendMail(await ewsCfg(), { to: [d.to_addr], subject, html: mailHtml(d.body), replyTo: mbox.address });
   } catch (e: any) {
     await admin.from("lara_drafts").update({ send_status: "failed", send_error: String(e?.message || e).slice(0, 200), updated_at: nowIso() }).eq("id", d.id);
@@ -195,7 +195,7 @@ export async function sendOfferTestCopy(d: any, to: string) {
   if (!(await mailboxReady())) throw new HttpError(400, "Lara's mailbox is not connected");
   const mbox = await laraMailCfg();
   await sendMailWithAttachment(await ewsCfg(), { to: [to], subject: `[TEST] ${String(d.subject || "").replace(LARA_CODE_RE, "").trim()}`, html: mailHtml(`TEST COPY — this is what the customer (${d.to_addr || "no address"}) would receive.\n\n${d.body}`), replyTo: mbox.address },
-    { name: `${d.offer.ref}.pdf`, contentType: "application/pdf", base64: toBase64(offerPdf(d.offer)) });
+    { name: offerFileName(d.offer), contentType: "application/pdf", base64: toBase64(offerPdf(d.offer)) });
 }
 
 /** cron: queued drafts go out in working hours, oldest first, within the daily limit */

@@ -15,8 +15,9 @@ import { canonicalParks } from "../../../src/lib/parkAliases.ts";
 import { PARK_AR, plotsAr, preferredLang, situationOf, writeFor } from "../../../src/components/crm/smartWriter.ts";
 import { availableByPark, plotFit } from "../../../src/components/crm/smartEngine.ts";
 import { firstNameOf } from "../../../src/lib/personName.ts";
-import { triggerHit, condsOk, stopReason, validateWorkflow, hasEmail, hasPhone, TRIGGERS, Workflow, Step } from "./lara_flow.ts";
+import { triggerHit, condsOk, condOne, stopReason, validateWorkflow, hasEmail, hasPhone, TRIGGERS, Workflow, graphOf, nextOf, NODE_LABEL, type Graph, type GNode } from "./lara_flow.ts";
 import { addNotifications } from "./notify.ts";
+import { aiAnswer } from "./lara_ai.ts";
 import { buildOffer, coverText, offerCandidates, OfferInput } from "./lara_offer.ts";
 import { lbRoute } from "./integration.ts";
 import { sendOfferTestCopy } from "./lara_mail.ts";
@@ -44,7 +45,7 @@ export async function laraConfig(): Promise<LaraConfig> {
   const c = await getConfig<any>("lara_config", {});
   return { ...LARA_DEFAULT, ...(c && typeof c === "object" ? c : {}) };
 }
-async function log(kind: string, actor: string | null, text: string, data?: any) {
+export async function log(kind: string, actor: string | null, text: string, data?: any) {
   await admin.from("lara_log").insert({ kind, actor, text: text.slice(0, 500), data: data ?? null }).then(() => {}, () => {});
 }
 
@@ -136,8 +137,8 @@ async function flushNotes(x: { notes: { owner: Record<string, { handover: NoteIt
 }
 type Ctx = Awaited<ReturnType<typeof runContext>>;
 
-/** the message draft for one step (null when the lead cannot get one now) */
-function draftFor(cfg: LaraConfig, x: Ctx, wf: Workflow, step: Step, i: number, l: any, why: string, runId: string) {
+/** the message draft for one "Write to the customer" box (null when the lead cannot get one now) */
+function draftFor(cfg: LaraConfig, x: Ctx, wf: Workflow, step: { channel?: string; situation?: string }, label: string, l: any, why: string, runId: string) {
   const ctx = { rep: cfg.nameEn, repAr: cfg.nameAr, fit: plotFit(l, x.byPark as any), byKey: x.byKey as any, owner: str(l.assignedSalespersonName, 60) };
   const sit = step.situation && step.situation !== "auto" ? step.situation : situationOf(l, ctx);
   const d = writeFor(l, ctx, sit as any)[0];
@@ -151,7 +152,7 @@ function draftFor(cfg: LaraConfig, x: Ctx, wf: Workflow, step: Step, i: number, 
   return {
     lead_id: l.id, run_id: runId, rule: `wf:${wf.id}`, situation: sit, channel, lang,
     subject: lang === "ar" ? d.subjectAr : d.subjectEn, body: lang === "ar" ? d.ar : d.en,
-    reason: `${wf.name} · step ${i + 1} of ${wf.steps.length}: ${why}`,
+    reason: `${wf.name} · ${label}: ${why}`,
     customer: str(l.customerName || l.companyName || l.id, 120), owner_id: l.assigned_to, owner_name: str(l.assignedSalespersonName, 80),
     kind: "followup", to_addr: mail || null, to_phone: hasPhone(l) ? intl(l.phoneNumber) || null : null,
     /* Autopilot (phase 7): only when the owner chose Autopilot AND this workflow allows it; offers never */
@@ -164,13 +165,14 @@ async function directors(): Promise<string[]> {
   return (data || []).map((r: any) => r.id);
 }
 
-/** run one step; returns what happened ('' = skipped, try again next run) */
-async function doStep(cfg: LaraConfig, x: Ctx, wf: Workflow, i: number, l: any, why: string, runId: string, budget: { left: number }): Promise<string> {
-  const step = wf.steps[i];
+/** run one action box; returns what happened ('' = not now, try again next run) */
+async function doStep(cfg: LaraConfig, x: Ctx, wf: Workflow, n: GNode, l: any, why: string, runId: string, budget: { left: number }): Promise<string> {
+  const step = { action: n.type, channel: n.data?.channel, situation: n.data?.situation };
+  const label = n.data?.label || NODE_LABEL[n.type] || n.type;
   if (step.action === "offer") {
     if (budget.left <= 0) return "";
     if (!hasEmail(l)) return "skipped (no e-mail for an offer)";
-    const r = await createOfferDraft(cfg, l.id, { plotKeys: null, mode: "cash", discountPct: 0 }, `${wf.name} · step ${i + 1} of ${wf.steps.length}: ${why}`, `wf:${wf.id}`, runId).catch(() => null);
+    const r = await createOfferDraft(cfg, l.id, { plotKeys: null, mode: "cash", discountPct: 0 }, `${wf.name} · ${label}: ${why}`, `wf:${wf.id}`, runId).catch(() => null);
     if (!r) return "skipped (no available plot fits)";
     budget.left--;
     return "draft";
@@ -180,7 +182,7 @@ async function doStep(cfg: LaraConfig, x: Ctx, wf: Workflow, i: number, l: any, 
     if (budget.left <= 0) return "";
     const t = x.threads.get(l.id);
     if (t && t.last_out_at && x.now - Date.parse(t.last_out_at) < cfg.minDaysBetween * 864e5) return "";
-    const row = draftFor(cfg, x, wf, step, i, l, why, runId);
+    const row = draftFor(cfg, x, wf, step, label, l, why, runId);
     if (!row) return "skipped (no e-mail / phone for this channel)";
     const ins = await admin.from("lara_drafts").insert(row);
     if (ins.error) return "";
@@ -197,6 +199,58 @@ async function doStep(cfg: LaraConfig, x: Ctx, wf: Workflow, i: number, l: any, 
     return "handed over";
   }
   return "notified owner";
+}
+
+// ---- the drawn workflow (boxes + arrows) -----------------------------------------------------
+const ACTION_TYPES = new Set(["message", "offer", "notify_owner", "notify_director", "handover"]);
+/** does the drawing look at replies itself? then "stop when the customer replies" must not end it early */
+const usesReply = (g: Graph) => g.nodes.some((n) => n.type === "wait_reply" || (n.type === "condition" && n.data?.field === "replied"));
+/** the box an enrollment is waiting at (old rows only know the step number: s0, s1, … from the converted step list) */
+function enrollNode(g: Graph, e: any): string | null {
+  if (e.node) return g.nodes.some((n) => n.id === e.node) ? e.node : null;
+  const id = `s${Number(e.step) || 0}`;
+  return g.nodes.some((n) => n.id === id) ? id : null;
+}
+interface Walk { node: string | null; nextAt: number; waitSince: string | null; path: any[]; did: string[]; moved: boolean }
+/** walk the drawing from `start` until a Wait box, the end, or an action that cannot run now (at most 10 boxes per run) */
+async function advance(cfg: LaraConfig, x: Ctx, wf: Workflow, g: Graph, start: string | null, e: { started_at?: string; wait_since?: string | null; path?: any[]; next_at?: string }, l: any, why: string, runId: string, budget: { left: number }): Promise<Walk> {
+  const now = x.now; const t = x.threads.get(l.id);
+  const lastIn = Date.parse(t?.last_in_at || "") || 0;
+  const replied = lastIn > (Date.parse(e.started_at || "") || now);
+  const path = Array.isArray(e.path) ? e.path.slice(-29) : [];
+  const w: Walk = { node: start, nextAt: now, waitSince: null, path, did: [], moved: false };
+  const mark = (n: GNode, what: string) => { w.path.push({ n: n.id, at: new Date(now).toISOString(), what }); if (w.path.length > 30) w.path.shift(); w.moved = true; };
+  for (let k = 0; k < 10 && w.node; k++) {
+    const n = g.nodes.find((z) => z.id === w.node);
+    if (!n || n.type === "end") { if (n) mark(n, "end"); w.node = null; break; }
+    if (n.type === "trigger") { w.node = nextOf(g, n.id); continue; }
+    if (n.type === "wait") {
+      const days = Math.max(1, Math.min(60, Number(n.data?.days) || 1));
+      mark(n, `wait ${days} d`); w.node = nextOf(g, n.id); w.nextAt = now + days * 864e5;
+      return w;                                                                   // continue after the wait
+    }
+    if (n.type === "wait_reply") {
+      const since = e.wait_since && start === n.id ? Date.parse(e.wait_since) : 0;
+      if (!since) {                                                              // just arrived: start waiting
+        const days = Math.max(1, Math.min(30, Number(n.data?.days) || 3));
+        mark(n, `waiting up to ${days} d for a reply`); w.waitSince = new Date(now).toISOString(); w.nextAt = now + days * 864e5; return w;
+      }
+      if (lastIn > since) { mark(n, "replied"); w.node = nextOf(g, n.id, "replied"); w.waitSince = null; continue; }
+      if (now >= (Date.parse(e.next_at || "") || 0)) { mark(n, "no reply"); w.node = nextOf(g, n.id, "no_reply"); w.waitSince = null; continue; }
+      w.waitSince = e.wait_since || null; w.nextAt = Date.parse(e.next_at || "") || now; return w;   // still waiting
+    }
+    if (n.type === "condition") {
+      const ok = condOne({ field: n.data?.field, op: n.data?.op || "in", value: n.data?.value }, l, now, replied);
+      mark(n, ok ? "yes" : "no"); w.node = nextOf(g, n.id, ok ? "yes" : "no"); continue;
+    }
+    if (ACTION_TYPES.has(n.type)) {
+      const did = await doStep(cfg, x, wf, n, l, why, runId, budget);
+      if (!did) return w;                                                        // not now (draft limit, a draft still waiting…): try again next run
+      mark(n, did); w.did.push(did); w.node = nextOf(g, n.id); continue;
+    }
+    w.node = nextOf(g, n.id);
+  }
+  return w;
 }
 
 /** the daily run: move due enrollments one step (or stop them), then enroll new leads by workflow priority */
@@ -224,16 +278,21 @@ export async function runShadow(by: string): Promise<any> {
       const wf = wfById.get(e.workflow_id);
       const l = x.byId.get(e.lead_id);
       const t = x.threads.get(e.lead_id);
-      const stop = !wf ? "Workflow switched off" : x.dnc.has(e.lead_id) ? "Rejected: do not contact" : stopReason(wf, l, Date.parse(e.started_at), x.today, Date.parse(t?.last_in_at || "") || 0, t?.status || "", !!(l && x.optedOut(l)));
+      const g = wf ? graphOf(wf) : null;
+      const wfStop = wf && g && usesReply(g) ? { ...wf, stop: { ...wf.stop, onReply: false } } : wf;   // the drawing handles replies itself
+      const stop = !wf ? "Workflow switched off" : x.dnc.has(e.lead_id) ? "Rejected: do not contact" : stopReason(wfStop!, l, Date.parse(e.started_at), x.today, Date.parse(t?.last_in_at || "") || 0, t?.status || "", !!(l && x.optedOut(l)));
       if (stop) { await admin.from("lara_enrollments").update({ status: "stopped", stop_reason: stop, updated_at: nowIso() }).eq("id", e.id); res.stopped++; continue; }
-      if (Date.parse(e.next_at) > now || !wf) continue;
-      if (e.step >= wf.steps.length) { await admin.from("lara_enrollments").update({ status: "done", updated_at: nowIso() }).eq("id", e.id); res.finished++; continue; }
-      const did = await doStep(cfg, x, wf, e.step, l, e.why, runId, budget);
-      if (!did) continue;
-      if (did === "draft") res.drafted++; else if (did.startsWith("notified") || did === "handed over") res.notified++;
-      const next = e.step + 1;
-      const done = next >= wf.steps.length;
-      await admin.from("lara_enrollments").update({ step: next, status: done ? "done" : "active", next_at: new Date(now + (done ? 0 : Number(wf.steps[next].waitDays) || 0) * 864e5).toISOString(), updated_at: nowIso() }).eq("id", e.id);
+      if (!wf || !g) continue;
+      const at = enrollNode(g, e);
+      if (!at) { await admin.from("lara_enrollments").update({ status: "done", node: null, updated_at: nowIso() }).eq("id", e.id); res.finished++; continue; }
+      const atNode = g.nodes.find((n) => n.id === at);
+      const repliedSince = atNode?.type === "wait_reply" && e.wait_since && (Date.parse(t?.last_in_at || "") || 0) > Date.parse(e.wait_since);
+      if (Date.parse(e.next_at) > now && !repliedSince) continue;                 // not due (a reply wakes a "Wait for a reply" box early)
+      const w = await advance(cfg, x, wf, g, at, e, l, e.why, runId, budget);
+      for (const d of w.did) { if (d === "draft") res.drafted++; else if (d.startsWith("notified") || d === "handed over") res.notified++; }
+      if (!w.moved) continue;
+      const done = !w.node;
+      await admin.from("lara_enrollments").update({ node: w.node, step: (Number(e.step) || 0) + w.did.length, status: done ? "done" : "active", next_at: new Date(w.nextAt).toISOString(), wait_since: w.waitSince, path: w.path, updated_at: nowIso() }).eq("id", e.id);
       res.moved++; if (done) res.finished++; count(wf);
     }
 
@@ -257,18 +316,19 @@ export async function runShadow(by: string): Promise<any> {
     }
     cands.sort((a, b) => b.rank - a.rank);
     for (const c of cands) {
-      const first = c.wf.steps[0];
-      const needsBudget = first.action === "message" && Number(first.waitDays) === 0;
-      if (needsBudget && budget.left <= 0) continue;   // drafts for today are used up; notification-only workflows still start
-      const ins = await admin.from("lara_enrollments").insert({ workflow_id: c.wf.id, lead_id: c.l.id, why: c.why, next_at: new Date(now + (Number(first.waitDays) || 0) * 864e5).toISOString() }).select("*").single();
+      const g = graphOf(c.wf);
+      const trig = g.nodes.find((n) => n.type === "trigger");
+      const start = trig ? nextOf(g, trig.id) : null;
+      if (!start) continue;
+      const first = g.nodes.find((n) => n.id === start);
+      if ((first?.type === "message" || first?.type === "offer") && budget.left <= 0) continue;   // drafts for today are used up; other workflows still start
+      const ins = await admin.from("lara_enrollments").insert({ workflow_id: c.wf.id, lead_id: c.l.id, why: c.why, node: start, next_at: new Date(now).toISOString() }).select("*").single();
       if (ins.error || !ins.data) continue;
       res.enrolled++; count(c.wf);
-      if (Number(first.waitDays) > 0) continue;
-      const did = await doStep(cfg, x, c.wf, 0, c.l, c.why, runId, budget);
-      if (!did) continue;
-      if (did === "draft") res.drafted++; else res.notified++;
-      const done = c.wf.steps.length <= 1;
-      await admin.from("lara_enrollments").update({ step: 1, status: done ? "done" : "active", next_at: new Date(now + (done ? 0 : Number(c.wf.steps[1].waitDays) || 0) * 864e5).toISOString(), updated_at: nowIso() }).eq("id", ins.data.id);
+      const w = await advance(cfg, x, c.wf, g, start, ins.data, c.l, c.why, runId, budget);
+      for (const d of w.did) { if (d === "draft") res.drafted++; else res.notified++; }
+      if (!w.moved) continue;
+      await admin.from("lara_enrollments").update({ node: w.node, step: w.did.length, status: w.node ? "active" : "done", next_at: new Date(w.nextAt).toISOString(), wait_since: w.waitSince, path: w.path, updated_at: nowIso() }).eq("id", ins.data.id);
     }
     const sentNotes = await flushNotes(x);
     await log("run", by, `Run: ${sentNotes} grouped notifications; ${res.enrolled} leads started a workflow, ${res.moved} moved a step, ${res.stopped} stopped; ${res.drafted} drafts, ${res.notified} notifications. Only approved e-mails are sent.`, res);
@@ -290,27 +350,51 @@ export async function testWorkflow(w: Workflow) {
     if (hit && condsOk(w, l, x.now)) hits.push({ l, why: hit.why, rank: hit.rank, busy: busy.has(l.id) });
   }
   hits.sort((a, b) => b.rank - a.rank);
-  const firstMsg = w.steps.findIndex((s) => s.action === "message");
-  const samples = firstMsg < 0 ? [] : hits.filter((h) => !h.busy).slice(0, 3).map((h) => { const d = draftFor(cfg, x, w, w.steps[firstMsg], firstMsg, h.l, h.why, "TEST"); return d ? { customer: d.customer, channel: d.channel, subject: d.subject, body: d.body } : null; }).filter(Boolean);
+  // the path each sample lead would take through the drawing (a reply is assumed NOT to come; nothing is written)
+  const g = graphOf(w);
+  const simulate = (l: any) => {
+    const steps: { id: string; type: string; text: string }[] = []; let msg: any = null;
+    const trig = g.nodes.find((n) => n.type === "trigger");
+    let cur = trig ? nextOf(g, trig.id) : null; let day = 0;
+    for (let k = 0; k < 20 && cur; k++) {
+      const n = g.nodes.find((z) => z.id === cur); if (!n) break;
+      const label = n.data?.label || NODE_LABEL[n.type] || n.type;
+      if (n.type === "end") { steps.push({ id: n.id, type: n.type, text: "End" }); break; }
+      if (n.type === "wait") { const d = Number(n.data?.days) || 1; day += d; steps.push({ id: n.id, type: n.type, text: `Wait ${d} day${d > 1 ? "s" : ""}` }); cur = nextOf(g, n.id); continue; }
+      if (n.type === "wait_reply") { const d = Number(n.data?.days) || 3; day += d; steps.push({ id: n.id, type: n.type, text: `No reply within ${d} days (assumed)` }); cur = nextOf(g, n.id, "no_reply"); continue; }
+      if (n.type === "condition") { const ok = condOne({ field: n.data?.field, op: n.data?.op || "in", value: n.data?.value }, l, x.now, false); steps.push({ id: n.id, type: n.type, text: `${label}: ${ok ? "yes" : "no"}` }); cur = nextOf(g, n.id, ok ? "yes" : "no"); continue; }
+      if (n.type === "message") {
+        const d = draftFor(cfg, x, w, { channel: n.data?.channel, situation: n.data?.situation }, label, l, "", "TEST");
+        steps.push({ id: n.id, type: n.type, text: d ? `Day ${day}: ${d.channel === "email" ? "e-mail" : "WhatsApp"} draft` : `Day ${day}: skipped (no e-mail / phone for this channel)` });
+        if (d && !msg) msg = { customer: d.customer, channel: d.channel, subject: d.subject, body: d.body };
+      } else steps.push({ id: n.id, type: n.type, text: `Day ${day}: ${label}` });
+      cur = nextOf(g, n.id);
+    }
+    if (cur === null && steps[steps.length - 1]?.type !== "end") steps.push({ id: "", type: "end", text: "End" });
+    return { steps, msg };
+  };
+  const sims = hits.filter((h) => !h.busy).slice(0, 5).map((h) => ({ h, s: simulate(h.l) }));
+  const samples = sims.map((z) => z.s.msg).filter(Boolean).slice(0, 3);
+  const paths = sims.map((z) => ({ id: z.h.l.id, customer: z.h.l.customerName || z.h.l.companyName || z.h.l.id, steps: z.s.steps }));
   const owners: Record<string, number> = {};
   for (const h of hits) owners[h.l.assignedSalespersonName || "—"] = (owners[h.l.assignedSalespersonName || "—"] || 0) + 1;
   return {
     matched: hits.length, alreadyInAWorkflow: hits.filter((h) => h.busy).length, perRunLimit: cfg.maxPerRun,
     leads: hits.slice(0, 40).map((h) => ({ id: h.l.id, customer: h.l.customerName || h.l.companyName || h.l.id, owner: h.l.assignedSalespersonName || "—", status: h.l.status, why: h.why, busy: h.busy, email: hasEmail(h.l), phone: hasPhone(h.l) })),
     byOwner: Object.entries(owners).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([name, n]) => ({ name, n })),
-    samples,
+    samples, paths,
   };
 }
 
 // ---------------------------------------------------------------------------------------------
 // Q&A
 // ---------------------------------------------------------------------------------------------
-async function activeKb(): Promise<KbEntry[]> {
+export async function activeKb(): Promise<KbEntry[]> {
   const { data } = await admin.from("lara_kb").select("id,topic,q_ar,q_en,phrasings,a_ar,a_en,status,uses").eq("status", "active").limit(3000);
   return (data || []) as KbEntry[];
 }
 /** "is there land in October around 3,000 m?" answered from the Land Bank list (no Q&A needed) */
-async function availabilityAnswer(question: string): Promise<{ ar: string; en: string } | null> {
+export async function availabilityAnswer(question: string): Promise<{ ar: string; en: string } | null> {
   const a = analyse(question);
   const parks = canonicalParks(question);
   if (!parks.length || !(a.concepts.has("availability") || a.concepts.has("size") || /ارض|اراضي|قطع|مصنع|مخزن|land|plot/i.test(normText(question)))) return null;
@@ -356,16 +440,16 @@ export async function laraAnswer(question: string, opts: { record: boolean; sour
 // routes (admin only)
 // ---------------------------------------------------------------------------------------------
 /** who may use Lara: administrators (everything) or roles with canUseLara (their own leads only, phase 7) */
-function laraWho(c: Caller): { admin: boolean; id: string } {
+export function laraWho(c: Caller): { admin: boolean; id: string } {
   if (isAdmin(c)) return { admin: true, id: c.id };
   if (can(c, "canUseLara")) return { admin: false, id: c.id };
   throw forbidden("Lara is not switched on for your role");
 }
-async function ownsLead(c: Caller, leadId: string) {
+export async function ownsLead(c: Caller, leadId: string) {
   const { data } = await admin.from("crm_leads").select("assigned_to").eq("id", leadId).maybeSingle();
   if (!data || data.assigned_to !== c.id) throw forbidden("This lead is not yours");
 }
-const who = (c: Caller) => c.name || c.email || "admin";
+export const who = (c: Caller) => c.name || c.email || "admin";
 
 route("GET", "/lara/overview", async ({ c }) => {
   const w = laraWho(c);
@@ -432,13 +516,23 @@ route("POST", "/lara/run", async ({ c }) => { needAdmin(c); return { success: tr
 
 route("GET", "/lara/drafts", async ({ c, query }) => {
   const w = laraWho(c);
+  // paged on the server (owner, 11 Nov 2026: never download every draft on a refresh); only the fields the card shows
   const status = ["shadow", "approved", "rejected", "expired"].includes(query.get("status") || "") ? query.get("status")! : "shadow";
-  const limit = Math.min(200, Math.max(10, Number(query.get("limit")) || 100));
-  let dq: any = admin.from("lara_drafts").select("*").eq("status", status);
+  const size = [10, 25, 50, 100].includes(Number(query.get("size"))) ? Number(query.get("size")) : 10;
+  const page = Math.max(1, Math.min(5000, Number(query.get("page")) || 1));
+  const qs = str(query.get("q") || "", 80).replace(/[%_\\,()]/g, " ").trim();
+  const ch = ["email", "whatsapp"].includes(query.get("channel") || "") ? query.get("channel")! : "";
+  const sit = /^[a-z_]{2,40}$/.test(query.get("situation") || "") ? query.get("situation")! : "";
+  const kind = ["followup", "reply", "offer"].includes(query.get("kind") || "") ? query.get("kind")! : "";
+  let dq: any = admin.from("lara_drafts").select("id,lead_id,rule,kind,situation,channel,lang,subject,body,reason,customer,owner_id,owner_name,status,feedback,edited,decided_by,decided_at,send_status,send_error,sent_at,to_addr,to_phone,offer,thread_id,created_at", { count: "exact" }).eq("status", status);
   if (!w.admin) dq = dq.eq("owner_id", c.id);
-  const { data, error } = await dq.order(status === "shadow" ? "created_at" : "decided_at", { ascending: false }).limit(limit);
+  if (ch) dq = dq.eq("channel", ch);
+  if (sit) dq = dq.eq("situation", sit);
+  if (kind) dq = dq.eq("kind", kind);
+  if (qs) dq = dq.or(`customer.ilike.%${qs}%,owner_name.ilike.%${qs}%,lead_id.ilike.%${qs}%`);
+  const { data, error, count } = await dq.order(status === "shadow" ? "created_at" : "decided_at", { ascending: false }).range((page - 1) * size, page * size - 1);
   if (error) throw new HttpError(500, "Could not read the drafts");
-  return { success: true, rows: data || [] };
+  return { success: true, page, size, total: count || 0, rows: data || [] };
 });
 
 route("POST", "/lara/drafts/:id/decide", async ({ req, c, params }) => {
@@ -536,9 +630,15 @@ route("POST", "/lara/missed/:id/dismiss", async ({ c, params }) => {
 
 route("GET", "/lara/log", async ({ c, query }) => {
   needAdmin(c);
-  const limit = Math.min(500, Math.max(20, Number(query.get("limit")) || 200));
-  const { data } = await admin.from("lara_log").select("id,at,kind,actor,text").order("at", { ascending: false }).limit(limit);
-  return { success: true, rows: data || [] };
+  const size = [10, 25, 50, 100].includes(Number(query.get("size"))) ? Number(query.get("size")) : 25;
+  const page = Math.max(1, Math.min(5000, Number(query.get("page")) || 1));
+  const kind = /^[a-z]{2,20}$/.test(query.get("kind") || "") ? query.get("kind")! : "";
+  const qs = str(query.get("q") || "", 80).replace(/[%_\\,()]/g, " ").trim();
+  let lq: any = admin.from("lara_log").select("id,at,kind,actor,text", { count: "exact" });
+  if (kind) lq = lq.eq("kind", kind);
+  if (qs) lq = lq.ilike("text", `%${qs}%`);
+  const { data, count } = await lq.order("at", { ascending: false }).range((page - 1) * size, page * size - 1);
+  return { success: true, page, size, total: count || 0, rows: data || [] };
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -554,6 +654,10 @@ export const replyHooks = {
     const best = r.matches[0];
     if (r.data) return { answered: true, source: "landbank" as const, text: r.data };
     if (r.answered && best) return { answered: true, source: "qa" as const, text: { ar: best.a_ar, en: best.a_en } };
+    // only now, and only if the owner switched it on (daily cap): the AI, grounded on the approved answers; the reply is still a draft
+    const ar = isArabic(q);
+    const ai = await aiAnswer(q, await activeKb(), [], { lang: ar ? "ar" : "en" }).catch(() => null);
+    if (ai) return { answered: true, source: "ai" as const, text: { ar: ai, en: ai } };
     return { answered: false };
   },
   writeReply: async (leadId: string, ar: boolean, answerText: string | null) => {
@@ -656,7 +760,34 @@ route("GET", "/lara/optout", async ({ c }) => {
 // ---------------------------------------------------------------------------------------------
 // phase 4: workflows
 // ---------------------------------------------------------------------------------------------
-const cleanWf = (b: any) => ({
+/** the drawing as sent by the screen, cleaned box by box; the Start box's settings become the workflow's trigger and filters */
+const NODE_TYPES = ["trigger", "wait", "condition", "wait_reply", "message", "offer", "notify_owner", "notify_director", "handover", "end"];
+const cleanVal = (v: any) => typeof v === "boolean" ? v : Array.isArray(v) ? v.map((x: any) => str(x, 80)).slice(0, 30) : typeof v === "number" ? v : str(v, 400);
+function cleanGraph(g: any): Graph | null {
+  if (!g || !Array.isArray(g.nodes) || !g.nodes.length) return null;
+  const nodes = g.nodes.slice(0, 40).filter((n: any) => NODE_TYPES.includes(n?.type)).map((n: any) => {
+    const d = n.data || {}; const data: any = {};
+    if (d.label) data.label = str(d.label, 60);
+    if (n.type === "trigger") { data.trigger = d.trigger; data.conditions = d.conditions; }
+    if (n.type === "wait" || n.type === "wait_reply") data.days = Math.max(1, Math.min(n.type === "wait" ? 60 : 30, Math.round(Number(d.days) || 1)));
+    if (n.type === "condition") { data.field = str(d.field, 30); data.op = str(d.op, 10) || "in"; data.value = cleanVal(d.value); }
+    if (n.type === "message") { data.channel = ["auto", "email", "whatsapp"].includes(d.channel) ? d.channel : "auto"; data.situation = str(d.situation, 30) || "auto"; }
+    return { id: str(n.id, 40), type: n.type, x: Math.round(Number(n.x) || 0), y: Math.round(Number(n.y) || 0), data };
+  });
+  const ids = new Set(nodes.map((n: any) => n.id));
+  const edges = (Array.isArray(g.edges) ? g.edges : []).slice(0, 80).filter((e: any) => ids.has(e?.source) && ids.has(e?.target))
+    .map((e: any) => ({ id: str(e.id, 90) || `e-${e.source}-${e.target}`, source: str(e.source, 40), target: str(e.target, 40), ...(e.handle && e.handle !== "out" ? { handle: str(e.handle, 12) } : {}) }));
+  return { nodes, edges };
+}
+const cleanWf = (b0: any) => {
+  const graph = cleanGraph(b0.graph);
+  const tn: any = graph?.nodes.find((n) => n.type === "trigger");
+  const b = tn ? { ...b0, trigger: tn.data.trigger, conditions: tn.data.conditions } : b0;
+  const w = cleanWf0(b);
+  if (graph && tn) { tn.data = { ...tn.data, trigger: w.trigger, conditions: w.conditions }; }
+  return { ...w, graph, steps: graph ? [] : w.steps };
+};
+const cleanWf0 = (b: any) => ({
   name: str(b.name, 80), description: str(b.description, 400), enabled: b.enabled === true, priority: Math.max(1, Math.min(999, Math.round(Number(b.priority) || 100))),
   trigger: { type: String(b.trigger?.type || ""), value: Math.max(0, Math.min(3650, Number(b.trigger?.value) || 0)), statuses: Array.isArray(b.trigger?.statuses) ? b.trigger.statuses.map((x: any) => str(x, 60)).slice(0, 20) : undefined },
   conditions: (Array.isArray(b.conditions) ? b.conditions : []).slice(0, 10).map((c: any) => ({ field: str(c.field, 30), op: str(c.op, 10) || "in", value: typeof c.value === "boolean" ? c.value : Array.isArray(c.value) ? c.value.map((v: any) => str(v, 80)).slice(0, 30) : str(c.value, 400) })),
@@ -669,12 +800,13 @@ route("GET", "/lara/workflows", async ({ c }) => {
   needAdmin(c);
   const [wfs, en] = await Promise.all([
     admin.from("lara_workflows").select("*").eq("status", "active").order("priority").order("created_at"),
-    admin.from("lara_enrollments").select("workflow_id,status,stop_reason").gte("started_at", new Date(Date.now() - 30 * 864e5).toISOString()).limit(50000),
+    admin.from("lara_enrollments").select("workflow_id,status,stop_reason,node,step").gte("started_at", new Date(Date.now() - 30 * 864e5).toISOString()).limit(50000),
   ]);
   const stats: Record<string, any> = {};
   for (const e of en.data || []) {
-    const s = stats[e.workflow_id] ||= { active: 0, done: 0, stopped: 0, reasons: {} as Record<string, number> };
+    const s = stats[e.workflow_id] ||= { active: 0, done: 0, stopped: 0, reasons: {} as Record<string, number>, atNode: {} as Record<string, number> };
     s[e.status]++;
+    if (e.status === "active") { const k = e.node || `s${Number(e.step) || 0}`; s.atNode[k] = (s.atNode[k] || 0) + 1; }
     if (e.status === "stopped" && e.stop_reason) s.reasons[e.stop_reason] = (s.reasons[e.stop_reason] || 0) + 1;
   }
   return { success: true, rows: wfs.data || [], stats, triggers: TRIGGERS };

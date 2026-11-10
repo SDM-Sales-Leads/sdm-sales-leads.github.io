@@ -3,6 +3,9 @@
 // A lead is in at most one workflow at a time ("enrollment"). Each run: move due enrollments one step (or stop them), then enroll new leads
 // by workflow priority. Messages are drafts (approve first); notifications go to the bell. Nothing changes the lead's own fields.
 import { canonicalParks } from "../../../src/lib/parkAliases.ts";
+import { graphOf, validateGraph, type Graph } from "../../../src/components/lara/flow/graph.ts";
+export { graphOf, nextOf, stepsToGraph, BRANCHES, NODE_LABEL } from "../../../src/components/lara/flow/graph.ts";
+export type { Graph, GNode } from "../../../src/components/lara/flow/graph.ts";
 
 export type TriggerType = "no_first_contact" | "followup_overdue" | "offer_silent" | "no_answer" | "status_stuck" | "old_lead";
 export interface Cond { field: string; op: string; value: any }
@@ -11,6 +14,7 @@ export interface Workflow {
   id: string; name: string; description?: string; enabled: boolean; priority: number;
   trigger: { type: TriggerType; value: number; statuses?: string[] };
   conditions: Cond[]; steps: Step[]; stop: { onActivity?: boolean; onReply?: boolean; onMeeting?: boolean };
+  graph?: Graph | null; autopilot?: boolean;
 }
 
 export const TRIGGERS: Record<TriggerType, { label: string; unit: string }> = {
@@ -73,6 +77,12 @@ export function triggerHit(wf: Workflow, l: any, today: string, now: number): { 
   return null;
 }
 
+/** one If box: true/false for this lead (replied = the customer wrote since the lead entered the workflow) */
+export function condOne(c: Cond, l: any, now: number, replied: boolean): boolean {
+  if (c.field === "replied") return replied === (c.value !== false && c.value !== "false");
+  return condsOk({ conditions: [c] } as any, l, now);
+}
+
 export function condsOk(wf: Workflow, l: any, now: number): boolean {
   for (const c of wf.conditions || []) {
     const vals: string[] = (Array.isArray(c.value) ? c.value : String(c.value ?? "").split(",")).map((x: any) => String(x).trim().toLowerCase()).filter(Boolean);
@@ -115,18 +125,13 @@ export function stopReason(wf: Workflow, l: any | undefined, startedAt: number, 
   return "";
 }
 
-/** checks a workflow before it is saved; returns the problem or '' */
+/** checks a workflow before it is saved; returns the problem or '' (the drawing is checked box by box) */
 export function validateWorkflow(w: any): string {
   if (!w || typeof w !== "object") return "Nothing to save";
   if (!String(w.name || "").trim()) return "Give the workflow a name";
   if (!w.trigger || !(w.trigger.type in TRIGGERS)) return "Choose when the workflow starts";
   if (!(Number(w.trigger.value) >= 0)) return "The start value must be a number";
-  if (!Array.isArray(w.steps) || !w.steps.length) return "Add at least one step";
-  if (w.steps.length > 8) return "At most 8 steps";
-  for (const s of w.steps) {
-    if (!["message", "offer", "notify_owner", "notify_director", "handover"].includes(s.action)) return "Unknown step";
-    if (!(Number(s.waitDays) >= 0 && Number(s.waitDays) <= 60)) return "A wait must be 0–60 days";
-  }
-  if (!Array.isArray(w.conditions) || w.conditions.length > 10) return "At most 10 conditions";
-  return "";
+  if (!Array.isArray(w.conditions) || w.conditions.length > 10) return "At most 10 filters on the Start box";
+  const p = validateGraph(graphOf(w));
+  return p.length ? p[0].text : "";
 }

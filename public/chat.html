@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>Chat with Lara · Elsewedy Industrial Development</title>
+<link rel="icon" href="favicon.png">
+<style>
+:root{--red:#B3263D;--ink:#2D2926;--gray:#767676;--bg:#F6F4F2;--card:#fff;--line:#E7E2DE;--in:#fff;--out:#B3263D;--outInk:#fff;--staff:#FFF6E5}
+@media (prefers-color-scheme:dark){:root{--ink:#F2EFEC;--gray:#A8A29E;--bg:#161413;--card:#201D1B;--line:#34302D;--in:#2A2624;--staff:#3A3022}}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{font-family:-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;background:var(--bg);color:var(--ink);display:flex;justify-content:center}
+.app{width:100%;max-width:560px;height:100%;display:flex;flex-direction:column;background:var(--card);box-shadow:0 0 40px rgba(0,0,0,.06)}
+header{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);background:linear-gradient(90deg,#2D2926,var(--red));color:#fff}
+.av{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-weight:800}
+.ti{flex:1;min-width:0}.ti b{display:block;font-size:15px}.ti small{opacity:.85;font-size:12px}
+.hb{display:flex;gap:6px}.hb a{color:#fff;text-decoration:none;font-size:12px;font-weight:700;background:rgba(255,255,255,.16);padding:7px 10px;border-radius:999px;white-space:nowrap}
+main{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px}
+.m{max-width:84%;padding:9px 12px;border-radius:16px;font-size:14.5px;line-height:1.55;white-space:pre-line;word-wrap:break-word}
+.m small{display:block;font-size:10.5px;opacity:.7;margin-bottom:2px}
+.in{align-self:flex-end;background:var(--out);color:var(--outInk);border-bottom-right-radius:4px}
+.out{align-self:flex-start;background:var(--in);border:1px solid var(--line);border-bottom-left-radius:4px}
+.staff{background:var(--staff)}
+.note{align-self:center;font-size:12px;color:var(--gray);text-align:center;padding:4px 10px}
+.typing{align-self:flex-start;color:var(--gray);font-size:13px;padding:4px 8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 14px 8px}
+.chips button{border:1px solid var(--red);color:var(--red);background:transparent;border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}
+form.send{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+textarea,input{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:10px 12px;width:100%}
+textarea{resize:none;height:44px;max-height:120px}
+button.go{background:var(--red);color:#fff;border:0;border-radius:14px;padding:0 16px;font-weight:700;font-size:14px;cursor:pointer}
+button.go:disabled{opacity:.5}
+.start{padding:18px;display:flex;flex-direction:column;gap:10px}
+.start h2{margin:0;font-size:18px}.start p{margin:0;color:var(--gray);font-size:13px}
+.err{color:#B42318;font-size:13px}
+.foot{font-size:10.5px;color:var(--gray);text-align:center;padding:0 12px 8px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="av">L</div>
+    <div class="ti"><b id="name">Lara</b><small id="sub">Digital sales assistant · Elsewedy Industrial Development</small></div>
+    <div class="hb" id="hb"></div>
+  </header>
+  <main id="log" aria-live="polite"></main>
+  <div class="chips" id="chips"></div>
+  <form class="send" id="f" hidden><textarea id="t" maxlength="1500" placeholder="Write your message… / اكتب رسالتك…" dir="auto"></textarea><button class="go" id="b">Send</button></form>
+  <div class="start" id="start" hidden>
+    <h2>Chat with Lara · كلّم لارا</h2>
+    <p>Lara answers right away about available plots and payment plans, in Arabic or English, and connects you with our sales team.</p>
+    <input id="sn" placeholder="Your name / الاسم" autocomplete="name">
+    <input id="sp" placeholder="Mobile / الموبايل" inputmode="tel" autocomplete="tel">
+    <input id="se" placeholder="E-mail (optional) / البريد" inputmode="email" autocomplete="email">
+    <textarea id="sq" placeholder="Your question / سؤالك" dir="auto" style="height:70px"></textarea>
+    <button class="go" id="sb" style="padding:12px">Start chat</button>
+    <div class="err" id="se2"></div>
+  </div>
+  <div class="foot">Lara is a digital assistant, not a person. Reply "stop" any time. · لارا مساعدة رقمية. اكتب «إيقاف» في أي وقت.</div>
+</div>
+<script>
+(function () {
+  var API = "https://iyubegbevtjcvtuubpaq.supabase.co/functions/v1/api";
+  var $ = function (id) { return document.getElementById(id); };
+  var key = (location.hash.match(/k=([a-z0-9]{20,40})/) || [])[1] || "";
+  if (!key) { try { key = localStorage.getItem("lara_chat_key") || ""; } catch (e) {} }
+  var last = "", seen = {}, pollT = null, idleSince = Date.now(), ar = /^ar/i.test(navigator.language || "");
+  var isAr = function (s) { return /[؀-ۿ]/.test(s || ""); };
+  function req(path, body) {
+    return fetch(API + path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {})
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.error || ("Error " + r.status)); return j; }); });
+  }
+  function note(text) { var d = document.createElement("div"); d.className = "note"; d.textContent = text; $("log").appendChild(d); scroll(); }
+  function scroll() { var l = $("log"); l.scrollTop = l.scrollHeight; }
+  function add(m) {
+    if (seen[m.id]) return; seen[m.id] = 1;
+    var d = document.createElement("div");
+    d.className = "m " + (m.dir === "in" ? "in" : "out") + (m.who !== "Lara" && m.dir !== "in" ? " staff" : "");
+    d.dir = isAr(m.body) ? "rtl" : "ltr";
+    var s = document.createElement("small");
+    s.textContent = (m.dir === "in" ? (ar ? "أنت" : "You") : m.who) + (m.channel && m.channel !== "web" ? " · " + (m.channel === "whatsapp" ? "WhatsApp" : "E-mail") : "") + " · " + new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    d.appendChild(s); d.appendChild(document.createTextNode(m.body));
+    $("log").appendChild(d);
+    if (m.at > last) last = m.at;
+    scroll();
+  }
+  function chips(list) {
+    var c = $("chips"); c.innerHTML = "";
+    (list || []).forEach(function (t) { var b = document.createElement("button"); b.type = "button"; b.textContent = t; b.onclick = function () { send(t); }; c.appendChild(b); });
+  }
+  var typing = null;
+  function showTyping(on) {
+    if (on && !typing) { typing = document.createElement("div"); typing.className = "typing"; typing.textContent = ar ? "لارا بتكتب…" : "Lara is typing…"; $("log").appendChild(typing); scroll(); }
+    if (!on && typing) { typing.remove(); typing = null; }
+  }
+  function send(text) {
+    text = (text || "").trim(); if (!text) return;
+    ar = isAr(text) || ar && !/[a-z]{3,}/i.test(text);
+    $("t").value = ""; $("b").disabled = true; chips([]); showTyping(true); idleSince = Date.now();
+    req("/chat/s/" + key, { text: text }).then(function (r) { showTyping(false); r.messages.forEach(add); chips(r.suggest); schedule(4000); })
+      .catch(function (e) { showTyping(false); note(e.message); }).then(function () { $("b").disabled = false; $("t").focus(); });
+  }
+  // new messages from the salesperson: every 4 s right after activity, slower later, stop after 15 minutes idle or when the page is hidden
+  function schedule(ms) { clearTimeout(pollT); pollT = setTimeout(poll, ms); }
+  function poll() {
+    if (document.visibilityState !== "visible") return;
+    var idle = Date.now() - idleSince; if (idle > 15 * 60000) return;
+    req("/chat/s/" + key + "/after?t=" + encodeURIComponent(last || new Date(0).toISOString())).then(function (r) { r.messages.forEach(add); })
+      .catch(function () {}).then(function () { schedule(idle < 120000 ? 4000 : 15000); });
+  }
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible" && key) { idleSince = Date.now(); schedule(500); } });
+  $("f").addEventListener("submit", function (e) { e.preventDefault(); send($("t").value); });
+  $("t").addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send($("t").value); } });
+  function header(r) {
+    $("name").textContent = ar ? (r.lara && r.lara.ar || "لارا") : (r.lara && r.lara.en || "Lara");
+    $("sub").textContent = r.owner ? (ar ? "مع مسؤول المبيعات: " : "With your account manager: ") + r.owner : (ar ? "السويدي للتنمية الصناعية" : "Elsewedy Industrial Development");
+    var hb = $("hb"); hb.innerHTML = "";
+    if (r.call) { var a = document.createElement("a"); a.href = "tel:" + r.call; a.textContent = ar ? "📞 اتصل" : "📞 Call"; hb.appendChild(a); }
+    if (r.whatsapp) { var w = document.createElement("a"); w.href = r.whatsapp; w.target = "_blank"; w.rel = "noopener"; w.textContent = "WhatsApp"; hb.appendChild(w); }
+  }
+  function openChat() {
+    req("/chat/s/" + key).then(function (r) {
+      header(r);
+      if (!r.open) { note(ar ? "المحادثة غير متاحة حالياً. تقدر تتصل بنا أو ترد على الإيميل." : "Chat is not available yet. Please call us or reply to our e-mail."); return; }
+      $("f").hidden = false;
+      r.messages.forEach(add);
+      if (!r.messages.some(function (m) { return m.dir === "in"; })) {
+        var w = ar ? (r.welcome && r.welcome.ar) : (r.welcome && r.welcome.en);
+        note(w || (ar ? "أهلاً" + (r.customer ? " أ. " + r.customer : "") + "، أنا لارا. اسألني عن الأراضي المتاحة وطرق السداد." : "Hello" + (r.customer ? " " + r.customer : "") + ", I'm Lara. Ask me about available plots and payment plans."));
+        chips(ar ? r.suggest.ar : r.suggest.en);
+      }
+      if (r.status === "stopped") { $("f").hidden = true; note(ar ? "المحادثة متوقفة بناءً على طلبك." : "This conversation was stopped at your request."); }
+      schedule(4000); $("t").focus();
+    }).catch(function (e) { note(e.message); });
+  }
+  if (key) { openChat(); return; }
+  $("start").hidden = false;
+  $("sb").onclick = function () {
+    $("se2").textContent = ""; $("sb").disabled = true;
+    var text = $("sq").value.trim(); ar = isAr(text) || ar;
+    req("/chat/start", { name: $("sn").value, phone: $("sp").value, email: $("se").value, text: text, page: document.referrer ? "website" : "" }).then(function (r) {
+      key = r.key; try { localStorage.setItem("lara_chat_key", key); } catch (e) {}
+      $("start").hidden = true; $("f").hidden = false;
+      r.messages.forEach(add); chips(r.suggest); schedule(4000);
+    }).catch(function (e) { $("se2").textContent = /not open/i.test(e.message) ? (ar ? "الشات غير متاح حالياً. من فضلك اتصل بنا." : "Chat is not open yet. Please call us.") : e.message; })
+      .then(function () { $("sb").disabled = false; });
+  };
+})();
+</script>
+</body>
+</html>

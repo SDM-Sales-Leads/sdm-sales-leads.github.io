@@ -11,6 +11,9 @@ import { crmNav } from '../crm/crmNav';
 import { SITUATION_LABEL } from '../crm/smartWriter';
 import { LaraWorkflows } from './LaraWorkflows';
 import { LaraWhatsApp } from './LaraWhatsApp';
+import { LaraInbox } from './LaraInbox';
+import { LaraChannels } from './LaraChannels';
+import { Pager, useDebounced } from './Pager';
 import { LaraOffers, openInLandBank, openOfferPdf } from './LaraOffers';
 
 const api = async (path: string, init?: RequestInit) => {
@@ -39,7 +42,7 @@ export const LaraModule: React.FC<Props> = ({ sub, leads, setActiveSubTab }) => 
   const [ov, setOv] = useState<any>(null);
   const [err, setErr] = useState('');
   const load = useCallback(async () => { try { setOv(await api('/lara/overview')); setErr(''); } catch (e: any) { setErr(e.message); } }, []);
-  useEffect(() => { void load(); }, [load, sub]);
+  useEffect(() => { void load(); }, [load]);   // once; actions call reload() (no re-download on every tab switch)
   const leadName = useMemo(() => new Map(leads.map((l) => [l.id, l])), [leads]);
 
   const slim = sub !== 'lara';   // the full header only on the Control room; the other tabs keep the screen for work (phone)
@@ -47,7 +50,7 @@ export const LaraModule: React.FC<Props> = ({ sub, leads, setActiveSubTab }) => 
     <div className="space-y-5" id="lara-module">
       {slim && (
         <div className="rounded-2xl px-4 py-3 text-white bg-gradient-to-r from-brand-black to-brand-red flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-          <span className="font-extrabold flex items-center gap-1.5"><Bot size={15} />Lara · {ov?.config?.mode === 'off' ? 'off' : ov?.config?.mode === 'approve' ? `Approve first · sending ${ov?.config?.sendEnabled && ov?.channels?.email ? 'ON' : 'off'}` : 'Shadow mode'}</span>
+          <span className="font-extrabold flex items-center gap-1.5"><Bot size={15} />Lara · {ov?.config?.mode === 'off' ? 'off' : ov?.config?.mode === 'approve' || ov?.config?.mode === 'auto' ? `${ov?.config?.mode === 'auto' ? 'Autopilot' : 'Approve first'} · sending ${ov?.config?.sendEnabled && ov?.channels?.email ? 'ON' : 'off'}` : 'Shadow mode'}</span>
           {ov && <><span>{ov.drafts30.shadow} drafts waiting</span><span>{ov.kbActive} answers</span><span className={ov.missedOpen ? 'text-amber-200 font-bold' : ''}>{ov.missedOpen} missed questions</span></>}
           <span className="ml-auto flex items-center gap-1 text-white/80"><ShieldCheck size={12} />{ov?.config?.mode === 'approve' && ov?.config?.sendEnabled && ov?.channels?.email ? 'only approved e-mails are sent' : 'nothing is sent'}</span>
         </div>
@@ -77,7 +80,7 @@ export const LaraModule: React.FC<Props> = ({ sub, leads, setActiveSubTab }) => 
 
       {sub === 'lara' && (ov?.user ? <DraftInbox leadName={leadName} reload={load} ov={ov} /> : <Control ov={ov} reload={load} go={setActiveSubTab} />)}
       {sub === 'lara-inbox' && <DraftInbox leadName={leadName} reload={load} ov={ov} />}
-      {sub === 'lara-convos' && <Conversations reload={load} />}
+      {sub === 'lara-convos' && <LaraInbox leads={leads} isAdmin={!ov?.user} reload={load} extra={ov && !ov.user ? <MailLists /> : undefined} />}
       {sub === 'lara-flows' && <LaraWorkflows reload={load} />}
       {sub === 'lara-offers' && <LaraOffers leads={leads} reload={load} go={setActiveSubTab} />}
       {sub === 'lara-kb' && <Knowledge reload={load} />}
@@ -154,22 +157,38 @@ const Row: React.FC<{ label: React.ReactNode; value: React.ReactNode }> = ({ lab
 const LABEL: Record<string, string> = { ...(SITUATION_LABEL as any), offer_initial: 'Initial financial offer (PDF)', reply_answer: 'Reply with an approved answer', reply_holding: 'Holding reply (no approved answer)' };
 const REJECT = ['Wrong situation', 'Wrong tone', 'Wrong facts', 'Owner is already on it', 'Do not contact'];
 const DraftInbox: React.FC<{ leadName: Map<string, Lead>; reload: () => void; ov: any }> = ({ leadName, reload, ov }) => {
-  const canSend = ov?.config?.mode === 'approve' && ov?.config?.sendEnabled && ov?.channels?.email;
+  const canSend = (ov?.config?.mode === 'approve' || ov?.config?.mode === 'auto') && ov?.config?.sendEnabled && ov?.channels?.email;
   const [status, setStatus] = useState<'shadow' | 'approved' | 'rejected' | 'expired'>('shadow');
   const [rows, setRows] = useState<any[] | null>(null);
-  const [q, setQ] = useState('');
-  const load = useCallback(async () => { setRows(null); try { setRows((await api(`/lara/drafts?status=${status}&limit=200`)).rows); } catch (e: any) { toast.error(e.message); setRows([]); } }, [status]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1); const [size, setSize] = useState(10);
+  const [qRaw, setQRaw] = useState(''); const q = useDebounced(qRaw.trim(), 400);
+  const [ch, setCh] = useState(''); const [kind, setKind] = useState('');
+  const [busy, setBusy] = useState(false);
+  // one page from the server (10 by default) with only the fields the card needs; search and filters run on the server
+  const load = useCallback(async () => {
+    setBusy(true);
+    const p = new URLSearchParams({ status, page: String(page), size: String(size) });
+    if (q) p.set('q', q); if (ch) p.set('channel', ch); if (kind) p.set('kind', kind);
+    try { const r = await api(`/lara/drafts?${p}`); setRows(r.rows); setTotal(r.total); } catch (e: any) { toast.error(e.message); setRows([]); } finally { setBusy(false); }
+  }, [status, page, size, q, ch, kind]);
   useEffect(() => { void load(); }, [load]);
-  const shown = (rows || []).filter((r) => !q || `${r.customer} ${r.owner_name} ${r.lead_id} ${r.body}`.toLowerCase().includes(q.toLowerCase()));
+  useEffect(() => { setPage(1); }, [status, size, q, ch, kind]);
+  const shown = rows || [];
   return (
     <Card title={<><Inbox size={16} className="text-brand-red" />{ov?.config?.mode === 'approve' ? 'Drafts to approve' : 'Shadow inbox'}</>} right={
       <div className="flex rounded-xl border border-brand-gray/20 overflow-hidden text-xs font-bold">
         {(['shadow', 'approved', 'rejected', 'expired'] as const).map((s) => <button key={s} onClick={() => setStatus(s)} className={`px-3 py-1.5 ${status === s ? 'bg-brand-red text-white' : ''}`}>{s === 'shadow' ? 'Waiting' : s[0].toUpperCase() + s.slice(1)}</button>)}
       </div>}>
-      <div className="relative"><Search size={14} className="absolute left-3 top-2.5 text-brand-gray" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search customer, salesperson, text…" className="input-field w-full pl-8 text-sm" /></div>
-      {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : shown.length === 0 ? <p className="text-sm text-brand-gray py-6 text-center">{status === 'shadow' ? 'No drafts waiting. Run Lara from the Control room.' : 'Nothing here.'}</p> : (
-        <div className="space-y-3">{shown.map((d) => <DraftCard key={d.id} d={d} canSend={canSend} lead={leadName.get(d.lead_id)} onDone={() => { setRows((r) => (r || []).filter((x) => x.id !== d.id)); reload(); }} />)}</div>
+      <div className="flex flex-wrap gap-2">
+        <div className="relative flex-1 min-w-[200px]"><Search size={14} className="absolute left-3 top-2.5 text-brand-gray" /><input value={qRaw} onChange={(e) => setQRaw(e.target.value)} placeholder="Search customer, salesperson or lead number…" className="input-field w-full pl-8 text-sm" /></div>
+        <select value={ch} onChange={(e) => setCh(e.target.value)} className="input-field text-xs py-1.5"><option value="">Every channel</option><option value="email">E-mail</option><option value="whatsapp">WhatsApp</option></select>
+        <select value={kind} onChange={(e) => setKind(e.target.value)} className="input-field text-xs py-1.5"><option value="">Every kind</option><option value="followup">Follow-ups</option><option value="reply">Replies to customers</option><option value="offer">Offers</option></select>
+      </div>
+      {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : shown.length === 0 ? <p className="text-sm text-brand-gray py-6 text-center">{q || ch || kind ? 'Nothing matches these filters.' : status === 'shadow' ? 'No drafts waiting. Run Lara from the Control room.' : 'Nothing here.'}</p> : (
+        <div className={`space-y-3 ${busy ? 'opacity-60' : ''}`}>{shown.map((d) => <DraftCard key={d.id} d={d} canSend={canSend} lead={leadName.get(d.lead_id)} onDone={() => { setRows((r) => (r || []).filter((x) => x.id !== d.id)); setTotal((n) => Math.max(0, n - 1)); reload(); }} />)}</div>
       )}
+      <Pager page={page} size={size} total={total} onPage={(p) => { setPage(p); document.getElementById('lara-module')?.scrollIntoView({ behavior: 'smooth' }); }} onSize={setSize} busy={busy} />
     </Card>
   );
 };
@@ -425,6 +444,7 @@ const SettingsTab: React.FC<{ ov: any; reload: () => void }> = ({ ov, reload }) 
 
       </div>
       <LaraWhatsApp reload={reload} />
+      <LaraChannels />
     </div>
   );
 };
@@ -469,23 +489,14 @@ const Mailbox: React.FC<{ ov: any; reload: () => void }> = ({ ov, reload }) => {
 // ---------------------------------------------------------------------------------------------
 // Conversations: one per lead (Lara's mails and the customer's replies), unknown senders, do-not-contact list
 // ---------------------------------------------------------------------------------------------
-const T_STATUS: Record<string, string> = { open: 'Open', handover: 'Handed to salesperson', stopped: 'Customer said stop', closed: 'Closed' };
-const Conversations: React.FC<{ reload: () => void }> = ({ reload }) => {
-  const [st, setSt] = useState('');
-  const [rows, setRows] = useState<any[] | null>(null);
-  const [open, setOpen] = useState<any | null>(null);
-  const [um, setUm] = useState<any[]>([]);
+// mails from unknown senders + the do-not-contact list (shown inside Interactions for admins)
+const MailLists: React.FC = () => {
+  const [um, setUm] = useState<any[] | null>(null);
   const [opt, setOpt] = useState<any[]>([]);
   const load = useCallback(async () => {
-    setRows(null);
-    try {
-      const [a, b, c] = await Promise.all([api(`/lara/threads${st ? `?status=${st}` : ''}`), api('/lara/unmatched'), api('/lara/optout')]);
-      setRows(a.rows); setUm(b.rows); setOpt(c.rows);
-    } catch (e: any) { toast.error(e.message); setRows([]); }
-  }, [st]);
+    try { const [b, c] = await Promise.all([api('/lara/unmatched'), api('/lara/optout')]); setUm(b.rows); setOpt(c.rows); } catch (e: any) { toast.error(e.message); setUm([]); }
+  }, []);
   useEffect(() => { void load(); }, [load]);
-  const show = async (id: string) => { try { setOpen(await api(`/lara/threads/${id}`)); } catch (e: any) { toast.error(e.message); } };
-  const setStatus = async (id: string, status: string) => { try { await post(`/lara/threads/${id}/status`, { status }); toast.success('Saved'); void show(id); void load(); reload(); } catch (e: any) { toast.error(e.message); } };
   const link = async (id: string) => {
     const leadId = window.prompt('Lead number to link this mail to (e.g. LD-10182):');
     if (!leadId) return;
@@ -493,48 +504,17 @@ const Conversations: React.FC<{ reload: () => void }> = ({ reload }) => {
   };
   const ignore = async (id: string) => { try { await post(`/lara/unmatched/${id}`, { action: 'ignore' }); void load(); } catch (e: any) { toast.error(e.message); } };
   return (
-    <div className="grid lg:grid-cols-5 gap-5">
-      <Card title={<><MessageSquare size={16} className="text-brand-red" />Conversations</>} className="lg:col-span-2" right={
-        <select value={st} onChange={(e) => setSt(e.target.value)} className="input-field text-xs py-1"><option value="">All</option>{Object.entries(T_STATUS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>}>
-        {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : rows.length === 0 ? <p className="text-sm text-brand-gray py-4 text-center">No conversations yet. They start when Lara's first approved e-mail is sent.</p> : (
-          <ul className="divide-y divide-brand-gray/10">{rows.map((t) => (
-            <li key={t.id}><button onClick={() => show(t.id)} className={`w-full text-left py-2.5 px-2 rounded-lg hover:bg-brand-gray/5 ${open?.thread?.id === t.id ? 'bg-brand-red/5' : ''}`}>
-              <p className="text-sm font-bold flex justify-between gap-2"><span className="truncate">{t.customer}</span><span className={`text-[10px] rounded-full px-2 py-0.5 ${t.status === 'handover' ? 'bg-amber-100 text-amber-800' : t.status === 'stopped' ? 'bg-rose-100 text-rose-800' : 'bg-brand-gray/10'}`}>{T_STATUS[t.status]}</span></p>
-              <p className="text-[11px] text-brand-gray">{t.lead_id} · {t.owner || '—'} · {t.out_count} sent · last reply {when(t.last_in_at)}</p>
-            </button></li>
-          ))}</ul>
-        )}
-      </Card>
-      <Card title={open ? <>{open.thread.lead_id} · <code className="text-[11px]">{open.thread.code}</code></> : 'Open a conversation'} className="lg:col-span-3">
-        {!open ? <p className="text-sm text-brand-gray">Pick a conversation on the left to read it.</p> : (
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-2 text-xs">
-              <button onClick={() => crmNav.lead(open.thread.lead_id)} className="btn-secondary rounded-xl px-3 py-1.5 font-bold">Open the lead</button>
-              {open.thread.status !== 'handover' && <button onClick={() => setStatus(open.thread.id, 'handover')} className="rounded-xl px-3 py-1.5 font-bold border border-amber-300 text-amber-800">Hand to salesperson</button>}
-              {open.thread.status !== 'open' && <button onClick={() => setStatus(open.thread.id, 'open')} className="rounded-xl px-3 py-1.5 font-bold border border-brand-gray/20">Give back to Lara</button>}
-              {open.thread.status !== 'closed' && <button onClick={() => setStatus(open.thread.id, 'closed')} className="rounded-xl px-3 py-1.5 font-bold border border-brand-gray/20">Close</button>}
-            </div>
-            {open.messages.length === 0 && <p className="text-xs text-brand-gray">No messages yet.</p>}
-            {open.messages.map((m: any) => (
-              <div key={m.id} className={`rounded-2xl p-3 text-sm max-w-[92%] ${m.direction === 'out' ? 'bg-brand-red/5 border border-brand-red/10 ml-auto' : 'bg-sky-50 border border-sky-100'}`}>
-                <p className="text-[10px] text-brand-gray mb-1">{m.channel === 'whatsapp' ? 'WhatsApp · ' : 'E-mail · '}{m.direction === 'out' ? 'Lara' : m.from_addr} · {when(m.at)}{m.matched_by ? ` · matched by ${m.matched_by}` : ''}{m.wa_status ? ` · ${m.wa_status}` : ''}</p>
-                <p dir={isAr(m.body) ? 'rtl' : 'ltr'} className="whitespace-pre-line">{m.body}</p>
-              </div>
-            ))}
-            {open.pending.length > 0 && <p className="text-xs text-amber-800 bg-amber-50 rounded-lg px-2 py-1">{open.pending.length} draft(s) for this customer wait in the inbox.</p>}
-          </div>
-        )}
-      </Card>
+    <div className="grid lg:grid-cols-5 gap-3">
       <Card title={<><HelpCircle size={16} className="text-brand-red" />Mails from unknown senders</>} className="lg:col-span-3">
         <p className="text-xs text-brand-gray">Mails to Lara's box that match no conversation. Link one to a lead (it becomes that customer's reply) or ignore it. They never become new leads here.</p>
-        {um.length === 0 ? <p className="text-sm text-brand-gray">None.</p> : <ul className="divide-y divide-brand-gray/10">{um.map((m) => (
+        {um === null ? <Loader2 className="animate-spin text-brand-gray" /> : um.length === 0 ? <p className="text-sm text-brand-gray">None.</p> : <ul className="divide-y divide-brand-gray/10 max-h-80 overflow-y-auto">{um.map((m) => (
           <li key={m.id} className="py-2 text-xs space-y-1"><p className="font-bold">{m.from_addr} · {when(m.at)}</p><p className="text-brand-gray">{m.subject}</p><p dir={isAr(m.body) ? 'rtl' : 'ltr'} className="line-clamp-3">{m.body}</p>
             <div className="flex gap-3 font-bold"><button onClick={() => link(m.id)} className="text-brand-red">Link to a lead</button><button onClick={() => ignore(m.id)} className="text-brand-gray">Ignore</button></div></li>
         ))}</ul>}
       </Card>
       <Card title={<><ShieldCheck size={16} className="text-rose-600" />Do-not-contact list</>} className="lg:col-span-2">
         <p className="text-xs text-brand-gray">Customers who replied "stop" / "مش مهتم". Lara never writes to them again.</p>
-        {opt.length === 0 ? <p className="text-sm text-brand-gray">Empty.</p> : <ul className="text-xs divide-y divide-brand-gray/10">{opt.map((o) => <li key={o.contact} className="py-1.5"><b>{o.contact}</b> · {o.lead_id || '—'} · {when(o.at)}</li>)}</ul>}
+        {opt.length === 0 ? <p className="text-sm text-brand-gray">Empty.</p> : <ul className="text-xs divide-y divide-brand-gray/10 max-h-80 overflow-y-auto">{opt.map((o) => <li key={o.contact} className="py-1.5"><b>{o.contact}</b> · {o.lead_id || '—'} · {when(o.at)}</li>)}</ul>}
       </Card>
     </div>
   );
@@ -543,17 +523,25 @@ const Conversations: React.FC<{ reload: () => void }> = ({ reload }) => {
 // ---------------------------------------------------------------------------------------------
 // Log
 // ---------------------------------------------------------------------------------------------
-const KIND: Record<string, string> = { run: 'Run', decision: 'Decision', kb: 'Q&A', missed: 'Missed', config: 'Settings' };
+const KIND: Record<string, string> = { run: 'Run', decision: 'Decision', kb: 'Q&A', missed: 'Missed', config: 'Settings', mail: 'Messages', ai: 'AI' };
 const LogTab: React.FC = () => {
   const [rows, setRows] = useState<any[] | null>(null);
-  useEffect(() => { void api('/lara/log?limit=300').then((r) => setRows(r.rows)).catch((e) => { toast.error(e.message); setRows([]); }); }, []);
+  const [total, setTotal] = useState(0); const [page, setPage] = useState(1); const [size, setSize] = useState(25);
+  const [kind, setKind] = useState(''); const [qRaw, setQRaw] = useState(''); const q = useDebounced(qRaw.trim(), 400);
+  useEffect(() => { setPage(1); }, [kind, q, size]);
+  useEffect(() => {
+    const p = new URLSearchParams({ page: String(page), size: String(size) }); if (kind) p.set('kind', kind); if (q) p.set('q', q);
+    void api(`/lara/log?${p}`).then((r) => { setRows(r.rows); setTotal(r.total); }).catch((e) => { toast.error(e.message); setRows([]); });
+  }, [page, size, kind, q]);
   return (
-    <Card title={<><ScrollText size={16} className="text-brand-red" />Everything Lara did</>}>
+    <Card title={<><ScrollText size={16} className="text-brand-red" />Everything Lara did</>} right={
+      <div className="flex gap-2"><input value={qRaw} onChange={(e) => setQRaw(e.target.value)} placeholder="Search…" className="input-field text-xs py-1 w-36" /><select value={kind} onChange={(e) => setKind(e.target.value)} className="input-field text-xs py-1"><option value="">Everything</option>{Object.entries(KIND).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>}>
       {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : rows.length === 0 ? <p className="text-sm text-brand-gray">Nothing yet.</p> : (
         <ul className="divide-y divide-brand-gray/10">{rows.map((r) => (
           <li key={r.id} className="py-2 text-xs flex gap-3"><span className="text-brand-gray w-28 shrink-0">{when(r.at)}</span><span className="font-bold w-20 shrink-0">{KIND[r.kind] || r.kind}</span><span className="flex-1">{r.text}{r.actor ? <span className="text-brand-gray"> · {r.actor}</span> : null}</span></li>
         ))}</ul>
       )}
+      <Pager page={page} size={size} total={total} onPage={setPage} onSize={setSize} />
     </Card>
   );
 };

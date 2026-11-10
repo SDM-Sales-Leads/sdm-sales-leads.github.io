@@ -77,15 +77,41 @@ const cairo = (d = new Date()) => {
 export const inSendHours = (startH: number, endH: number) => { const c = cairo(); return !["Fri", "Sat"].includes(c.weekday) && c.hour >= startH && c.hour < endH; };
 const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const isAr = (t: string) => /[؀-ۿ]/.test(t || "");
-function mailHtml(text: string) {
+// the customer's ways to reach us, as buttons under every Lara e-mail (owner, 11 Nov 2026): chat with Lara (web page), call, WhatsApp
+export const CHAT_SITE = "https://sdm-sales-leads.github.io/chat.html";
+export async function ensureChatKey(t: any): Promise<string> {
+  if (t?.chat_key) return t.chat_key;
+  const key = Array.from(crypto.getRandomValues(new Uint8Array(24))).map((b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
+  await admin.from("lara_threads").update({ chat_key: key }).eq("id", t.id).is("chat_key", null);
+  const { data } = await admin.from("lara_threads").select("chat_key").eq("id", t.id).maybeSingle();
+  return data?.chat_key || key;
+}
+export interface Buttons { chat?: string; call?: string; whatsapp?: string }
+export async function contactButtons(t: any): Promise<Buttons> {
+  const cc = await getConfig<any>("lara_chat", {});
+  const call = String(cc.callNumber || "").replace(/[^\d+]/g, "");
+  const wa = await getConfig<any>("lara_wa", {});
+  const waDigits = wa?.status?.ok ? String(wa.status.display || "").replace(/\D/g, "") : "";
+  return { chat: `${CHAT_SITE}#k=${await ensureChatKey(t)}`, call: call.length >= 5 ? call : undefined, whatsapp: waDigits.length >= 10 ? `https://wa.me/${waDigits}` : undefined };
+}
+function btn(href: string, label: string, bg: string) {
+  return `<td style="padding:4px"><a href="${escHtml(href)}" style="display:inline-block;background:${bg};color:#ffffff;text-decoration:none;font-weight:600;font-size:13px;padding:10px 16px;border-radius:10px">${escHtml(label)}</a></td>`;
+}
+function mailHtml(text: string, b: Buttons = {}) {
   const rtl = isAr(text);
   const foot = rtl ? "لو حضرتك مش حابب تستقبل رسائل تانية، رد بكلمة «إيقاف»." : "If you prefer not to receive further messages, reply STOP.";
+  const cells = [
+    b.chat ? btn(b.chat, rtl ? "💬 كلّم لارا الآن" : "💬 Chat with Lara now", "#B3263D") : "",
+    b.call ? btn(`tel:${b.call}`, rtl ? "📞 اتصل بنا" : "📞 Call us", "#2D2926") : "",
+    b.whatsapp ? btn(b.whatsapp, rtl ? "واتساب" : "WhatsApp", "#1FA855") : "",
+  ].join("");
   return `<div dir="${rtl ? "rtl" : "ltr"}" style="font-family:Segoe UI,Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6;color:#2D2926">${escHtml(text).replace(/\n/g, "<br>")}`
+    + (cells ? `<table role="presentation" cellspacing="0" cellpadding="0" style="margin-top:16px"><tr>${cells}</tr></table>` : "")
     + `<p style="margin-top:18px;font-size:11px;color:#767676">${escHtml(foot)}</p></div>`;
 }
 const rand4 = () => Array.from(crypto.getRandomValues(new Uint8Array(4))).map((b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
 
-async function appendTimeline(leadId: string, ev: any) {
+export async function appendTimeline(leadId: string, ev: any) {
   const e = { id: crypto.randomUUID(), timestamp: nowIso(), user: "Lara", ...ev };
   await pg(async (q) => { await q`update crm_leads set data = jsonb_set(data, '{timeline}', coalesce(case when jsonb_typeof(data->'timeline') = 'array' then data->'timeline' end, '[]'::jsonb) || ${q.json([e])}) where id = ${leadId}`; },   // q.json: a real JSON array (a JSON string here was stored as one text item)
     async () => {
@@ -95,7 +121,7 @@ async function appendTimeline(leadId: string, ev: any) {
       await admin.from("crm_leads").update({ data: d }).eq("id", leadId);
     });
 }
-async function ownerOf(leadId: string): Promise<{ id: string | null; name: string; email: string; status: string; customer: string }> {
+export async function ownerOf(leadId: string): Promise<{ id: string | null; name: string; email: string; status: string; customer: string }> {
   const { data } = await admin.from("crm_leads").select("assigned_to,status,data->assignedSalespersonName,data->customerName,data->email").eq("id", leadId).maybeSingle();
   return { id: data?.assigned_to || null, name: String((data as any)?.assignedSalespersonName || ""), email: String((data as any)?.email || ""), status: String(data?.status || ""), customer: String((data as any)?.customerName || leadId) };
 }
@@ -168,7 +194,7 @@ async function sendWaDraft(d: any, by: string): Promise<{ sent: boolean; reason?
     return { sent: false, reason: String(e?.message || e) };
   }
   const now = nowIso();
-  await admin.from("lara_messages").insert({ thread_id: t.id, lead_id: d.lead_id, direction: "out", channel: "whatsapp", wa_id: waId, wa_status: "sent", body: d.body, from_addr: "whatsapp", to_addr: to, draft_id: d.id, at: now });
+  await admin.from("lara_messages").insert({ author: d.rule === "staff_reply" ? d.decided_by : "Lara", kind: d.rule === "staff_reply" ? "staff" : "mail", thread_id: t.id, lead_id: d.lead_id, direction: "out", channel: "whatsapp", wa_id: waId, wa_status: "sent", body: d.body, from_addr: "whatsapp", to_addr: to, draft_id: d.id, at: now });
   await admin.from("lara_threads").update({ wa_phone: to, wa_consent: tt?.wa_consent || "enquiry", out_count: (tt?.out_count || 0) + 1, unanswered: (tt?.unanswered || 0) + 1, last_out_at: now, updated_at: now }).eq("id", t.id);
   await admin.from("lara_drafts").update({ send_status: "sent", sent_at: now, send_error: null, thread_id: t.id, updated_at: now }).eq("id", d.id);
   await appendTimeline(d.lead_id, { type: "WhatsApp", title: d.kind === "reply" ? "Lara replied on WhatsApp" : "Lara sent a WhatsApp", description: `${used === "text" ? "" : `(${used}) `}${String(d.body).slice(0, 600)}` });
@@ -230,15 +256,15 @@ export async function sendDraft(draftId: string, r: SendRules, by: string): Prom
   try {
     if (d.kind === "offer") {
       const f = await offerFile(d.id);
-      await sendMailWithAttachment(await ewsCfg(), { to: [d.to_addr], subject, html: mailHtml(d.body), replyTo: mbox.address }, { name: f.file_name, contentType: "application/pdf", base64: f.pdf_b64 });
-    } else await sendMail(await ewsCfg(), { to: [d.to_addr], subject, html: mailHtml(d.body), replyTo: mbox.address });
+      await sendMailWithAttachment(await ewsCfg(), { to: [d.to_addr], subject, html: mailHtml(d.body, await contactButtons(t)), replyTo: mbox.address }, { name: f.file_name, contentType: "application/pdf", base64: f.pdf_b64 });
+    } else await sendMail(await ewsCfg(), { to: [d.to_addr], subject, html: mailHtml(d.body, await contactButtons(t)), replyTo: mbox.address });
   } catch (e: any) {
     await admin.from("lara_drafts").update({ send_status: "failed", send_error: String(e?.message || e).slice(0, 200), updated_at: nowIso() }).eq("id", d.id);
     await admin.from("lara_log").insert({ kind: "send", actor: by, text: `Send failed for ${d.customer}: ${String(e?.message || e).slice(0, 160)}` });
     return { sent: false, reason: String(e?.message || e) };
   }
   const now = nowIso();
-  await admin.from("lara_messages").insert({ thread_id: t.id, lead_id: d.lead_id, direction: "out", subject, body: d.body, from_addr: mbox.address, to_addr: d.to_addr, draft_id: d.id, at: now });
+  await admin.from("lara_messages").insert({ author: d.rule === "staff_reply" ? d.decided_by : "Lara", kind: d.rule === "staff_reply" ? "staff" : "mail", thread_id: t.id, lead_id: d.lead_id, direction: "out", subject, body: d.body, from_addr: mbox.address, to_addr: d.to_addr, draft_id: d.id, at: now });
   await admin.from("lara_threads").update({ out_count: (t.out_count || 0) + 1, unanswered: (t.unanswered || 0) + 1, last_out_at: now, updated_at: now }).eq("id", t.id);
   await admin.from("lara_drafts").update({ send_status: "sent", sent_at: now, send_error: null, thread_id: t.id, updated_at: now }).eq("id", d.id);
   await appendTimeline(d.lead_id, { type: d.kind === "offer" ? "Offer" : "Email", title: d.kind === "offer" ? `Lara sent an initial offer (PDF ${d.offer.ref})` : d.kind === "reply" ? "Lara replied by e-mail" : "Lara sent a follow-up e-mail", description: `${subject}\n\n${String(d.body).slice(0, 600)}` });
@@ -295,7 +321,7 @@ export function newPart(text: string): string {
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, 2000);
 }
 
-export interface ReplyHooks { answer: (q: string, leadId: string) => Promise<{ answered: boolean; source?: "landbank" | "qa"; text?: { ar: string; en: string } }>; writeReply: (leadId: string, ar: boolean, answerText: string | null) => Promise<{ subject: string; body: string }>; autoApprove?: () => Promise<boolean> }
+export interface ReplyHooks { answer: (q: string, leadId: string) => Promise<{ answered: boolean; source?: "landbank" | "qa" | "ai"; text?: { ar: string; en: string } }>; writeReply: (leadId: string, ar: boolean, answerText: string | null) => Promise<{ subject: string; body: string }>; autoApprove?: () => Promise<boolean> }
 
 export async function pollLaraInbox(hooks: ReplyHooks) {
   if (!(await mailboxReady())) return { pollSkipped: "mailbox not connected" };
@@ -381,9 +407,9 @@ export async function handleReply(thread: any, base: any, matchedBy: string, tex
   await admin.from("lara_drafts").insert({
     lead_id: thread.lead_id, rule: "customer_reply", kind: "reply", situation: answerText ? "reply_answer" : "reply_holding", channel: ch, lang: ar ? "ar" : "en", to_phone: ch === "whatsapp" ? base.from_addr : null,
     subject: ch === "email" ? `Re: ${String(base.subject || "").replace(LARA_CODE_RE, "").replace(/^(re:\s*)+/i, "").trim()}` : "", body: w.body, to_addr: ch === "email" ? base.from_addr || thread.customer_email : null,
-    reason: answerText ? (ans.source === "landbank" ? "Customer replied; answered from the Land Bank plot list" : "Customer replied; answer found in the approved Q&A") : "Customer replied; no approved answer (question sent to Missed questions)",
+    reason: answerText ? (ans.source === "landbank" ? "Customer replied; answered from the Land Bank plot list" : ans.source === "ai" ? "Customer replied; AI answer built only from the approved answers (check it before approving)" : "Customer replied; answer found in the approved Q&A") : "Customer replied; no approved answer (question sent to Missed questions)",
     customer: str(o.customer, 120), owner_id: o.id, owner_name: str(o.name, 80), thread_id: thread.id, reply_to: msg.data?.id || null,
     // Autopilot (phase 7): replies go out without a person when the owner switched Lara to Autopilot with auto-replies on
-    ...((await hooks.autoApprove?.().catch(() => false)) ? { status: "approved", decided_by: "Autopilot", decided_at: now, send_status: "queued" } : {}),
+    ...(ans.source !== "ai" && (await hooks.autoApprove?.().catch(() => false)) ? { status: "approved", decided_by: "Autopilot", decided_at: now, send_status: "queued" } : {}),
   });
 }

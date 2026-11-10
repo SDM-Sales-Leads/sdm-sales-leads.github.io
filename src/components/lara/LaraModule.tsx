@@ -435,11 +435,18 @@ const Mailbox: React.FC<{ ov: any; reload: () => void }> = ({ ov, reload }) => {
     try { const r = await post('/lara/mailbox', v); setV((x) => ({ ...x, password: '' })); r.mailbox.status.ok ? toast.success('Mailbox connected') : toast.error(`Not connected: ${r.mailbox.status.error}`); reload(); }
     catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
   };
+  const useShared = async () => {
+    setBusy(true);
+    try { const r = await post('/lara/mailbox', { shared: true }); r.mailbox.status.ok ? toast.success(`Lara now uses ${r.mailbox.address}`) : toast.error(`Not connected: ${r.mailbox.status.error}`); reload(); }
+    catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
+  };
   const check = async () => { setBusy(true); try { const r = await post('/lara/mailbox/check', {}); toast.success(r.laraMail || r.pollSkipped || `Read ${r.polled ?? 0} new mails, ${r.replies ?? 0} customer replies`); reload(); } catch (e: any) { toast.error(e.message); } finally { setBusy(false); } };
   const st = mb.status;
   return (
     <Card title={<><Mail size={16} className="text-sky-600" />Lara's mailbox</>}>
       <p className="text-xs text-brand-gray">A mailbox only for Lara on the company Exchange (ask IT). Every mail she sends carries a code in the subject such as <code>[SDM-LD-1234-7F3K]</code>, so replies join the right conversation and never create a duplicate lead. Type the password yourself: it goes straight to the server's safe store and is never shown again.</p>
+      {mb.shared && <p className="text-xs bg-sky-50 text-sky-900 rounded-xl px-3 py-2">Lara uses the <b>leads mailbox</b> ({mb.address}), the same one mail intake reads. She takes only replies to her own mails (subject code or a customer she is talking to); every other mail stays with the intake.</p>}
+      {!mb.shared && <button onClick={useShared} disabled={busy} className="w-full rounded-xl px-3 py-2 text-xs font-bold border border-sky-300 text-sky-800 hover:bg-sky-50 disabled:opacity-50">Use the leads mailbox (same as mail intake) — nothing to type</button>}
       <div className={`text-xs rounded-xl px-3 py-2 ${st?.ok ? 'bg-emerald-50 text-emerald-800' : st ? 'bg-rose-50 text-rose-800' : 'bg-brand-gray/5 text-brand-gray'}`}>{st?.ok ? `Connected · checked ${when(st.at)}` : st ? `Not connected: ${st.error}` : 'Not set up yet'}</div>
       <input value={v.address} onChange={(e) => setV({ ...v, address: e.target.value })} placeholder="Lara's address, e.g. lara@company.com" className="input-field w-full text-sm" />
       <div className="grid sm:grid-cols-2 gap-2">

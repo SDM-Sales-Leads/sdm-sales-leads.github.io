@@ -244,7 +244,7 @@ route("GET", "/lara/overview", async ({ c }) => {
   const threads: Record<string, number> = {}; for (const r of th.data || []) threads[r.status] = (threads[r.status] || 0) + 1;
   const send = { queued: 0, failed: 0, sent: 0, sentToday: 0 };
   for (const r of q.data || []) { (send as any)[r.send_status]++; if (r.send_status === "sent" && r.sent_at && Date.now() - Date.parse(r.sent_at) < 864e5) send.sentToday++; }
-  return { success: true, mailbox: { address: mb.address, user: mb.user, host: mb.host, status: mb.status || null }, threads, unmatched: um.count || 0, send, config: cfg, drafts30: t, openBySituation: bySituation, openByRule: byRule, ruleLabels: RULE_LABEL, kbActive: kb.count || 0, missedOpen: missed.count || 0, lastRun: lastRun.data || null, channels: { email: !!mb.status?.ok, whatsapp: false }, ai: false };
+  return { success: true, mailbox: { address: mb.address, user: mb.user, host: mb.host, shared: !!mb.shared, status: mb.status || null }, threads, unmatched: um.count || 0, send, config: cfg, drafts30: t, openBySituation: bySituation, openByRule: byRule, ruleLabels: RULE_LABEL, kbActive: kb.count || 0, missedOpen: missed.count || 0, lastRun: lastRun.data || null, channels: { email: !!mb.status?.ok, whatsapp: false }, ai: false };
 });
 
 route("PUT", "/lara/config", async ({ req, c }) => {

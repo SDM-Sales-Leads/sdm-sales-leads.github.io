@@ -9,19 +9,22 @@
 // - Auto-replies, bounces and out-of-office mails are never answered. Unknown senders are kept for the admin (never a new lead here).
 import { admin, getConfig, getSecret, HttpError, nowIso, setConfig, setSecret, str, tryLock, unlock } from "./lib.ts";
 import { pg } from "./db.ts";
-import { EwsConfig, getBodies, htmlToText, listFolder, sendMail, verify } from "./ews.ts";
+import { EwsConfig, getBodies, htmlToText, listFolder, loadEws, sendMail, verify } from "./ews.ts";
 import { addNotifications } from "./notify.ts";
 import { LARA_CODE_RE } from "./ingest.ts";
 
-export interface LaraMailCfg { address: string; user: string; host: string; status?: { ok: boolean; at: string; error?: string } }
+export interface LaraMailCfg { address: string; user: string; host: string; shared?: boolean; status?: { ok: boolean; at: string; error?: string } }
 
 export async function laraMailCfg(): Promise<LaraMailCfg> {
   const m = await getConfig<any>("lara_mail", {});
   const main = await getConfig<any>("email_config", {});
+  // shared = Lara uses the leads mailbox (mail intake): same address, same stored password
+  if (m.shared) return { address: String(main.user || "").toLowerCase(), user: String(main.user || ""), host: String(main.host || ""), shared: true, status: m.status };
   return { address: String(m.address || ""), user: String(m.user || m.address || ""), host: String(m.host || main.host || ""), status: m.status };
 }
 async function ewsCfg(): Promise<EwsConfig> {
   const m = await laraMailCfg();
+  if (m.shared) return await loadEws();
   const pass = await getSecret("lara_mail_password");
   if (!m.host || !m.user || !m.address || !pass) throw new HttpError(400, "Lara's mailbox is not set up yet (Lara > Settings & channels)");
   return { host: m.host, user: m.user, pass };
@@ -34,6 +37,15 @@ export async function mailboxReady(): Promise<boolean> {
 /** admin: save the mailbox (the password is typed by the admin and goes straight to the Vault) and test it */
 export async function saveMailbox(b: any, by: string) {
   const cur = await getConfig<any>("lara_mail", {});
+  if (b.shared === true) {
+    // the leads mailbox: nothing to type, the intake's own settings and password are used
+    let status: any;
+    try { await verify(await loadEws()); status = { ok: true, at: nowIso() }; } catch (e: any) { status = { ok: false, at: nowIso(), error: String(e?.message || e).slice(0, 200) }; }
+    await setConfig("lara_mail", { shared: true, status });
+    const m = await laraMailCfg();
+    await admin.from("lara_log").insert({ kind: "config", actor: by, text: `Lara uses the leads mailbox ${m.address}: ${status.ok ? "connected" : `not connected (${status.error})`}` });
+    return { address: m.address, user: m.user, host: m.host, shared: true, status };
+  }
   const address = str(b.address, 160).toLowerCase();
   const user = str(b.user, 160) || address;
   const host = str(b.host, 200).toLowerCase();
@@ -42,7 +54,7 @@ export async function saveMailbox(b: any, by: string) {
     if (b.password.length > 200) throw new HttpError(400, "Password too long");
     await setSecret("lara_mail_password", b.password);
   }
-  const next: any = { ...cur, address, user, host: host || cur.host || "" };
+  const next: any = { address, user, host: host || cur.host || "", shared: false };
   let status: any;
   try { await verify(await (async () => { await setConfig("lara_mail", next); return ewsCfg(); })()); status = { ok: true, at: nowIso() }; }
   catch (e: any) { status = { ok: false, at: nowIso(), error: String(e?.message || e).slice(0, 200) }; }
@@ -198,9 +210,17 @@ export async function pollLaraInbox(hooks: ReplyHooks) {
     if (!heads.length) return { polled: 0 };
     const { data: seen } = await admin.from("lara_messages").select("ews_id").in("ews_id", heads.map((h) => h.id));
     const known = new Set((seen || []).map((r: any) => r.ews_id));
-    const fresh = heads.filter((h) => !known.has(h.id));
-    const bodies = await getBodies(cfg, fresh.map((h) => h.id));
     const mbox = await laraMailCfg();
+    let fresh = heads.filter((h) => !known.has(h.id));
+    if (mbox.shared) {
+      // the leads mailbox is shared with mail intake: Lara takes ONLY replies to her conversations (code in the subject, or a customer
+      // she is talking to); every other mail stays with the intake, is not stored here and its body is not even downloaded
+      const { data: th } = await admin.from("lara_threads").select("customer_email").limit(20000);
+      const mine = new Set((th || []).map((t: any) => String(t.customer_email || "").toLowerCase()).filter(Boolean));
+      fresh = fresh.filter((h) => LARA_CODE_RE.test(h.subject) || mine.has(String(h.senderAddress || "").toLowerCase()));
+      if (!fresh.length) { const nw = heads.reduce((m, h) => Math.max(m, Date.parse(h.receivedTime) || 0), 0); if (nw) await setConfig("lara_mail_cursor", { at: new Date(nw).toISOString() }); return { polled: 0 }; }
+    }
+    const bodies = await getBodies(cfg, fresh.map((h) => h.id));
     let replies = 0, auto = 0, unmatched = 0;
     for (const h of fresh.reverse()) {
       const full = htmlToText(bodies.get(h.id)?.html || "") || h.bodyPreview || "";

@@ -84,7 +84,7 @@ const rand4 = () => Array.from(crypto.getRandomValues(new Uint8Array(4))).map((b
 
 async function appendTimeline(leadId: string, ev: any) {
   const e = { id: crypto.randomUUID(), timestamp: nowIso(), user: "Lara", ...ev };
-  await pg(async (q) => { await q`update crm_leads set data = jsonb_set(data, '{timeline}', coalesce(case when jsonb_typeof(data->'timeline') = 'array' then data->'timeline' end, '[]'::jsonb) || ${JSON.stringify([e])}::jsonb) where id = ${leadId}`; },
+  await pg(async (q) => { await q`update crm_leads set data = jsonb_set(data, '{timeline}', coalesce(case when jsonb_typeof(data->'timeline') = 'array' then data->'timeline' end, '[]'::jsonb) || ${q.json([e])}) where id = ${leadId}`; },   // q.json: a real JSON array (a JSON string here was stored as one text item)
     async () => {
       const { data } = await admin.from("crm_leads").select("data").eq("id", leadId).maybeSingle();
       if (!data) return;

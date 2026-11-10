@@ -1,4 +1,4 @@
-// Lara — offers in the Land Bank "Sales Offer" format. No AI.
+// Lara — the Land Bank's INITIAL FINANCIAL OFFER (the Land Bank page builds the PDF; Lara attaches it). No AI.
 // Prices: the customer sees the real price + 20% (list price); a discount % can be given and is printed as its own line, never below
 // the real price. The REAL price is shown here (inside the system) and never in the PDF or the e-mail.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -18,6 +18,12 @@ const egp = (n: number | null | undefined) => (n == null || !Number.isFinite(n) 
 const num = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? '—' : Math.round(n).toLocaleString('en-US'));
 const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
 const TYPES = ['Monthly', 'Every 2 Months', 'Quarterly', 'Semi-Annually', 'Annually'];
+
+/** opens the offer in the Land Bank, which builds the Initial financial offer PDF and attaches it here */
+export function openInLandBank(draftId: string) {
+  window.open(`https://sdm-land-bank.github.io/#laraoffer=${encodeURIComponent(draftId)}`, '_blank', 'noopener');
+  toast.message('The Land Bank opens in a new tab and builds the PDF (wait for its message), then come back and refresh this page.');
+}
 
 /** opens the offer PDF (the same file that is attached when the offer is sent) */
 export async function openOfferPdf(draftId: string, ref = 'offer') {
@@ -51,11 +57,8 @@ const PriceBox: React.FC<{ o: any }> = ({ o }) => {
 /** cash / instalments + discount controls */
 const Terms: React.FC<{ v: any; set: (v: any) => void; maxDisc?: number }> = ({ v, set, maxDisc }) => (
   <div className="space-y-2 text-xs">
-    <div className="flex rounded-xl border border-brand-gray/20 overflow-hidden font-bold w-fit">
-      <button onClick={() => set({ ...v, mode: 'cash' })} className={`px-3 py-1.5 ${v.mode === 'cash' ? 'bg-brand-red text-white' : ''}`}>Cash</button>
-      <button onClick={() => set({ ...v, mode: 'plan' })} className={`px-3 py-1.5 ${v.mode === 'plan' ? 'bg-brand-red text-white' : ''}`}>Instalments</button>
-    </div>
-    {v.mode === 'plan' && (
+    <p className="font-bold text-brand-black">Payment plan (same calculator as the Land Bank)</p>
+    {(
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <label>Payment type<select value={v.plan.type} onChange={(e) => set({ ...v, plan: { ...v.plan, type: e.target.value } })} className="input-field w-full text-xs mt-0.5">{TYPES.map((t) => <option key={t}>{t}</option>)}</select></label>
         <label>Advance %<input type="number" value={v.plan.adv} onChange={(e) => set({ ...v, plan: { ...v.plan, adv: Number(e.target.value) } })} className="input-field w-full text-xs mt-0.5" /></label>
@@ -72,7 +75,7 @@ export const LaraOffers: React.FC<{ leads: Lead[]; reload: () => void; go: (t: s
   const [leadId, setLeadId] = useState('');
   const [cand, setCand] = useState<any>(null);
   const [pick, setPick] = useState<Set<string>>(new Set());
-  const [terms, setTerms] = useState<any>({ mode: 'cash', discountPct: 0, plan: { type: 'Quarterly', adv: 30, years: 3, rate: 23 } });
+  const [terms, setTerms] = useState<any>({ mode: 'plan', discountPct: 0, plan: { type: 'Quarterly', adv: 30, years: 3, rate: 23 } });
   const [preview, setPreview] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<any[] | null>(null);
@@ -98,17 +101,17 @@ export const LaraOffers: React.FC<{ leads: Lead[]; reload: () => void; go: (t: s
     setBusy(true);
     try {
       const r = await post('/lara/offers', { leadId, plotKeys: [...pick], ...terms });
-      toast.success(`Offer ${r.offer.ref} prepared. Check the PDF; it waits in Drafts (Lara is on hold: nothing is sent).`);
+      toast.success(`Offer ${r.offer.ref} prepared. Now press "Build in Land Bank" to make the PDF (Lara is on hold: nothing is sent).`);
       setCand(null); setLeadId(''); setPreview(null); void loadRows(); reload();
-      void openOfferPdf(r.draftId, r.offer.ref);
+      openInLandBank(r.draftId);
     } catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
   };
 
   return (
     <div className="grid lg:grid-cols-5 gap-5">
       <section className="lg:col-span-2 bento-card bg-white border border-brand-gray/20 rounded-2xl p-5 shadow-sm space-y-3">
-        <h3 className="font-extrabold text-sm flex items-center gap-2"><FileText size={16} className="text-brand-red" />New offer (Land Bank format)</h3>
-        <p className="text-xs text-brand-gray">The same Sales Offer as the Land Bank (park colours, logo, notes, fees, signatures). The customer sees the <b>real price +20%</b>; a special discount is printed as its own line and can never go below the real price. The real price stays inside the system.</p>
+        <h3 className="font-extrabold text-sm flex items-center gap-2"><FileText size={16} className="text-brand-red" />New Initial financial offer</h3>
+        <p className="text-xs text-brand-gray">Lara's offer is the Land Bank's own <b>Initial financial offer</b> (cover, recommendation, park drawing, payment plan per plot). 1) Prepare it here, 2) press <b>Build in Land Bank</b>: the Land Bank page builds the PDF and attaches it here, 3) approve it in Drafts. The customer sees the <b>real price +20%</b>; a special discount is printed and can never go below the real price. The real price stays inside the system.</p>
         <div className="relative">
           <Search size={14} className="absolute left-3 top-2.5 text-brand-gray" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find the lead: number, name, company, e-mail" className="input-field w-full pl-8 text-sm" />
@@ -142,7 +145,7 @@ export const LaraOffers: React.FC<{ leads: Lead[]; reload: () => void; go: (t: s
             )}
             <Terms v={terms} set={setTerms} maxDisc={preview?.maxDiscountPct} />
             {preview?.error ? <p className="text-xs text-rose-700">{preview.error}</p> : <PriceBox o={preview} />}
-            <button onClick={prepare} disabled={busy || !pick.size || !cand.lead.email || !!preview?.error} className="btn-primary w-full rounded-xl py-2 text-sm font-bold flex items-center justify-center gap-1.5 disabled:opacity-50">{busy ? <Loader2 size={15} className="animate-spin" /> : <FileText size={15} />}Prepare offer (PDF)</button>
+            <button onClick={prepare} disabled={busy || !pick.size || !cand.lead.email || !!preview?.error} className="btn-primary w-full rounded-xl py-2 text-sm font-bold flex items-center justify-center gap-1.5 disabled:opacity-50">{busy ? <Loader2 size={15} className="animate-spin" /> : <FileText size={15} />}Prepare and build in Land Bank</button>
           </div>
         )}
       </section>
@@ -160,7 +163,7 @@ export const LaraOffers: React.FC<{ leads: Lead[]; reload: () => void; go: (t: s
 const OfferRow: React.FC<{ r: any; onChanged: () => void }> = ({ r, onChanged }) => {
   const o = r.offer || {};
   const [open, setOpen] = useState(false);
-  const [v, setV] = useState<any>({ mode: o.mode || 'cash', discountPct: o.discountPct || 0, plan: o.plan || { type: 'Quarterly', adv: 30, years: 3, rate: 23 } });
+  const [v, setV] = useState<any>({ mode: 'plan', discountPct: o.discountPct || 0, plan: o.plan || { type: 'Quarterly', adv: 30, years: 3, rate: 23 } });
   const [busy, setBusy] = useState(false);
   const waiting = r.status === 'shadow';
   const save = async () => { setBusy(true); try { await post(`/lara/offers/${r.id}/update`, v); toast.success('Offer updated'); setOpen(false); onChanged(); } catch (e: any) { toast.error(e.message); } finally { setBusy(false); } };
@@ -169,13 +172,14 @@ const OfferRow: React.FC<{ r: any; onChanged: () => void }> = ({ r, onChanged })
       <div className="flex flex-wrap items-start gap-2">
         <div className="flex-1 min-w-0">
           <button onClick={() => crmNav.lead(r.lead_id)} className="font-bold text-sm text-brand-black hover:text-brand-red">{r.customer}</button>
-          <p className="text-brand-gray">{o.ref} · {o.project || ''} · {(o.plots || []).map((p: any) => p.unit).join(', ')} · {o.mode === 'plan' ? 'instalments' : 'cash'}{o.discountPct ? ` · discount ${o.discountPct}%` : ''}</p>
+          <p className="text-brand-gray">{o.ref} · {o.project || ''} · {(o.plots || []).map((p: any) => p.unit).join(', ')}{o.discountPct ? ` · discount ${o.discountPct}%` : ''} · {o.pdf ? <span className="text-emerald-700 font-bold">PDF built {when(o.pdf.builtAt)}</span> : <span className="text-amber-700 font-bold">PDF not built yet</span>}</p>
           <p className="text-brand-gray">Customer pays <b className="text-brand-black">{egp(o.due ?? o.total)}</b>{o.realTotal ? <> · real <b>{egp(o.realTotal)}</b></> : null} · {r.owner_name || '—'} · {when(r.created_at)}{r.sent_at ? ` · sent ${when(r.sent_at)}` : ''}{r.send_error && r.send_status !== 'sent' ? ` · ${r.send_error}` : ''}</p>
         </div>
         <span className={`rounded-full px-2 py-0.5 font-bold ${r.send_status === 'sent' ? 'bg-emerald-100 text-emerald-800' : r.status === 'rejected' ? 'bg-rose-100 text-rose-800' : r.status === 'expired' ? 'bg-brand-gray/10' : 'bg-amber-100 text-amber-800'}`}>{r.send_status === 'sent' ? 'Sent' : waiting ? 'Waiting for approval' : r.send_status === 'queued' ? 'Queued' : r.send_status === 'failed' ? 'Not sent' : r.status}</span>
-        {o.listSqm && <button onClick={() => openOfferPdf(r.id, o.ref)} className="btn-secondary rounded-lg px-2 py-1 font-bold flex items-center gap-1"><Download size={12} />PDF</button>}
+        {waiting && o.listSqm && <button onClick={() => openInLandBank(r.id)} className="btn-primary rounded-lg px-2 py-1 font-bold">{o.pdf ? 'Rebuild in Land Bank' : 'Build in Land Bank'}</button>}
+        {o.pdf && <button onClick={() => openOfferPdf(r.id, o.ref)} className="btn-secondary rounded-lg px-2 py-1 font-bold flex items-center gap-1"><Download size={12} />PDF</button>}
         {waiting && o.listSqm && <button onClick={() => setOpen((x) => !x)} className="btn-secondary rounded-lg px-2 py-1 font-bold flex items-center gap-1"><Percent size={12} />Discount / terms</button>}
-        {waiting && o.listSqm && <button onClick={async () => { try { await post(`/lara/offers/${r.id}/test-copy`, {}); toast.success('Test copy sent to your own e-mail'); } catch (e: any) { toast.error(e.message); } }} className="btn-secondary rounded-lg px-2 py-1 font-bold">Test copy to me</button>}
+        {waiting && o.pdf && <button onClick={async () => { try { await post(`/lara/offers/${r.id}/test-copy`, {}); toast.success('Test copy sent to your own e-mail'); } catch (e: any) { toast.error(e.message); } }} className="btn-secondary rounded-lg px-2 py-1 font-bold">Test copy to me</button>}
       </div>
       {open && (
         <div className="bg-brand-gray/5 rounded-xl p-3 space-y-2">

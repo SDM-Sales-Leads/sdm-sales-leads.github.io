@@ -10,8 +10,7 @@
 import { admin, getConfig, getSecret, HttpError, nowIso, setConfig, setSecret, str, tryLock, unlock } from "./lib.ts";
 import { pg } from "./db.ts";
 import { EwsConfig, getBodies, htmlToText, listFolder, loadEws, sendMail, sendMailWithAttachment, verify } from "./ews.ts";
-import { offerFileName, offerPdf, recordOfferPrint } from "./lara_offer.ts";
-import { toBase64 } from "./pdf.ts";
+import { recordOfferPrint } from "./lara_offer.ts";
 import { addNotifications } from "./notify.ts";
 import { LARA_CODE_RE } from "./ingest.ts";
 
@@ -139,6 +138,7 @@ async function blocker(d: any, r: SendRules): Promise<string> {
   if (d.kind === "offer") {
     // an offer must still be true when it leaves: every plot available today
     if (!d.offer?.plots?.length) return "The offer has no plots";
+    if (!d.offer?.pdf) return "The Initial financial offer PDF is not built yet: press \"Build in Land Bank\"";
     const { data: snap } = await admin.from("plots_snapshot").select("data").eq("id", 1).maybeSingle();
     const st = new Map((Array.isArray(snap?.data) ? snap!.data : []).map((p: any) => [String(p.key), p.status]));
     const gone = d.offer.plots.filter((p: any) => st.get(String(p.key)) !== "available").map((p: any) => p.unit);
@@ -169,8 +169,8 @@ export async function sendDraft(draftId: string, r: SendRules, by: string): Prom
   const mbox = await laraMailCfg();
   try {
     if (d.kind === "offer") {
-      const pdf = offerPdf(d.offer);
-      await sendMailWithAttachment(await ewsCfg(), { to: [d.to_addr], subject, html: mailHtml(d.body), replyTo: mbox.address }, { name: offerFileName(d.offer), contentType: "application/pdf", base64: toBase64(pdf) });
+      const f = await offerFile(d.id);
+      await sendMailWithAttachment(await ewsCfg(), { to: [d.to_addr], subject, html: mailHtml(d.body), replyTo: mbox.address }, { name: f.file_name, contentType: "application/pdf", base64: f.pdf_b64 });
     } else await sendMail(await ewsCfg(), { to: [d.to_addr], subject, html: mailHtml(d.body), replyTo: mbox.address });
   } catch (e: any) {
     await admin.from("lara_drafts").update({ send_status: "failed", send_error: String(e?.message || e).slice(0, 200), updated_at: nowIso() }).eq("id", d.id);
@@ -190,12 +190,19 @@ export async function sendDraft(draftId: string, r: SendRules, by: string): Prom
   return { sent: true };
 }
 
+/** the Initial financial offer file the Land Bank built for a draft */
+async function offerFile(draftId: string) {
+  const { data } = await admin.from("lara_offer_files").select("file_name,pdf_b64").eq("draft_id", draftId).maybeSingle();
+  if (!data) throw new HttpError(409, "The Initial financial offer PDF is not built yet: press \"Build in Land Bank\"");
+  return data;
+}
+
 /** a TEST copy of an offer to the admin who asks (their own sign-in address): same mail and PDF, nothing recorded, nobody else gets it */
 export async function sendOfferTestCopy(d: any, to: string) {
   if (!(await mailboxReady())) throw new HttpError(400, "Lara's mailbox is not connected");
   const mbox = await laraMailCfg();
   await sendMailWithAttachment(await ewsCfg(), { to: [to], subject: `[TEST] ${String(d.subject || "").replace(LARA_CODE_RE, "").trim()}`, html: mailHtml(`TEST COPY — this is what the customer (${d.to_addr || "no address"}) would receive.\n\n${d.body}`), replyTo: mbox.address },
-    { name: offerFileName(d.offer), contentType: "application/pdf", base64: toBase64(offerPdf(d.offer)) });
+    await (async () => { const f = await offerFile(d.id); return { name: f.file_name, contentType: "application/pdf", base64: f.pdf_b64 }; })());
 }
 
 /** cron: queued drafts go out in working hours, oldest first, within the daily limit */

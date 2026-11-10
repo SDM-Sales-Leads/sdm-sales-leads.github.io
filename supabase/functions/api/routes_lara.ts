@@ -15,7 +15,8 @@ import { availableByPark, plotFit } from "../../../src/components/crm/smartEngin
 import { firstNameOf } from "../../../src/lib/personName.ts";
 import { triggerHit, condsOk, stopReason, validateWorkflow, hasEmail, hasPhone, TRIGGERS, Workflow, Step } from "./lara_flow.ts";
 import { addNotifications } from "./notify.ts";
-import { buildOffer, coverText, offerCandidates, offerFileName, offerPdf, OfferInput } from "./lara_offer.ts";
+import { buildOffer, coverText, offerCandidates, OfferInput } from "./lara_offer.ts";
+import { lbRoute } from "./integration.ts";
 import { sendOfferTestCopy } from "./lara_mail.ts";
 import { handleReply, laraMailCfg, pollLaraInbox, saveMailbox, sendDraft, sendQueued, SendRules } from "./lara_mail.ts";
 
@@ -709,7 +710,7 @@ export async function createOfferDraft(cfg: LaraConfig, leadId: string, inp: Off
 }
 const offerInput = (b: any): OfferInput => ({
   plotKeys: Array.isArray(b.plotKeys) ? b.plotKeys.map((k: any) => str(k, 120)).filter(Boolean).slice(0, 10) : null,
-  discountPct: Number(b.discountPct) || 0, mode: b.mode === "plan" ? "plan" : "cash", plan: b.plan && typeof b.plan === "object" ? b.plan : undefined,
+  discountPct: Number(b.discountPct) || 0, mode: "plan", plan: b.plan && typeof b.plan === "object" ? b.plan : undefined,   /* the Initial financial offer always has a payment plan */
 });
 /** what the system shows sales: real price (internal) next to what the customer sees */
 const offerView = (o: any) => ({ ...o, maxDiscountPct: o.listSqm ? Math.floor((1 - o.realSqm / o.listSqm) * 10000) / 100 : 0 });
@@ -740,7 +741,7 @@ route("POST", "/lara/offers/:id/update", async ({ req, c, params }) => {
   const inp = offerInput({ ...b, plotKeys: d.offer.plots.map((p: any) => p.key), mode: b.mode ?? d.offer.mode, plan: b.plan ?? d.offer.plan, discountPct: b.discountPct ?? d.offer.discountPct });
   const { offer, lead } = await buildOffer(d.lead_id, inp);
   const cover = coverText(offer, lead, await laraConfig());
-  await admin.from("lara_drafts").update({ offer, subject: cover.subject, body: cover.body, edited: true, updated_at: nowIso() }).eq("id", d.id);
+  await admin.from("lara_drafts").update({ offer: { ...offer, pdf: null }, subject: cover.subject, body: cover.body, edited: true, updated_at: nowIso() }).eq("id", d.id);
   await log("offer", who(c), `Offer ${offer.ref} changed: ${offer.mode}, discount ${offer.discountPct}%`);
   return { success: true, offer: offerView(offer) };
 });
@@ -749,13 +750,43 @@ route("GET", "/lara/offers", async ({ c }) => {
   const { data } = await admin.from("lara_drafts").select("id,lead_id,customer,owner_name,status,send_status,send_error,sent_at,created_at,decided_by,offer,reason").eq("kind", "offer").order("created_at", { ascending: false }).limit(150);
   return { success: true, rows: (data || []).map((r: any) => ({ ...r, offer: r.offer?.listSqm ? offerView(r.offer) : r.offer })) };
 });
-/** the PDF of an offer draft (preview before approving; the same file is attached when sent) */
+/** the PDF of an offer draft = the Initial financial offer the Land Bank built for it (the same file is attached when sent) */
 route("GET", "/lara/offers/:id/pdf", async ({ c, params }) => {
   needAdmin(c);
-  const { data: d } = await admin.from("lara_drafts").select("offer").eq("id", params.id).eq("kind", "offer").maybeSingle();
+  const { data: f } = await admin.from("lara_offer_files").select("file_name,pdf_b64").eq("draft_id", params.id).maybeSingle();
+  if (!f) throw new HttpError(409, "Not built yet: press \"Build in Land Bank\" first");
+  const raw = Uint8Array.from(atob(f.pdf_b64), (ch) => ch.charCodeAt(0));
+  return new Response(raw, { headers: { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="${String(f.file_name).replace(/[^A-Za-z0-9 ._-]/g, "")}"`, "Cache-Control": "no-store" } });
+});
+
+// ---- the Land Bank side (Land Bank token): read Lara's offer, send back the PDF it built ----
+const lbAllowed = (c: Caller) => c.role === "Admin" || c.role === "Sales Operation";
+lbRoute("GET", "/integration/lara-offer/:id", async ({ c, params }) => {
+  if (!lbAllowed(c)) throw new HttpError(403, "Only Admin and Sales Operation build Lara's offers");
+  const { data: d } = await admin.from("lara_drafts").select("id,lead_id,status,offer,customer,owner_name").eq("id", params.id).eq("kind", "offer").maybeSingle();
   if (!d?.offer) throw new HttpError(404, "Offer not found");
-  if (!d.offer.listSqm) throw new HttpError(410, "This offer was made in the old format: prepare a new one");
-  return new Response(offerPdf(d.offer), { headers: { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="${offerFileName(d.offer).replace(/[^A-Za-z0-9 .-]/g, "")}"`, "Cache-Control": "no-store" } });
+  if (d.status !== "shadow") throw new HttpError(409, "This offer is no longer waiting (it was approved, rejected or expired)");
+  const { data: lead } = await admin.from("crm_leads").select("data->customerName,data->companyName,data->industry").eq("id", d.lead_id).maybeSingle();
+  const o = d.offer;
+  return { success: true, id: d.id, ref: o.ref, leadId: d.lead_id, plotKeys: (o.plots || []).map((p: any) => p.key),
+    plan: o.plan || null, discountPct: o.discountPct || 0, customer: (lead as any)?.customerName || "", company: (lead as any)?.companyName || "", activity: (lead as any)?.industry || "", owner: d.owner_name || "",
+    expect: { realTotal: o.realTotal, listTotal: o.listTotal, netTotal: o.netTotal, due: o.due } };
+});
+lbRoute("POST", "/integration/lara-offer/:id/pdf", async ({ req, c, params }) => {
+  if (!lbAllowed(c)) throw new HttpError(403, "Only Admin and Sales Operation build Lara's offers");
+  const b = await body(req, 6_000_000);
+  const pdf = String(b.pdfBase64 || "");
+  if (!/^JVBERi0/.test(pdf)) throw bad("That is not a PDF");
+  if (pdf.length > 5_500_000) throw bad("The PDF is too large (max ~4 MB)");
+  const { data: d } = await admin.from("lara_drafts").select("id,status,offer").eq("id", params.id).eq("kind", "offer").maybeSingle();
+  if (!d?.offer) throw new HttpError(404, "Offer not found");
+  if (d.status !== "shadow") throw new HttpError(409, "This offer is no longer waiting");
+  const name = str(b.fileName, 140) || `${d.offer.ref}.pdf`;
+  const size = Math.round(pdf.length * 3 / 4);
+  await admin.from("lara_offer_files").upsert({ draft_id: d.id, file_name: name, pdf_b64: pdf, size_bytes: size, built_by: c.name || c.email, built_at: nowIso() });
+  await admin.from("lara_drafts").update({ offer: { ...d.offer, pdf: { name, size, builtAt: nowIso(), builtBy: c.name || c.email, total: Number(b.total) || null } }, updated_at: nowIso() }).eq("id", d.id);
+  await log("offer", c.name || c.email, `Initial financial offer built in the Land Bank for ${d.offer.ref} (${Math.round(size / 1024)} KB)`);
+  return { success: true };
 });
 
 route("POST", "/lara/offers/:id/test-copy", async ({ c, params }) => {

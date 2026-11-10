@@ -1,11 +1,10 @@
 // deno-lint-ignore-file no-explicit-any
-// Lara — initial offers in the Land Bank's "Sales Offer" format (same layout, park colours, logos, notes, fees, signatures). NO AI.
+// Lara — Initial financial offers. The PDF itself is built by the Land Bank page (Investor Match proposal + financial pages, the
+// same file sales print there) and stored in lara_offer_files; this file prepares the offer (plots, plan, prices) and the cover e-mail. NO AI.
 // Prices (owner, 10 Nov 2026): the customer sees the REAL price + 20% ("list price"), so sales have room; a discount % can be given
 // and is printed as its own line, never below the real price. Instalment plans run on the price after discount (same goal-seek
 // as the Land Bank's calculator). The real price is only shown inside the system, never in the PDF or the e-mail.
 import { admin, getConfig, HttpError, nowIso, str } from "./lib.ts";
-import { Pdf, textWidth } from "./pdf.ts";
-import { LOGOS, logoKey } from "./lara_logos.ts";
 import { canonicalParks } from "../../../src/lib/parkAliases.ts";
 import { firstNameOf } from "../../../src/lib/personName.ts";
 import { PARK_AR, plotsAr, preferredLang } from "../../../src/components/crm/smartWriter.ts";
@@ -180,120 +179,16 @@ export function coverText(o: Offer, lead: any, cfg: { nameAr: string; nameEn: st
   if (lang === "ar") {
     const pk = PARK_AR[o.project] || o.project;
     return {
-      lang, subject: `عرض سعر — ${pk} — ${o.ref}`,
-      body: `السلام عليكم${first ? ` أ. ${first}` : ""}،\n\nمرفق لحضرتك عرض السعر لـ${plotsAr(o.plots.length)} متاحة في ${pk} بمساحة إجمالية ${fA(o.area)} م² (${span} م²)${o.discountPct ? `، وعليه خصم خاص ${fA(o.discountPct)}%` : ""}${o.mode === "plan" ? "، بنظام تقسيط" : ""}. العرض صالح حتى ${vu}.\n${o.owner ? `زميلي ${o.owner}، مسؤول المبيعات الخاص بحضرتك،` : "فريق المبيعات"} هيتواصل مع حضرتك لتأكيد التفاصيل.\n\nتحب نرتب زيارة للموقع تشوف فيها القطع على الطبيعة؟\n\n${cfg.nameAr}\nالسويدي للتنمية الصناعية`,
+      lang, subject: `عرض مالي مبدئي — ${pk} — ${o.ref}`,
+      body: `السلام عليكم${first ? ` أ. ${first}` : ""}،\n\nمرفق لحضرتك العرض المالي المبدئي لـ${plotsAr(o.plots.length)} متاحة في ${pk} بمساحة إجمالية ${fA(o.area)} م² (${span} م²)${o.discountPct ? `، وعليه خصم خاص ${fA(o.discountPct)}%` : ""}${o.mode === "plan" ? "، بنظام تقسيط" : ""}. العرض صالح حتى ${vu}.\n${o.owner ? `زميلي ${o.owner}، مسؤول المبيعات الخاص بحضرتك،` : "فريق المبيعات"} هيتواصل مع حضرتك لتأكيد التفاصيل.\n\nتحب نرتب زيارة للموقع تشوف فيها القطع على الطبيعة؟\n\n${cfg.nameAr}\nالسويدي للتنمية الصناعية`,
     };
   }
   return {
-    lang, subject: `Sales offer — ${o.project} — ${o.ref}`,
-    body: `${first && isLatin(first) ? `Dear ${first},` : "Good day,"}\n\nPlease find attached our sales offer for ${o.plots.length} available plot${o.plots.length > 1 ? "s" : ""} in ${o.project}, ${fA(o.area)} sqm in total (${span} sqm)${o.discountPct ? `, including a special discount of ${fA(o.discountPct)}%` : ""}${o.mode === "plan" ? ", with an instalment plan" : ""}. The offer is valid until ${vu}.\n${o.owner ? `Your account manager, ${o.owner},` : "Our sales team"} will contact you to confirm the details.\n\nWould you like to arrange a site visit to see the plots?\n\nBest regards,\n${cfg.nameEn}\nElsewedy Industrial Development`,
+    lang, subject: `Initial financial offer — ${o.project} — ${o.ref}`,
+    body: `${first && isLatin(first) ? `Dear ${first},` : "Good day,"}\n\nPlease find attached our initial financial offer for ${o.plots.length} available plot${o.plots.length > 1 ? "s" : ""} in ${o.project}, ${fA(o.area)} sqm in total (${span} sqm)${o.discountPct ? `, including a special discount of ${fA(o.discountPct)}%` : ""}${o.mode === "plan" ? ", with an instalment plan" : ""}. The offer is valid until ${vu}.\n${o.owner ? `Your account manager, ${o.owner},` : "Our sales team"} will contact you to confirm the details.\n\nWould you like to arrange a site visit to see the plots?\n\nBest regards,\n${cfg.nameEn}\nElsewedy Industrial Development`,
   };
 }
 
-// ---------------------------------------------------------------------------------------------
-// the PDF: the Land Bank's soPdf, point for point (A4 in points, Helvetica)
-// ---------------------------------------------------------------------------------------------
-const PDF_NOTE = "Generated automatically by the SID system. Preliminary version for discussion only - subject to management approval; figures may differ slightly in the final signed offer.";
-export function offerPdf(o: Offer): Uint8Array {
-  const doc = new Pdf(); const H = doc.H;
-  const L = 53, R = 549, C1 = 221, C2 = 318, C3 = 402, GR = [217, 217, 217], BK = [0, 0, 0], RD = [230, 0, 0];
-  const t = TPL[o.tpl] || TPL.def;
-  const tx = (s: string, x: number, y: number, op: { b?: boolean; i?: boolean; s?: number; c?: number[] | string; a?: "left" | "right" | "center" } = {}) =>
-    doc.text(x, y, String(s ?? ""), { size: op.s || 6.8, bold: op.b, italic: op.i, color: op.c || BK, align: op.a || "left", middle: true });
-  const box = (x: number, y: number, w: number, h: number, fill?: number[] | string) => doc.rect(x, y, w, h, fill ? { fill, stroke: BK, lw: 0.6 } : { stroke: BK, lw: 0.6 });
-  /** text with {red parts} (bold italic red), like the Land Bank's notes */
-  const rich = (s: string, x: number, y: number, size = 6.8) => {
-    let cx = x;
-    String(s).split(/(\{[^}]*\})/).forEach((pz) => {
-      if (!pz) return; const red = /^\{.*\}$/.test(pz); const v = red ? pz.slice(1, -1) : pz;
-      doc.text(cx, y, v, { size, bold: red, italic: true, color: red ? RD : BK, middle: true }); cx += textWidth(v, size, red) + (red ? 1.5 : 0);
-    });
-  };
-  let y = 0;
-  const foot = () => { doc.line(L, H - 26, R, H - 26, [190, 190, 190], 0.4); const ls = doc.split(PDF_NOTE, R - L, 5.6); ls.forEach((l, i) => doc.text((L + R) / 2, H - 18 + (i - (ls.length - 1) / 2) * 6.5, l, { size: 5.6, italic: true, color: [120, 120, 120], align: "center", middle: true })); };
-  const need = (h: number) => { if (y + h > H - 40) { foot(); doc.addPage(); y = 40; } };
-  const note = (s: string) => {
-    const plain = String(s).replace(/[{}]/g, "");
-    const lines = /\{/.test(s) ? [s] : doc.split(plain, R - L - 6, 6.8);
-    need(lines.length * 10.5);
-    const y0 = y + 6.2; tx("*", L - 4, y0); lines.forEach((l, i) => rich(l, L + 3, y0 + i * 9.5));
-    y += 12.3 + (lines.length - 1) * 9.5;
-  };
-  const row4 = (cells: (string | null)[], h: number, op: { fill?: number[]; b?: boolean; xs?: number[]; right?: number[] } = {}) => {
-    const xs = op.xs || [L, C1, C2, C3, R]; need(h);
-    cells.forEach((c, i) => {
-      if (c == null) return; const x0 = xs[i], x1 = xs[i + 1]; box(x0, y, x1 - x0, h, op.fill);
-      if (c !== "") { const r = op.right && op.right.includes(i); tx(c, r ? x1 - 4 : (x0 + x1) / 2, y + h / 2, { b: op.b, a: r ? "right" : "center" }); }
-    });
-    y += h;
-  };
-
-  // title bar and logo
-  box(L, 30, C3 - L, 14, t.bar); tx(o.title || "Sales Offer", (L + C3) / 2, 37, { b: true, s: 7.5, a: "center", c: t.ink });
-  const lg = LOGOS[logoKey(o.project)] || LOGOS.sdm;
-  if (lg) { const bw = 112, bh = 34, k = Math.min(bw / lg.w, bh / lg.h); doc.image(logoKey(o.project), lg, R - lg.w * k, 22 + (bh - lg.h * k) / 2, lg.w * k, lg.h * k); }
-  // header
-  doc.rect(L, 60.5, C3 - L, 11, { fill: GR });
-  ([["Client's name :", o.client], ["Company name :", o.company], ["Project name :", o.project], ["Sector :", o.sector], ["Plots no.", o.plotsText], ["Land type:", o.landType]] as [string, string][])
-    .forEach(([k, v], i) => { const yy = 66 + i * 12.3; tx(k, L + 3, yy, { b: true }); if (!v) return; const w = textWidth(v, 6.8, true), mw = i === 3 ? 220 : 250; tx(v, 272, yy, { b: true, a: "center", s: w > mw ? Math.max(4.4, 6.8 * mw / w) : 6.8 }); });
-  tx("Date :", 440, 66 + 3 * 12.3, { b: true }); tx(dTxt(o.date), 505, 66 + 3 * 12.3, { b: true, a: "center" });
-  // price block: customer list price (+markup), then the discount line when there is one
-  y = 134;
-  const plan = o.mode === "plan" && o.planOut && o.planListPaid;
-  const before = plan ? o.planListPaid! : o.listTotal, after = plan ? o.due : o.netTotal;
-  const priceRows: [string, string, string, boolean][] = [["Area :", fA(o.area), "M2", false], ["price / SQM", fInt(before / o.area), "EGP", false], ["Total value", fA(Math.round(before)), "EGP", true]];
-  if (o.discountPct > 0) priceRows.push([`Special discount (${fA(o.discountPct)}%)`, `- ${fA(Math.round(before - after))}`, "EGP", false], ["Price / SQM after discount", fInt(after / o.area), "EGP", false], ["Total after discount", fA(Math.round(after)), "EGP", true]);
-  priceRows.forEach(([k, v, u, last]) => {
-    const disc = k.startsWith("Special discount");
-    box(L, y, C1 - L, 12.3, GR); box(C1, y, C2 - C1, 12.3, last ? GR : undefined);
-    tx(k, L + 3, y + 6.2, { b: !last, i: last, c: disc ? RD : BK }); tx(v, C2 - 4, y + 6.2, { b: true, i: last, a: "right", c: disc ? RD : BK }); tx(u, C2 + 36, y + 6.2, { b: true }); y += 12.3;
-  });
-  if (plan) { tx("*", L - 4, y + 6.2); rich(`Price with instalments (interest included). {Cash price ${fInt(o.netSqm)} EGP/SQM - total ${fA(Math.round(o.netTotal))} EGP.}`, L + 3, y + 6.2); y += 10; }
-  // payment table
-  y += 14;
-  const rows: { label: string; n: string; amt: number; dur: string; dur2?: string }[] = o.mode === "plan" && o.planOut
-    ? [{ label: "Down Payment", n: "1", amt: o.planOut.adv, dur: "Immediately" }, ...(o.planOut.n ? [{ label: "Total Installments", n: String(o.planOut.n), amt: o.planOut.paid - o.planOut.adv, dur: o.planOut.label, dur2: `on ${o.planOut.years} Year${o.planOut.years === 1 ? "" : "s"}` }] : [])]
-    : [{ label: "Down Payment", n: "1", amt: o.netTotal, dur: "Within 3 months" }];
-  const due = rows.reduce((a, r) => a + (+r.amt || 0), 0);
-  row4(["Payment Method", "Installments", "Amount", "Duration"], 12, { fill: GR, b: true });
-  rows.forEach((r) => {
-    const h = r.dur2 ? 18 : 12; need(h);
-    box(L, y, C1 - L, h); tx(r.label, (L + C1) / 2, y + h / 2, { a: "center" }); box(C1, y, C2 - C1, h); tx(r.n, (C1 + C2) / 2, y + h / 2, { a: "center" });
-    box(C2, y, C3 - C2, h); tx(f2(r.amt), C3 - 4, y + h / 2, { a: "right" });
-    if (r.dur2) { box(C3, y, 460 - C3, h); box(460, y, R - 460, h); tx(r.dur, (C3 + 460) / 2, y + h / 2, { b: true, a: "center" }); tx(r.dur2, (460 + R) / 2, y + h / 2, { b: true, a: "center" }); }
-    else { box(C3, y, R - C3, h); tx(r.dur, (C3 + R) / 2, y + h / 2, { b: true, a: "center" }); }
-    y += h;
-  });
-  need(12); box(L, y, C2 - L, 12); tx("Total Amount Due", (L + C2) / 2, y + 6, { b: true, a: "center" }); box(C2, y, C3 - C2, 12); tx(fA(Math.round(due)), C3 - 4, y + 6, { b: true, a: "right" }); box(C3, y, R - C3, 12); y += 12;
-  // notes
-  y += 3;
-  if (o.mode === "plan" && o.planOut && o.planOut.n) { const y0 = y + 6.2; tx("*", L - 4, y0); rich(`The Amount of installment ${o.planOut.label}`, L + 3, y0); tx(fInt(o.planOut.inst), C2 - 10, y0, { b: true, i: true, a: "right" }); tx("EGP", C2 - 5, y0, { i: true }); y += 12.3; }
-  (t.notes as string[]).forEach(note);
-  // fees (on the value the customer pays)
-  const total = o.due; const sec = () => { y += 4; };
-  if (t.ins > 0) { sec(); row4(["Item", "Percentage", "Amount", "Notes"], 11, { fill: GR, b: true }); row4(["Infrastructure insurance", fA(t.ins) + "%", f2(total * t.ins / 100), "Upon contract"], 11, { b: true }); (t.insNotes as string[]).forEach(note); }
-  if (t.hand > 0) { sec(); row4(["Item", null, "Amount", "Notes"], 11, { fill: GR, b: true, xs: [L, C2, C2, C3, R] }); row4(["Handover fees", null, fA(t.hand), "Upon handover"], 18, { b: true, xs: [L, C2, C2, C3, R] }); tx("(Excluding VAT)", L + 3, y + 7, { b: true, i: true, c: RD }); y += 13; }
-  if (t.con > 0) { sec(); row4(["Item", "Percentage", "Amount", "Notes"], 11, { fill: GR, b: true }); row4(["Contract Fees", fA(t.con) + "%", f2(total * t.con / 100), "Upon contract"], 12, { b: true }); note(`Will be paid upon signing the contract and it's equivalent to ${fA(t.con * 10)}/1000 of the land value. {(Excluding VAT)}`); }
-  if (t.maint > 0) { sec(); row4(["Item", "Price/SQM", "Amount", "Notes"], 11, { fill: GR, b: true }); row4(["Maintenance deposit", f2(t.maint), f2(o.area * t.maint), "Upon contract"], 11, { b: true }); y += 6; }
-  if (t.addw > 0) {
-    sec(); need(40); tx("Additional Work :", L + 3, y + 4, { b: true }); doc.line(L + 3, y + 8, L + 3 + textWidth("Additional Work :", 6.8, true), y + 8, BK, 0.5); y += 12;
-    row4(["Item", null, "Amount", "Notes"], 11, { fill: GR, b: true, xs: [L, C2, C2, C3, R] }); row4(["Cost of Additional works", null, fA(t.addw), "Upon Contract"], 11, { b: true, xs: [L, C2, C2, C3, R] });
-    note("Additional works included (site survey, handover fees, and house connection fees). {(Excluding VAT)}");
-  }
-  if (t.ida > 0) { sec(); row4(["Item", "Percentage", "Notes", null], 11, { fill: GR, b: true, xs: [L, C1, C2, R, R] }); row4(["IDA approval fees", fA(t.ida) + "%", "Upon Contract", null], 11, { b: true, xs: [L, C1, C2, R, R] }); y += 6; }
-  // validity and signatures
-  need(150); y += 16;
-  doc.rect(L, y, C1 - L, 11, { fill: GR }); tx("Validity :", L + 3, y + 5.5, { b: true }); y += 12;
-  doc.rect(L, y, 470 - L, 11, { fill: [255, 255, 0] }); tx("*", L - 4, y + 5.5); tx(`This offer is valid for ${o.validText}`, L + 3, y + 5.5, { b: true, i: true, c: RD }); y += 26;
-  const sx = [135, 300, 468];
-  const sg = (t.sign as [string, string][]).map((s, i) => (i === 0 && !s[1] && o.owner ? [s[0], o.owner] : s));
-  sg.forEach((s, i) => tx(s[0], sx[i], y, { b: true, a: "center" })); y += 17; sg.forEach((s, i) => { if (s[1]) tx(s[1], sx[i], y, { b: true, a: "center" }); }); y += 38;
-  doc.rect(L, y, 260 - L, 12, { stroke: BK, lw: 1.2 }); tx("Approved On payment terms and conditions", L + 3, y + 6, { b: true }); y += 26;
-  tx("Authorized signature for :", L + 3, y + 5, { b: true }); doc.rect(260, y, R - 260, 10, { fill: GR }); y += 13;
-  tx("Name:", L + 3, y + 5, { b: true }); y += 12; tx("Signature:", L + 3, y + 5, { b: true });
-  foot();
-  return doc.bytes();
-}
 export const offerFileName = (o: Offer) => `Sales Offer - ${o.project} - ${fInt(o.area)} SQM${o.company ? ` - ${o.company}` : ""}`.replace(/[\\/:*?"<>|]+/g, " ").slice(0, 90) + ".pdf";
 
 /** after the e-mail is sent: the offer history record (the Land Bank demand page reads it). Customer figures only. */

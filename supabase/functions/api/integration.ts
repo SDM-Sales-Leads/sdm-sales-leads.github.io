@@ -57,7 +57,7 @@ async function lbCaller(req: Request): Promise<Caller> {
 }
 
 /** public (self-authenticated) route taking the Land Bank token */
-function lbRoute(method: string, path: string, fn: (x: { req: Request; c: Caller; query: URLSearchParams; params: Record<string, string> }) => Promise<any>) {
+export function lbRoute(method: string, path: string, fn: (x: { req: Request; c: Caller; query: URLSearchParams; params: Record<string, string> }) => Promise<any>) {
   route(method, path, async ({ req, query, params }) => fn({ req, c: await lbCaller(req), query, params }), { public: true });
 }
 

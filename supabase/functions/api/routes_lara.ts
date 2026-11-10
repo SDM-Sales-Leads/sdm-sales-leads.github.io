@@ -10,7 +10,7 @@ import { route } from "./router.ts";
 import { pg } from "./db.ts";
 import { analyse, isArabic, KbEntry, matchQuestion, THRESHOLD } from "./lara_match.ts";
 import { canonicalParks } from "../../../src/lib/parkAliases.ts";
-import { situationOf, writeFor } from "../../../src/components/crm/smartWriter.ts";
+import { preferredLang, situationOf, writeFor } from "../../../src/components/crm/smartWriter.ts";
 import { availableByPark, plotFit } from "../../../src/components/crm/smartEngine.ts";
 
 export interface LaraConfig {
@@ -24,7 +24,7 @@ export interface LaraConfig {
 }
 export const LARA_DEFAULT: LaraConfig = {
   mode: "shadow", firstContactHours: 24, overdueDays: 3, offerSilentDays: 3, noAnswerDays: 2, maxPerRun: 60,
-  nameEn: "Lara, digital sales assistant", nameAr: "لارا، المساعد الرقمي للمبيعات",
+  nameEn: "Lara, digital sales assistant", nameAr: "لارا، المساعدة الرقمية للمبيعات",
 };
 export async function laraConfig(): Promise<LaraConfig> {
   const c = await getConfig<any>("lara_config", {});
@@ -58,7 +58,7 @@ async function candidateLeads(cfg: LaraConfig): Promise<any[]> {
       data->>'nextFollowUpDate' as "nextFollowUpDate", data->>'lastContactDate' as "lastContactDate", data->>'firstContactAt' as "firstContactAt",
       data->>'offerSent' as "offerSent", data->>'offerDate' as "offerDate", data->>'meetingDate' as "meetingDate", data->>'meetingTime' as "meetingTime",
       data->>'date' as date, data->>'assignedDate' as "assignedDate", data->>'priority' as priority, data->>'channel' as channel, data->>'source' as source,
-      data->>'dealValue' as "dealValue", data->'assignedPlots' as "assignedPlots",
+      data->>'dealValue' as "dealValue", data->>'nationality' as nationality, data->'assignedPlots' as "assignedPlots",
       (select coalesce(jsonb_agg(x.e order by x.i), '[]'::jsonb) from (
          select jsonb_build_object('type', e->>'type', 'title', left(e->>'title', 80), 'description', left(e->>'description', 120), 'timestamp', e->>'timestamp') as e, i
          from jsonb_array_elements(case when jsonb_typeof(data->'timeline') = 'array' then data->'timeline' else '[]'::jsonb end) with ordinality t(e, i)
@@ -128,9 +128,9 @@ export async function runShadow(by: string): Promise<any> {
     picked.sort((a, b) => b.r.rank - a.r.rank);
     const take = picked.slice(0, Math.max(1, Math.min(200, cfg.maxPerRun)));
     const rows = take.map(({ l, r }) => {
-      const ctx = { rep: cfg.nameEn, repAr: cfg.nameAr, fit: plotFit(l, byPark as any), byKey: byKey as any };
+      const ctx = { rep: cfg.nameEn, repAr: cfg.nameAr, fit: plotFit(l, byPark as any), byKey: byKey as any, owner: str(l.assignedSalespersonName, 60) };
       const d = writeFor(l, ctx)[0];
-      const lang = isArabic(`${l.customerName || ""}`) || !/[a-z]/i.test(l.customerName || "") ? "ar" : "en";
+      const lang = preferredLang(l);
       const channel = l.phoneNumber ? "whatsapp" : "email";
       return {
         lead_id: l.id, run_id: runId, rule: r.rule, situation: situationOf(l, ctx), channel, lang,

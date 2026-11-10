@@ -20,7 +20,7 @@ export const SITUATION_LABEL: Record<Situation, string> = {
   visit: 'Confirm the site visit', cold: 'Wake up a quiet lead', plotgone: 'Their plot is gone: offer an alternative', won: 'Thank you / next steps',
 };
 export interface Draft { situation: Situation; version: number; ar: string; en: string; subjectAr: string; subjectEn: string }
-export interface WriterCtx { rep: string; repAr?: string; fit: PlotFit | null; byKey?: Map<string, Plot>; now?: number }
+export interface WriterCtx { rep: string; repAr?: string; fit: PlotFit | null; byKey?: Map<string, Plot>; now?: number; owner?: string }
 
 const PARK_AR: Record<string, string> = {
   'Industria October': 'إندستريا أكتوبر', 'Industria New Sadat': 'إندستريا السادات الجديدة', 'Industria Sadat': 'إندستريا السادات',
@@ -29,6 +29,8 @@ const PARK_AR: Record<string, string> = {
   'Industria Asher - Plot 11': 'إندستريا عاشر', 'Al Oula': 'الأولى',
 };
 const n0 = (v: number) => Math.round(v).toLocaleString('en-US');
+/** Arabic count of plots: قطعة واحدة / قطعتين / 3 قطع / 11 قطعة */
+const plotsAr = (n: number) => (n === 1 ? 'قطعة واحدة' : n === 2 ? 'قطعتين' : n <= 10 ? `${n} قطع` : `${n} قطعة`);
 const IND_AR: Record<string, string> = {
   Engineering: 'الصناعات الهندسية', Pharmaceutical: 'الأدوية', Textile: 'النسيج', Chemical: 'الكيماويات', 'Food & Beverage (F&B)': 'الأغذية والمشروبات',
   Logistics: 'اللوجستيات', 'Heavy Industry': 'الصناعات الثقيلة', Services: 'الخدمات', Automotive: 'السيارات', Warehouse: 'المخازن', Plastic: 'البلاستيك', Plastics: 'البلاستيك',
@@ -40,7 +42,10 @@ const ATTEMPT_TYPES = new Set(['Call', 'WhatsApp', 'Email', 'SMS']);
 const NO_ANS = ['No Answer – Sent WhatsApp', 'Out of Coverage – Sent WhatsApp', 'Sent WhatsApp', 'No Answer'];
 
 /** customer's own language: Arabic when the name or message is written in Arabic */
-export const preferredLang = (l: Lead): 'ar' | 'en' => (hasArabic(`${l.customerName || ''} ${l.description || ''}`) || !/[a-z]/i.test(l.customerName || '') ? 'ar' : 'en');
+export const preferredLang = (l: Lead): 'ar' | 'en' => {
+  const nat = String((l as any).nationality || '').trim();
+  return nat && !/egypt|مصر|مصري/i.test(nat) ? 'en' : 'ar';   // 10 Nov 2026: Arabic first (Egyptian customers often type their name in English)
+};
 
 /** tries since the last real conversation (the last status that moved forward) */
 function attemptsSinceProgress(l: Lead): number {
@@ -88,7 +93,7 @@ function factsOf(l: Lead, ctx: WriterCtx): Facts {
     const lo = Math.min(...areas), hi = Math.max(...areas);
     const span = lo === hi ? `${n0(lo)} م²` : `من ${n0(lo)} إلى ${n0(hi)} م²`;
     const spanEn = lo === hi ? `${n0(lo)} sqm` : `${n0(lo)} to ${n0(hi)} sqm`;
-    fitAr = f.count === 1 ? `متاح حالياً قطعة مناسبة جداً في ${parkAr} بمساحة ${span}` : `متاح حالياً ${f.count} قطع مناسبة في ${parkAr}، أقربها لطلب حضرتك ${span}`;
+    fitAr = f.count === 1 ? `متاح حالياً قطعة مناسبة جداً في ${parkAr} بمساحة ${span}` : `متاح حالياً ${plotsAr(f.count)} مناسبة في ${parkAr}، أقربها لطلب حضرتك ${span}`;
     fitEn = f.count === 1 ? `one plot that fits your request is available now in ${parkEn} (${spanEn})` : `${f.count} plots that fit your request are available now in ${parkEn}; the closest are ${spanEn}`;
   } else if (f && f.count === 0 && size && parkEn) {
     fitAr = `المساحة دي بالظبط مش متاحة حالياً في ${parkAr}، لكن عندنا بدائل قريبة أقدر أعرضها على حضرتك`;
@@ -98,7 +103,7 @@ function factsOf(l: Lead, ctx: WriterCtx): Facts {
   const gone = (l.assignedPlots || []).filter((a) => { const p = ctx.byKey?.get(a.key); return p && p.status !== 'available'; }).map((a) => a.unit).join(', ');
   const ref = dayOf(l.offerDate) || dayOf(l.lastContactDate) || dayOf(l.firstContactAt);
   return {
-    nameAr: first ? `أستاذ ${first}` : 'حضرتك', nameEn: first && !hasArabic(first) ? first : '',
+    nameAr: first ? `أ. ${first}` : 'حضرتك', nameEn: first && !hasArabic(first) ? first : '',
     parkAr: parkAr || 'مدننا الصناعية', parkEn: parkEn || 'our industrial parks',
     sizeAr: size ? `${size} م²` : '', sizeEn: size ? `${size} sqm` : '',
     fitAr, fitEn,
@@ -117,15 +122,17 @@ const helloEn = (x: Facts) => (x.nameEn ? `Dear ${x.nameEn},` : 'Good day,');
 const join = (...p: (string | false | null | undefined)[]) => p.filter(Boolean).join('\n');
 
 /** three versions of the message for this situation: [standard, value-led, short] */
-function build(s: Situation, x: Facts, rep: string): { ar: string; en: string }[] {
+function build(s: Situation, x: Facts, rep: string, owner = ''): { ar: string; en: string }[] {
   const needAr = x.sizeAr ? `أرض صناعية بمساحة حوالي ${x.sizeAr} في ${x.parkAr}${x.industryAr}` : `أرض صناعية في ${x.parkAr}${x.industryAr}`;
   const needEn = x.sizeEn ? `industrial land of about ${x.sizeEn} in ${x.parkEn}${x.industryEn}` : `industrial land in ${x.parkEn}${x.industryEn}`;
   const askSizeAr = x.sizeAr ? '' : 'ممكن أعرف المساحة المطلوبة ونوع النشاط عشان أرشح لحضرتك الأنسب؟';
   const askSizeEn = x.sizeEn ? '' : 'Could you share the land size you need and your activity, so I can shortlist the right plots?';
   const fitLineAr = x.fitAr ? `${x.fitAr}.` : '';
   const fitLineEn = x.fitEn ? `${x.fitEn[0].toUpperCase()}${x.fitEn.slice(1)}.` : '';
-  const A = (body: string) => `${helloAr(x)}\n\n${body}${sigAr(rep)}`;
-  const E = (body: string) => `${helloEn(x)}\n\n${body}${sigEn(rep)}`;
+  const ownAr = owner ? `\nزميلي ${owner}، مسؤول المبيعات الخاص بحضرتك، متاح كمان لأي تفاصيل.` : '';
+  const ownEn = owner ? `\nYour account manager, ${owner}, is also available for any details.` : '';
+  const A = (body: string) => `${helloAr(x)}\n\n${body}${ownAr}${sigAr(rep)}`;
+  const E = (body: string) => `${helloEn(x)}\n\n${body}${ownEn}${sigEn(rep)}`;
   switch (s) {
     case 'first': return [
       { ar: A(join(`معك ${rep} من السويدي للتنمية الصناعية، وصلنا طلب حضرتك بخصوص ${needAr}.`, fitLineAr, askSizeAr || 'إمتى يكون وقت مناسب لمكالمة قصيرة أعرض فيها على حضرتك الاختيارات المتاحة؟')),
@@ -162,8 +169,11 @@ function build(s: Situation, x: Facts, rep: string): { ar: string; en: string }[
       { ar: A('فيه أي سؤال في العرض أقدر أجاوبه لحضرتك؟'), en: E('Is there any question on the offer I can answer for you?') },
     ];
     case 'offer': return [
-      { ar: A(join(`متابعة للعرض اللي بعتناه لحضرتك${x.days != null ? ` ${daysAr(x.days)}` : ''} بخصوص ${x.parkAr}.`, 'حابب أعرف رأي حضرتك، وتحت أمرك لأي تعديل في المساحة أو طريقة السداد.')),
-        en: E(join(`Following up on the offer we sent you${x.days != null ? ` ${x.days} days ago` : ''} for ${x.parkEn}.`, 'I would value your feedback, and I am open to adjusting the size or the payment plan.')) },
+      x.days != null && x.days > 21
+        ? { ar: A(join(`بعتنا لحضرتك عرض من فترة بخصوص ${x.parkAr}.`, fitLineAr, 'المتاح والأسعار بيتحدثوا، فلو المشروع لسه قائم أقدر أجهز لحضرتك عرض محدث. يناسبك؟')),
+            en: E(join(`We sent you an offer a while ago for ${x.parkEn}.`, fitLineEn, 'Availability and prices are updated regularly, so if your project is still on I can prepare an updated offer. Would that help?')) }
+        : { ar: A(join(`متابعة للعرض اللي بعتناه لحضرتك${x.days != null ? ` ${daysAr(x.days)}` : ''} بخصوص ${x.parkAr}.`, 'حابب أعرف رأي حضرتك، وتحت أمرك لأي تعديل في المساحة أو طريقة السداد.')),
+            en: E(join(`Following up on the offer we sent you${x.days != null ? ` ${x.days} days ago` : ''} for ${x.parkEn}.`, 'I would value your feedback, and I am open to adjusting the size or the payment plan.')) },
       { ar: A(join('المتاح في الأراضي بيتغير من أسبوع للتاني.', 'لو حضرتك مهتم أقدر أطلب حجز مبدئي لفترة قصيرة لحد ما ناخد القرار. نتكلم إمتى؟')), en: E(join('Availability changes from week to week.', 'If you are interested I can request a short provisional hold while you decide. When can we talk?')) },
       { ar: A('وصل العرض لحضرتك؟ فيه أي استفسار؟'), en: E('Did you receive the offer? Any questions?') },
     ];
@@ -212,8 +222,8 @@ export function writeFor(l: Lead, ctx: WriterCtx, situation?: Situation): Draft[
   const x = factsOf(l, ctx);
   const subjectEn = s === 'meeting' || s === 'visit' ? `Confirmation — ${x.parkEn}` : s === 'offer' || s === 'study' ? `Your offer — ${x.parkEn}` : s === 'plotgone' ? `Alternatives for your plot — ${x.parkEn}` : `Industrial land in ${x.parkEn}${x.company ? ` — ${x.company}` : ''}`;
   const subjectAr = s === 'meeting' || s === 'visit' ? `تأكيد الموعد — ${x.parkAr}` : s === 'offer' || s === 'study' ? `العرض الخاص بحضرتك — ${x.parkAr}` : s === 'plotgone' ? `بدائل للقطعة — ${x.parkAr}` : `أرض صناعية في ${x.parkAr}`;
-  const en = build(s, x, ctx.rep);
-  const ar = ctx.repAr && ctx.repAr !== ctx.rep ? build(s, x, ctx.repAr) : en;   // Lara signs in Arabic as لارا
+  const en = build(s, x, ctx.rep, ctx.owner || '');
+  const ar = ctx.repAr && ctx.repAr !== ctx.rep ? build(s, x, ctx.repAr, ctx.owner || '') : en;   // Lara signs in Arabic as لارا
   return en.map((v, i) => ({ situation: s, version: i, ar: ar[i].ar, en: v.en, subjectAr, subjectEn }));
 }
 /** situations worth offering for this lead (the detected one first) */

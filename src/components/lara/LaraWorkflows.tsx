@@ -1,7 +1,7 @@
 // Lara — phase 4: workflow builder. WHEN (trigger) → IF (conditions) → THEN (steps with waits) → STOP. Test run before switching on. No AI.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { GitBranch, Plus, Play, Pencil, Archive, X, Loader2, Clock, MessageSquare, Bell, UserCheck, Crown, Filter, Zap, OctagonX, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { FileText, GitBranch, Plus, Play, Pencil, Archive, X, Loader2, Clock, MessageSquare, Bell, UserCheck, Crown, Filter, Zap, OctagonX, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { SITUATION_LABEL } from '../crm/smartWriter';
 import { PRIORITIES, SOURCES, CHANNELS, STATUSES } from '../crm/leadConfig';
 import { PARKS } from '../../lib/parkAliases';
@@ -26,6 +26,7 @@ const TRIGGER: Record<string, { label: string; unit: string }> = {
 };
 const ACTION: Record<string, { label: string; icon: any; tone: string }> = {
   message: { label: 'Lara writes to the customer', icon: MessageSquare, tone: 'bg-brand-red/10 text-brand-red' },
+  offer: { label: 'Lara prepares an initial offer (PDF)', icon: FileText, tone: 'bg-sky-100 text-sky-800' },
   notify_owner: { label: 'Tell the salesperson', icon: Bell, tone: 'bg-amber-100 text-amber-800' },
   notify_director: { label: 'Tell the Sales Director', icon: Crown, tone: 'bg-violet-100 text-violet-800' },
   handover: { label: 'Hand the lead back to the salesperson', icon: UserCheck, tone: 'bg-emerald-100 text-emerald-800' },

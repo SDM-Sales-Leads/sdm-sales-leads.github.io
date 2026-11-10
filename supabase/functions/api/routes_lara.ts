@@ -15,6 +15,8 @@ import { availableByPark, plotFit } from "../../../src/components/crm/smartEngin
 import { firstNameOf } from "../../../src/lib/personName.ts";
 import { triggerHit, condsOk, stopReason, validateWorkflow, hasEmail, hasPhone, TRIGGERS, Workflow, Step } from "./lara_flow.ts";
 import { addNotifications } from "./notify.ts";
+import { buildOffer, coverText, offerCandidates, offerPdf } from "./lara_offer.ts";
+import { sendOfferTestCopy } from "./lara_mail.ts";
 import { handleReply, laraMailCfg, pollLaraInbox, saveMailbox, sendDraft, sendQueued, SendRules } from "./lara_mail.ts";
 
 export interface LaraConfig {
@@ -159,6 +161,14 @@ async function directors(): Promise<string[]> {
 /** run one step; returns what happened ('' = skipped, try again next run) */
 async function doStep(cfg: LaraConfig, x: Ctx, wf: Workflow, i: number, l: any, why: string, runId: string, budget: { left: number }): Promise<string> {
   const step = wf.steps[i];
+  if (step.action === "offer") {
+    if (budget.left <= 0) return "";
+    if (!hasEmail(l)) return "skipped (no e-mail for an offer)";
+    const r = await createOfferDraft(cfg, l.id, null, 14, `${wf.name} · step ${i + 1} of ${wf.steps.length}: ${why}`, `wf:${wf.id}`, runId).catch(() => null);
+    if (!r) return "skipped (no available plot fits)";
+    budget.left--;
+    return "draft";
+  }
   if (step.action === "message") {
     if (x.pending.has(l.id)) return "";                                           // a draft for this lead is still waiting
     if (budget.left <= 0) return "";
@@ -676,4 +686,58 @@ route("POST", "/lara/workflows/test", async ({ req, c }) => {
   const err = validateWorkflow({ ...w, name: w.name || "Test" });
   if (err) throw bad(err);
   return { success: true, ...(await testWorkflow({ ...w, id: "test", name: w.name || "Test" } as any)) };
+});
+
+// ---------------------------------------------------------------------------------------------
+// phase 5: initial offers (PDF at list prices, approve first)
+// ---------------------------------------------------------------------------------------------
+/** creates an offer draft for a lead (the plots chosen, else Lara's suggestion); throws when there is no e-mail or no plot */
+export async function createOfferDraft(cfg: LaraConfig, leadId: string, plotKeys: string[] | null, validDays: number, reason: string, rule: string, runId: string | null) {
+  const { offer, lead } = await buildOffer(leadId, plotKeys, validDays);
+  const mail = String(lead.email || "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) throw bad("This lead has no e-mail address: an offer needs one");
+  const cover = coverText(offer, lead, cfg);
+  const ins = await admin.from("lara_drafts").insert({
+    lead_id: leadId, run_id: runId, rule, situation: "offer_initial", kind: "offer", channel: "email", lang: cover.lang,
+    subject: cover.subject, body: cover.body, to_addr: mail, reason, offer,
+    customer: str(lead.customerName || lead.companyName || leadId, 120), owner_id: lead.owner_id || null, owner_name: str(lead.assignedSalespersonName, 80),
+  }).select("id").single();
+  if (ins.error) throw new HttpError(500, "Could not save the offer");
+  await log("offer", null, `Offer prepared for ${lead.customerName || leadId}: ${offer.plots.length} plot(s), ${offer.ref}`);
+  return { id: ins.data.id, offer };
+}
+
+route("GET", "/lara/offers/candidates", async ({ c, query }) => {
+  needAdmin(c);
+  return { success: true, ...(await offerCandidates(str(query.get("leadId"), 40).toUpperCase())) };
+});
+route("POST", "/lara/offers", async ({ req, c }) => {
+  needAdmin(c);
+  const b = await body(req, 5000);
+  const keys = Array.isArray(b.plotKeys) ? b.plotKeys.map((k: any) => str(k, 120)).filter(Boolean).slice(0, 10) : null;
+  const r = await createOfferDraft(await laraConfig(), str(b.leadId, 40).toUpperCase(), keys, Number(b.validDays) || 14, `Prepared by ${who(c)}`, "manual_offer", null);
+  return { success: true, draftId: r.id, offer: r.offer };
+});
+route("GET", "/lara/offers", async ({ c }) => {
+  needAdmin(c);
+  const { data } = await admin.from("lara_drafts").select("id,lead_id,customer,owner_name,status,send_status,send_error,sent_at,created_at,decided_by,offer,reason").eq("kind", "offer").order("created_at", { ascending: false }).limit(150);
+  return { success: true, rows: data || [] };
+});
+/** the PDF of an offer draft (preview before approving; the same file is attached when sent) */
+route("GET", "/lara/offers/:id/pdf", async ({ c, params }) => {
+  needAdmin(c);
+  const { data: d } = await admin.from("lara_drafts").select("offer").eq("id", params.id).eq("kind", "offer").maybeSingle();
+  if (!d?.offer) throw new HttpError(404, "Offer not found");
+  return new Response(offerPdf(d.offer), { headers: { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="${String(d.offer.ref).replace(/[^A-Za-z0-9-]/g, "")}.pdf"`, "Cache-Control": "no-store" } });
+});
+
+route("POST", "/lara/offers/:id/test-copy", async ({ c, params }) => {
+  needAdmin(c);
+  await rateLimit(`laraoffertest:${c.id}`, 3600, 10);
+  const { data: d } = await admin.from("lara_drafts").select("*").eq("id", params.id).eq("kind", "offer").maybeSingle();
+  if (!d?.offer) throw new HttpError(404, "Offer not found");
+  if (!c.email) throw bad("Your account has no e-mail address");
+  await sendOfferTestCopy(d, c.email);
+  await log("offer", who(c), `Test copy of ${d.offer.ref} sent to the admin's own address`);
+  return { success: true };
 });

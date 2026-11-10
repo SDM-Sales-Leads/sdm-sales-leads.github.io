@@ -9,7 +9,9 @@
 // - Auto-replies, bounces and out-of-office mails are never answered. Unknown senders are kept for the admin (never a new lead here).
 import { admin, getConfig, getSecret, HttpError, nowIso, setConfig, setSecret, str, tryLock, unlock } from "./lib.ts";
 import { pg } from "./db.ts";
-import { EwsConfig, getBodies, htmlToText, listFolder, loadEws, sendMail, verify } from "./ews.ts";
+import { EwsConfig, getBodies, htmlToText, listFolder, loadEws, sendMail, sendMailWithAttachment, verify } from "./ews.ts";
+import { offerPdf, recordOfferPrint } from "./lara_offer.ts";
+import { toBase64 } from "./pdf.ts";
 import { addNotifications } from "./notify.ts";
 import { LARA_CODE_RE } from "./ingest.ts";
 
@@ -125,9 +127,17 @@ async function blocker(d: any, r: SendRules): Promise<string> {
   if (!d.to_addr) return "The lead has no e-mail address";
   if (await isOptedOut([d.to_addr])) return "The customer asked not to be contacted";
   const { data: t } = await admin.from("lara_threads").select("status,unanswered,last_out_at").eq("lead_id", d.lead_id).maybeSingle();
-  if (t && t.status !== "open" && d.kind !== "reply") return `Conversation is ${t.status}`;
-  if (t && d.kind !== "reply" && t.unanswered >= r.maxUnanswered) return `${t.unanswered} mails without a reply: Lara stops`;
-  if (t && d.kind !== "reply" && t.last_out_at && Date.now() - Date.parse(t.last_out_at) < r.minDaysBetween * 864e5) return `Last mail was less than ${r.minDaysBetween} days ago`;
+  if (t && t.status !== "open" && d.kind === "followup") return `Conversation is ${t.status}`;
+  if (t && d.kind === "followup" && t.unanswered >= r.maxUnanswered) return `${t.unanswered} mails without a reply: Lara stops`;
+  if (t && d.kind === "followup" && t.last_out_at && Date.now() - Date.parse(t.last_out_at) < r.minDaysBetween * 864e5) return `Last mail was less than ${r.minDaysBetween} days ago`;
+  if (d.kind === "offer") {
+    // an offer must still be true when it leaves: every plot available today
+    if (!d.offer?.plots?.length) return "The offer has no plots";
+    const { data: snap } = await admin.from("plots_snapshot").select("data").eq("id", 1).maybeSingle();
+    const st = new Map((Array.isArray(snap?.data) ? snap!.data : []).map((p: any) => [String(p.key), p.status]));
+    const gone = d.offer.plots.filter((p: any) => st.get(String(p.key)) !== "available").map((p: any) => p.unit);
+    if (gone.length) return `No longer available: ${gone.join(", ")}. Prepare a new offer.`;
+  }
   const since = new Date(Date.now() - 864e5).toISOString();
   const { count } = await admin.from("lara_messages").select("id", { count: "exact", head: true }).eq("direction", "out").gte("at", since);
   if ((count || 0) >= r.maxSendPerDay) return `Daily limit reached (${r.maxSendPerDay})`;
@@ -152,7 +162,10 @@ export async function sendDraft(draftId: string, r: SendRules, by: string): Prom
   const subject = `${base} [${t.code}]`;
   const mbox = await laraMailCfg();
   try {
-    await sendMail(await ewsCfg(), { to: [d.to_addr], subject, html: mailHtml(d.body), replyTo: mbox.address });
+    if (d.kind === "offer") {
+      const pdf = offerPdf(d.offer);
+      await sendMailWithAttachment(await ewsCfg(), { to: [d.to_addr], subject, html: mailHtml(d.body), replyTo: mbox.address }, { name: `${d.offer.ref}.pdf`, contentType: "application/pdf", base64: toBase64(pdf) });
+    } else await sendMail(await ewsCfg(), { to: [d.to_addr], subject, html: mailHtml(d.body), replyTo: mbox.address });
   } catch (e: any) {
     await admin.from("lara_drafts").update({ send_status: "failed", send_error: String(e?.message || e).slice(0, 200), updated_at: nowIso() }).eq("id", d.id);
     await admin.from("lara_log").insert({ kind: "send", actor: by, text: `Send failed for ${d.customer}: ${String(e?.message || e).slice(0, 160)}` });
@@ -162,9 +175,21 @@ export async function sendDraft(draftId: string, r: SendRules, by: string): Prom
   await admin.from("lara_messages").insert({ thread_id: t.id, lead_id: d.lead_id, direction: "out", subject, body: d.body, from_addr: mbox.address, to_addr: d.to_addr, draft_id: d.id, at: now });
   await admin.from("lara_threads").update({ out_count: (t.out_count || 0) + 1, unanswered: (t.unanswered || 0) + 1, last_out_at: now, updated_at: now }).eq("id", t.id);
   await admin.from("lara_drafts").update({ send_status: "sent", sent_at: now, send_error: null, thread_id: t.id, updated_at: now }).eq("id", d.id);
-  await appendTimeline(d.lead_id, { type: "Email", title: d.kind === "reply" ? "Lara replied by e-mail" : "Lara sent a follow-up e-mail", description: `${subject}\n\n${String(d.body).slice(0, 600)}` });
+  await appendTimeline(d.lead_id, { type: d.kind === "offer" ? "Offer" : "Email", title: d.kind === "offer" ? `Lara sent an initial offer (PDF ${d.offer.ref})` : d.kind === "reply" ? "Lara replied by e-mail" : "Lara sent a follow-up e-mail", description: `${subject}\n\n${String(d.body).slice(0, 600)}` });
+  if (d.kind === "offer") {
+    const { data: lead } = await admin.from("crm_leads").select("data").eq("id", d.lead_id).maybeSingle();
+    await recordOfferPrint(d.offer, lead?.data || {}, d.decided_by || by).catch(() => {});
+  }
   await admin.from("lara_log").insert({ kind: "send", actor: by, text: `E-mail sent to ${d.customer} (${d.kind}), approved by ${d.decided_by || by}` });
   return { sent: true };
+}
+
+/** a TEST copy of an offer to the admin who asks (their own sign-in address): same mail and PDF, nothing recorded, nobody else gets it */
+export async function sendOfferTestCopy(d: any, to: string) {
+  if (!(await mailboxReady())) throw new HttpError(400, "Lara's mailbox is not connected");
+  const mbox = await laraMailCfg();
+  await sendMailWithAttachment(await ewsCfg(), { to: [to], subject: `[TEST] ${String(d.subject || "").replace(LARA_CODE_RE, "").trim()}`, html: mailHtml(`TEST COPY — this is what the customer (${d.to_addr || "no address"}) would receive.\n\n${d.body}`), replyTo: mbox.address },
+    { name: `${d.offer.ref}.pdf`, contentType: "application/pdf", base64: toBase64(offerPdf(d.offer)) });
 }
 
 /** cron: queued drafts go out in working hours, oldest first, within the daily limit */

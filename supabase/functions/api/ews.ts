@@ -90,6 +90,33 @@ export async function sendMail(cfg: EwsConfig, o: { to: string[]; subject: strin
     </m:CreateItem>`));
 }
 
+/** a mail with one file attached (Lara's offer PDF): create it as a draft, attach the file, then send it (the EWS way) */
+export async function sendMailWithAttachment(cfg: EwsConfig, o: { to: string[]; subject: string; html: string; replyTo?: string }, att: { name: string; contentType: string; base64: string }) {
+  const to = o.to.map((e) => `<t:Mailbox><t:EmailAddress>${escXml(e)}</t:EmailAddress></t:Mailbox>`).join("");
+  const bodyText = o.html.replace(/\]\]>/g, "]]]]><![CDATA[>");
+  const created = await call(cfg, envelope(`<m:CreateItem MessageDisposition="SaveOnly">
+      <m:SavedItemFolderId><t:DistinguishedFolderId Id="drafts" /></m:SavedItemFolderId>
+      <m:Items><t:Message>
+        <t:Subject>${escXml(o.subject.replace(/[\r\n]+/g, " ").slice(0, 250))}</t:Subject>
+        <t:Body BodyType="HTML"><![CDATA[${bodyText}]]></t:Body>
+        <t:ToRecipients>${to}</t:ToRecipients>
+        ${o.replyTo ? `<t:ReplyTo><t:Mailbox><t:EmailAddress>${escXml(o.replyTo)}</t:EmailAddress></t:Mailbox></t:ReplyTo>` : ""}
+      </t:Message></m:Items>
+    </m:CreateItem>`));
+  const item = created.match(/<t:ItemId Id="([^"]+)" ChangeKey="([^"]+)"/);
+  if (!item) throw new HttpError(502, "The mail server did not create the draft");
+  const attached = await call(cfg, envelope(`<m:CreateAttachment>
+      <m:ParentItemId Id="${escXml(item[1])}" ChangeKey="${escXml(item[2])}" />
+      <m:Attachments><t:FileAttachment><t:Name>${escXml(att.name)}</t:Name><t:ContentType>${escXml(att.contentType)}</t:ContentType><t:Content>${att.base64}</t:Content></t:FileAttachment></m:Attachments>
+    </m:CreateAttachment>`), 40000);
+  const root = attached.match(/RootItemChangeKey="([^"]+)"/)?.[1];
+  if (!root) throw new HttpError(502, "The mail server did not attach the file");
+  await call(cfg, envelope(`<m:SendItem SaveItemToFolder="true">
+      <m:ItemIds><t:ItemId Id="${escXml(item[1])}" ChangeKey="${escXml(root)}" /></m:ItemIds>
+      <m:SavedItemFolderId><t:DistinguishedFolderId Id="sentitems" /></m:SavedItemFolderId>
+    </m:SendItem>`));
+}
+
 export interface MailHead {
   id: string;
   sender: string;

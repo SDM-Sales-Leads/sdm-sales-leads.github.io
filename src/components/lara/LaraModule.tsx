@@ -10,6 +10,7 @@ import type { Lead } from '../crm/types';
 import { crmNav } from '../crm/crmNav';
 import { SITUATION_LABEL } from '../crm/smartWriter';
 import { LaraWorkflows } from './LaraWorkflows';
+import { LaraOffers, openOfferPdf } from './LaraOffers';
 
 const api = async (path: string, init?: RequestInit) => {
   const r = await fetch(`/api${path}`, init ? { ...init, headers: { 'Content-Type': 'application/json', ...(init.headers || {}) } } : undefined);
@@ -76,6 +77,7 @@ export const LaraModule: React.FC<Props> = ({ sub, leads, setActiveSubTab }) => 
       {sub === 'lara-inbox' && <DraftInbox leadName={leadName} reload={load} ov={ov} />}
       {sub === 'lara-convos' && <Conversations reload={load} />}
       {sub === 'lara-flows' && <LaraWorkflows reload={load} />}
+      {sub === 'lara-offers' && <LaraOffers leads={leads} reload={load} go={setActiveSubTab} />}
       {sub === 'lara-kb' && <Knowledge reload={load} />}
       {sub === 'lara-missed' && <Missed reload={load} />}
       {sub === 'lara-settings' && <SettingsTab ov={ov} reload={load} />}
@@ -147,7 +149,7 @@ const Row: React.FC<{ label: React.ReactNode; value: React.ReactNode }> = ({ lab
 // ---------------------------------------------------------------------------------------------
 // Inbox: shadow drafts to approve / reject
 // ---------------------------------------------------------------------------------------------
-const LABEL: Record<string, string> = { ...(SITUATION_LABEL as any), reply_answer: 'Reply with an approved answer', reply_holding: 'Holding reply (no approved answer)' };
+const LABEL: Record<string, string> = { ...(SITUATION_LABEL as any), offer_initial: 'Initial offer (PDF attached)', reply_answer: 'Reply with an approved answer', reply_holding: 'Holding reply (no approved answer)' };
 const REJECT = ['Wrong situation', 'Wrong tone', 'Wrong facts', 'Owner is already on it', 'Do not contact'];
 const DraftInbox: React.FC<{ leadName: Map<string, Lead>; reload: () => void; ov: any }> = ({ leadName, reload, ov }) => {
   const canSend = ov?.config?.mode === 'approve' && ov?.config?.sendEnabled && ov?.channels?.email;
@@ -196,6 +198,7 @@ const DraftCard: React.FC<{ d: any; lead?: Lead; onDone: () => void; canSend?: b
         </div>
         <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
           {d.kind === 'reply' && <span className="bg-violet-100 text-violet-800 rounded-full px-2 py-0.5">Reply to customer</span>}
+          {d.kind === 'offer' && <button onClick={() => openOfferPdf(d.id, d.offer?.ref)} className="bg-sky-100 text-sky-800 rounded-full px-2 py-0.5 underline">Initial offer · open PDF</button>}
           <span className="bg-brand-red/10 text-brand-red rounded-full px-2 py-0.5">{LABEL[d.situation] || d.situation}</span>
           {d.send_status && d.send_status !== 'none' && <span className={`rounded-full px-2 py-0.5 ${d.send_status === 'sent' ? 'bg-emerald-100 text-emerald-800' : d.send_status === 'failed' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'}`}>{d.send_status}</span>}
           <span className={`rounded-full px-2 py-0.5 flex items-center gap-1 ${d.channel === 'whatsapp' ? 'bg-green-100 text-green-800' : 'bg-sky-100 text-sky-800'}`}>{d.channel === 'whatsapp' ? <MessageSquare size={11} /> : <Mail size={11} />}{d.channel === 'whatsapp' ? 'WhatsApp' : 'E-mail'}</span>

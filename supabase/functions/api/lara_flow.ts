@@ -6,7 +6,7 @@ import { canonicalParks } from "../../../src/lib/parkAliases.ts";
 
 export type TriggerType = "no_first_contact" | "followup_overdue" | "offer_silent" | "no_answer" | "status_stuck" | "old_lead";
 export interface Cond { field: string; op: string; value: any }
-export interface Step { waitDays: number; action: "message" | "notify_owner" | "notify_director" | "handover"; channel?: "auto" | "email" | "whatsapp"; situation?: string }
+export interface Step { waitDays: number; action: "message" | "offer" | "notify_owner" | "notify_director" | "handover"; channel?: "auto" | "email" | "whatsapp"; situation?: string }
 export interface Workflow {
   id: string; name: string; description?: string; enabled: boolean; priority: number;
   trigger: { type: TriggerType; value: number; statuses?: string[] };
@@ -124,7 +124,7 @@ export function validateWorkflow(w: any): string {
   if (!Array.isArray(w.steps) || !w.steps.length) return "Add at least one step";
   if (w.steps.length > 8) return "At most 8 steps";
   for (const s of w.steps) {
-    if (!["message", "notify_owner", "notify_director", "handover"].includes(s.action)) return "Unknown step";
+    if (!["message", "offer", "notify_owner", "notify_director", "handover"].includes(s.action)) return "Unknown step";
     if (!(Number(s.waitDays) >= 0 && Number(s.waitDays) <= 60)) return "A wait must be 0–60 days";
   }
   if (!Array.isArray(w.conditions) || w.conditions.length > 10) return "At most 10 conditions";

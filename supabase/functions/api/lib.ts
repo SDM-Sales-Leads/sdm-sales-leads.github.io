@@ -1,6 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 // Shared helpers for the `api` edge function: client, auth, permissions, validation, logging.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { pg } from "./db.ts";
 
 declare const Deno: any;
 
@@ -88,10 +89,22 @@ const b64u = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_
 let jwkCache: { at: number; keys: Map<string, CryptoKey> } | null = null;
 async function jwkFor(kid: string, force = false): Promise<CryptoKey | null> {
   if (!force && jwkCache && Date.now() - jwkCache.at < 3600_000 && jwkCache.keys.has(kid)) return jwkCache.keys.get(kid)!;
-  const r = await fetch(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`, { headers: { apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "" } });
-  if (!r.ok) throw new Error("jwks " + r.status);
+  // 10 Nov 2026: the published keys are kept in system_config (read on the direct connection: no log line); Auth is asked only when
+  // the key is unknown (key rotation) or the copy is older than a day
+  let list: any[] | null = null;
+  if (!force) {
+    const row: any = await pg((q) => q`select value, updated_at from system_config where key = 'jwks_cache'`.then((r: any) => r[0] || null), async () => null);
+    if (row?.value?.keys && Date.now() - Date.parse(row.updated_at) < 86400_000 && row.value.keys.some((k: any) => k.kid === kid)) list = row.value.keys;
+  }
+  if (!list) {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`, { headers: { apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "" } });
+    if (!r.ok) throw new Error("jwks " + r.status);
+    list = (await r.json()).keys || [];
+    const keep = list;
+    await pg((q) => q`insert into system_config (key, value, updated_at) values ('jwks_cache', ${q.json({ keys: keep })}, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`, async () => null).catch(() => {});
+  }
   const keys = new Map<string, CryptoKey>();
-  for (const k of (await r.json()).keys || []) {
+  for (const k of list || []) {
     if (k.kty !== "EC" || k.crv !== "P-256" || !k.kid) continue;
     keys.set(k.kid, await crypto.subtle.importKey("jwk", { kty: k.kty, crv: k.crv, x: k.x, y: k.y, ext: true }, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]));
   }
@@ -142,14 +155,16 @@ export async function getCaller(req: Request): Promise<Caller> {
   }
   const hit = callerCache.get(uid);
   if (hit && hit.until > now) return hit.caller;
-  const caller = await callerFromRow((await admin.from("app_users").select("*").eq("id", uid).maybeSingle()).data, uid);
-  return caller;
+  // the user row and the role's permissions in ONE query on the direct connection (was 2 gateway calls = 2 log lines)
+  const row: any = await pg((q) => q`select u.*, rp.perms as _perms from app_users u left join role_permissions rp on rp.role = u.role where u.id = ${uid}`.then((r: any) => r[0] || null),
+    async () => (await admin.from("app_users").select("*").eq("id", uid).maybeSingle()).data);
+  return await callerFromRow(row, uid);
 }
 
 async function callerFromRow(u: any, cacheKey: string): Promise<Caller> {
   const now = Date.now();
   if (!u || !u.active) { callerCache.delete(cacheKey); throw new HttpError(403, "This account is not active"); }
-  const { data: rp } = await admin.from("role_permissions").select("perms").eq("role", u.role).maybeSingle();
+  const rp = "_perms" in u ? { perms: u._perms } : (await admin.from("role_permissions").select("perms").eq("role", u.role).maybeSingle()).data;
   const caller: Caller = {
     id: u.id,
     email: u.email,
@@ -215,22 +230,23 @@ export function needCrm(c: Caller) {
 // rate limit, locks, secrets, logs
 // ---------------------------------------------------------------------------------------------
 export async function rateLimit(bucket: string, windowSec: number, limit: number) {
-  const { data, error } = await admin.rpc("app_rate_hit", { p_bucket: bucket, p_window_seconds: windowSec, p_limit: limit });
+  const { data, error } = await pg(async (q) => ({ data: (await q`select app_rate_hit(${bucket}, ${windowSec}, ${limit}) as v`)[0]?.v, error: null as any }),
+    async () => await admin.rpc("app_rate_hit", { p_bucket: bucket, p_window_seconds: windowSec, p_limit: limit }) as any);
   if (error) return; // never block on limiter failure
   if (data === false) throw new HttpError(429, "Too many requests, try again later");
 }
 export async function tryLock(name: string, seconds: number): Promise<boolean> {
-  const { data } = await admin.rpc("app_try_lock", { p_name: name, p_seconds: seconds });
-  return data === true;
+  return await pg(async (q) => (await q`select app_try_lock(${name}, ${seconds}) as v`)[0]?.v === true,
+    async () => (await admin.rpc("app_try_lock", { p_name: name, p_seconds: seconds })).data === true);
 }
 export async function unlock(name: string) {
-  await admin.rpc("app_unlock", { p_name: name });
+  await pg(async (q) => { await q`select app_unlock(${name})`; }, async () => { await admin.rpc("app_unlock", { p_name: name }); });
 }
 const secretCache = new Map<string, { v: string; until: number }>();
 export async function getSecret(name: string): Promise<string | null> {
   const c = secretCache.get(name);
   if (c && c.until > Date.now()) return c.v;
-  const { data } = await admin.rpc("app_get_secret", { p_name: name });
+  const data: any = await pg(async (q) => (await q`select app_get_secret(${name}) as v`)[0]?.v, async () => (await admin.rpc("app_get_secret", { p_name: name })).data);
   const v = typeof data === "string" && data ? data : null;
   if (v) secretCache.set(name, { v, until: Date.now() + 600_000 }); // found secrets only: a missing one is looked up again every time
   return v;
@@ -263,13 +279,15 @@ const cfgCache = new Map<string, { v: any; until: number }>();
 export async function getConfig<T = any>(key: string, fallback: T): Promise<T> {
   const c = CACHED_KEYS.has(key) ? cfgCache.get(key) : undefined;
   if (c && c.until > Date.now()) return (c.v as T) ?? fallback;
-  const { data } = await admin.from("system_config").select("value").eq("key", key).maybeSingle();
+  const data: any = await pg(async (q) => (await q`select value from system_config where key = ${key}`)[0] || null,
+    async () => (await admin.from("system_config").select("value").eq("key", key).maybeSingle()).data);
   if (CACHED_KEYS.has(key)) cfgCache.set(key, { v: data?.value ?? null, until: Date.now() + CFG_TTL });
   return (data?.value as T) ?? fallback;
 }
 export async function setConfig(key: string, value: unknown) {
   cfgCache.delete(key);
-  await admin.from("system_config").upsert({ key, value, updated_at: new Date().toISOString() });
+  await pg(async (q) => { await q`insert into system_config (key, value, updated_at) values (${key}, ${q.json(value ?? null)}, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`; },
+    async () => { await admin.from("system_config").upsert({ key, value, updated_at: new Date().toISOString() }); });
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -148,8 +148,7 @@ route("POST", "/cron/reminders", async ({ req }) => {
   const given = req.headers.get("x-cron-secret") || "";
   const want = await getSecret("cron_secret");
   if (!want || !safeEqual(given, want)) throw new HttpError(401, "Not allowed");
-  const { data } = await admin.from("system_config").select("value").eq("key", "ingest_auto").maybeSingle();
-  if (data?.value !== true) return { skipped: true, reason: "automatic jobs are off" };
+  if ((await getConfig<any>("ingest_auto", null)) !== true) return { skipped: true, reason: "automatic jobs are off" };
   // nobody is at work between 22:00 and 07:00 Cairo time: no escalations, pool hand-outs or digests to prepare.
   // Reminders (meetings, follow-ups, tasks) run until 23:00 (confirmed rule); this gate used to stop them at 22:00.
   const hourNow = +new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", hourCycle: "h23" }).format(new Date());

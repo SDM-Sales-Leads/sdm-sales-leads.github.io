@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 // SDM Sales Leads — the one API edge function. All routes live in routes_*.ts.
-import { admin, Caller, corsHeaders, dropCallerCache, getCaller, getSecret, setConfig, nowIso, viewAsCaller, HttpError, json, safeEqual } from "./lib.ts";
+import { admin, Caller, corsHeaders, dropCallerCache, getCaller, getConfig, getSecret, setConfig, nowIso, viewAsCaller, HttpError, json, safeEqual } from "./lib.ts";
 import { match, pathExists } from "./router.ts";
 import "./routes_core.ts";
 import "./routes_tickets.ts";
@@ -36,8 +36,7 @@ route("POST", "/cron/ingest", async ({ req }) => {
       return { fbNew: 0, fbError: String(e?.message || e).slice(0, 200) };
     }
   };
-  const { data } = await admin.from("system_config").select("value").eq("key", "ingest_auto").maybeSingle();
-  if (data?.value !== true) return { skipped: true, reason: "automatic mail ingestion is off", ...(await fbRun()) };
+  if ((await getConfig<any>("ingest_auto", null)) !== true) return { skipped: true, reason: "automatic mail ingestion is off", ...(await fbRun()) };
   // the schedule calls this every hour; it only works at 09:00, 12:00 and 15:00 Cairo time, Sunday to Thursday
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).map((p) => [p.type, p.value]));
   if (["Fri", "Sat"].includes(parts.weekday) || ![9, 12, 15].includes(Number(parts.hour))) return { skipped: true, reason: "outside the mail sync hours", ...(await fbRun()) };

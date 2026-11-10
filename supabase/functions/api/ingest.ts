@@ -3,6 +3,7 @@
 import {
   admin, pageAll, asUuid, getConfig, setConfig, getSecret, HttpError, normEmail, normName, normPhone, nowIso, rid, str, isEmail, tryLock, unlock,
 } from "./lib.ts";
+import { pg } from "./db.ts";
 import { canonicalPark, parkMatches, PARKS } from "./parks.ts";
 import { repairName } from "./namecheck.ts";
 import { later, notifyAssigned } from "./notify.ts";
@@ -221,7 +222,7 @@ export async function parseMail(text: string, queue: any, subject = ""): Promise
 const GENERIC_COMPANY = new Set(["private inquiry", "n/a", "none", "-", "—"]);
 
 async function nextId(kind: "lead" | "contact" | "company"): Promise<string> {
-  const { data, error } = await admin.rpc("app_next_id", { p_kind: kind });
+  const { data, error } = await pg(async (q) => ({ data: (await q`select app_next_id(${kind}) as v`)[0]?.v, error: null as any }), async () => await admin.rpc("app_next_id", { p_kind: kind }) as any);
   if (error || !data) throw new HttpError(500, "Could not allocate an id");
   return data as string;
 }

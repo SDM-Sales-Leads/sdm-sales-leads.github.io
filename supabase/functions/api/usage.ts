@@ -4,6 +4,7 @@
 // and every morning the system warns the administrators when the projection passes 70 % of a limit.
 import { admin, can, forbidden, getConfig, setConfig, nowIso } from "./lib.ts";
 import { route } from "./router.ts";
+import { pg } from "./db.ts";
 import { addNotifications } from "./notify.ts";
 
 export const LIMITS = { egressBytes: 5 * 1024 ** 3, calls: 500_000 };
@@ -25,7 +26,9 @@ async function flushUsage() {
  *  21 Oct 2026: counted in the database (usage_counter, one atomic add per answer, done after the answer is sent). Each request runs in
  *  a short-lived server copy, so the old in-memory count was lost before it was saved (93 calls counted in a month). */
 export function recordUsage(path: string, bytes: number) {
-  const p = admin.rpc("usage_hit", { p_day: cairoDay(), p_route: label(path), p_bytes: Math.max(0, Math.round(bytes || 0)) }).then(() => {}, () => {});
+  const day = cairoDay(), r = label(path), b = Math.max(0, Math.round(bytes || 0));
+  // 10 Nov 2026: on the direct connection (no log line); the gateway only if that connection is down
+  const p = pg(async (q) => { await q`select usage_hit(${day}, ${r}, ${b})`; }, async () => { await admin.rpc("usage_hit", { p_day: day, p_route: r, p_bytes: b }); }).then(() => {}, () => {});
   try { (globalThis as any).EdgeRuntime?.waitUntil?.(p); } catch { /* older runtime: the add still runs */ }
 }
 

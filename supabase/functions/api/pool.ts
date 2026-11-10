@@ -72,7 +72,7 @@ export async function fillPool(limit = 300, force = false) {
     const picks: { r: any; agent: { id: string; name: string } }[] = [];
     for (const r of part) {
       if (misses >= 15 && !picks.length && !assigned) break;
-      const agent = await chooseAgent(r.data, q, { ignoreDaily: true, noBackup: true });
+      const agent = await chooseAgent(r.data, q, { noBackup: true });   // 4 Nov 2026: the pool obeys the daily limit (it used to ignore it: 281 leads went to one person in one run)
       if (!agent) { misses++; continue; }   // 21 Oct 2026: a lead too big for anyone is skipped, it no longer stops the whole pool
       misses = 0; picks.push({ r, agent });
     }
@@ -146,7 +146,7 @@ export async function handOutPool(c: { id: string; name: string }, o: { count: n
   let nobody = 0, traced = false;
   for (const r of pool) {
     if (plan.length >= want) break;
-    const base = { sim, ignoreDaily: true, noBackup: true, onlyIds: pids, users: people, ignoreLimits: o.ignoreLimits };
+    const base = { sim, noBackup: true, onlyIds: pids, users: people, ignoreLimits: o.ignoreLimits };
     const tr = () => (traced ? undefined : ((traced = true), trace));   // the counts BEFORE the first pick are kept for the preview
     let agent: { id: string; name: string } | null = null;
     if (o.mode === "even") {

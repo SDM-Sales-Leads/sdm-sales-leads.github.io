@@ -1,6 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 // Notifications: stored per user on the server (bell in the app) + e-mail from the system mailbox (the same no-reply account
 // the mail ingestion uses). Used by: lead assignment, changes on an assigned lead, reminders (follow-up / meeting / task).
+import { pg } from "./db.ts";
 import { admin, escHtml, getConfig, nowIso, pageAll, setConfig, str } from "./lib.ts";
 import { loadEws, sendMail } from "./ews.ts";
 
@@ -143,7 +144,9 @@ export async function runReminders() {
   const due: Due[] = [];
 
   // tasks: due date (with a time when the task has one; a plain date means 09:00)
-  const { data: tasks } = await admin.from("crm_tasks").select("id,owner_id,data").neq("data->>status", "Completed").gte("data->>dueDate", d0).lte("data->>dueDate", d1 + "T99").order("id").limit(5000);
+  // 10 Nov 2026: this job runs every 5 minutes; its reads go over the direct connection (no log lines), the gateway only as a fallback
+  const tasks: any[] = await pg((q) => q`select id, owner_id, data from crm_tasks where coalesce(data->>'status','') <> 'Completed' and data->>'dueDate' >= ${d0} and data->>'dueDate' <= ${d1 + "T99"} order by id limit 5000`,
+    async () => (await admin.from("crm_tasks").select("id,owner_id,data").neq("data->>status", "Completed").gte("data->>dueDate", d0).lte("data->>dueDate", d1 + "T99").order("id").limit(5000)).data || []);
   for (const t of tasks || []) {
     const d = t.data || {}; const s = String(d.dueDate || ""); if (!t.owner_id || !s) continue;
     const when = s.length > 10 ? new Date(s) : cairoInstant(s, "09:00");
@@ -155,10 +158,13 @@ export async function runReminders() {
   const SLIM = "id,assigned_to,customerName:data->>customerName,companyName:data->>companyName,phoneNumber:data->>phoneNumber,project:data->>project,status:data->>status,meetingDate:data->>meetingDate,meetingTime:data->>meetingTime,nextFollowUpDate:data->>nextFollowUpDate,importedHistory:data->>importedHistory,oldLead:data->>oldLead";
   const fatten = (r: any) => ({ id: r.id, assigned_to: r.assigned_to, data: { customerName: r.customerName, companyName: r.companyName, phoneNumber: r.phoneNumber, project: r.project, status: r.status, meetingDate: r.meetingDate, meetingTime: r.meetingTime, nextFollowUpDate: r.nextFollowUpDate, importedHistory: r.importedHistory, oldLead: r.oldLead } });
   const base = admin.from("crm_leads").select(SLIM).is("deleted_at", null).not("assigned_to", "is", null);
-  const [mt0, fu0] = await Promise.all([
-    base.gte("data->>meetingDate", d0).lte("data->>meetingDate", d1).limit(5000),
-    admin.from("crm_leads").select(SLIM).is("deleted_at", null).not("assigned_to", "is", null).gte("data->>nextFollowUpDate", d0).lte("data->>nextFollowUpDate", d1).limit(5000),
-  ]);
+  const slimSql = (field: string) => pg((q) => q`select id, assigned_to, data->>'customerName' as "customerName", data->>'companyName' as "companyName", data->>'phoneNumber' as "phoneNumber",
+      data->>'project' as project, data->>'status' as status, data->>'meetingDate' as "meetingDate", data->>'meetingTime' as "meetingTime", data->>'nextFollowUpDate' as "nextFollowUpDate",
+      data->>'importedHistory' as "importedHistory", data->>'oldLead' as "oldLead"
+      from crm_leads where deleted_at is null and assigned_to is not null and data->>${field} >= ${d0} and data->>${field} <= ${d1} limit 5000`.then((rows: any[]) => ({ data: rows.map((r: any) => ({ ...r, assigned_to: r.assigned_to ? String(r.assigned_to) : r.assigned_to })) })),
+    async () => field === "meetingDate" ? await base.gte("data->>meetingDate", d0).lte("data->>meetingDate", d1).limit(5000) as any
+      : await admin.from("crm_leads").select(SLIM).is("deleted_at", null).not("assigned_to", "is", null).gte("data->>nextFollowUpDate", d0).lte("data->>nextFollowUpDate", d1).limit(5000) as any);
+  const [mt0, fu0] = await Promise.all([slimSql("meetingDate"), slimSql("nextFollowUpDate")]);
   const mt = { data: (mt0.data || []).map(fatten) }, fu = { data: (fu0.data || []).map(fatten) };
   const closed = new Set(["Won", "Lost", "Not Interested", "Low Budget", "Duplicate", "Closed", "Invalid", "Wrong Number"]);
   const leadDetails = (l: any): [string, string | undefined][] => [["Lead", l.data?.customerName], ["Company", l.data?.companyName], ["Phone", l.data?.phoneNumber], ["Project", l.data?.project], ["Status", l.data?.status]];
@@ -177,7 +183,8 @@ export async function runReminders() {
   if (!ready.length) return { checked: due.length, sent: 0 };
   const sentKeys = new Set<string>();
   for (let i = 0; i < ready.length; i += 100) {
-    const { data } = await admin.from("crm_reminders_sent").select("key").in("key", ready.slice(i, i + 100).map((r) => r.key));
+    const ks = ready.slice(i, i + 100).map((r) => r.key);
+    const data: any[] = await pg((q) => q`select key from crm_reminders_sent where key = any(${ks})`, async () => (await admin.from("crm_reminders_sent").select("key").in("key", ks)).data || []);
     (data || []).forEach((r: any) => sentKeys.add(r.key));
   }
   const fresh = ready.filter((r) => !sentKeys.has(r.key)).slice(0, 400);

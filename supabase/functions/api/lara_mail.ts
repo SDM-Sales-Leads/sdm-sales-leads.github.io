@@ -15,6 +15,8 @@ import { inWindow, intl, waCfg, waReady, waSend } from "./lara_wa.ts";
 import { normPhone } from "./lib.ts";
 import { addNotifications } from "./notify.ts";
 import { LARA_CODE_RE } from "./ingest.ts";
+import { learn, remember, welcomeBack } from "./lara_memory.ts";
+import { firstNameOf } from "../../../src/lib/personName.ts";
 
 export interface LaraMailCfg { address: string; user: string; host: string; shared?: boolean; status?: { ok: boolean; at: string; error?: string } }
 
@@ -125,7 +127,7 @@ export async function ownerOf(leadId: string): Promise<{ id: string | null; name
   const { data } = await admin.from("crm_leads").select("assigned_to,status,data->assignedSalespersonName,data->customerName,data->email").eq("id", leadId).maybeSingle();
   return { id: data?.assigned_to || null, name: String((data as any)?.assignedSalespersonName || ""), email: String((data as any)?.email || ""), status: String(data?.status || ""), customer: String((data as any)?.customerName || leadId) };
 }
-async function ensureThread(leadId: string, email: string) {
+export async function ensureThread(leadId: string, email: string) {
   const { data: t } = await admin.from("lara_threads").select("*").eq("lead_id", leadId).maybeSingle();
   if (t) { if (email && t.customer_email !== email.toLowerCase()) await admin.from("lara_threads").update({ customer_email: email.toLowerCase() }).eq("id", t.id); return t; }
   const code = `SDM-${leadId.toUpperCase()}-${rand4()}`;
@@ -267,10 +269,11 @@ export async function sendDraft(draftId: string, r: SendRules, by: string): Prom
   await admin.from("lara_messages").insert({ author: d.rule === "staff_reply" ? d.decided_by : "Lara", kind: d.rule === "staff_reply" ? "staff" : "mail", thread_id: t.id, lead_id: d.lead_id, direction: "out", subject, body: d.body, from_addr: mbox.address, to_addr: d.to_addr, draft_id: d.id, at: now });
   await admin.from("lara_threads").update({ out_count: (t.out_count || 0) + 1, unanswered: (t.unanswered || 0) + 1, last_out_at: now, updated_at: now }).eq("id", t.id);
   await admin.from("lara_drafts").update({ send_status: "sent", sent_at: now, send_error: null, thread_id: t.id, updated_at: now }).eq("id", d.id);
-  await appendTimeline(d.lead_id, { type: d.kind === "offer" ? "Offer" : "Email", title: d.kind === "offer" ? `Lara sent an initial offer (PDF ${d.offer.ref})` : d.kind === "reply" ? "Lara replied by e-mail" : "Lara sent a follow-up e-mail", description: `${subject}\n\n${String(d.body).slice(0, 600)}` });
+  await appendTimeline(d.lead_id, { type: d.kind === "offer" ? "Offer" : "Email", title: d.kind === "offer" ? `Lara sent an initial offer (PDF ${d.offer.ref})` : d.rule === "staff_reply" ? `${d.decided_by} replied by e-mail (Interactions)` : d.rule === "started_by_staff" ? `Lara wrote to the customer (handed over by ${d.decided_by})` : d.kind === "reply" ? "Lara replied by e-mail" : "Lara sent a follow-up e-mail", description: `${subject}\n\n${String(d.body).slice(0, 600)}` });
   if (d.kind === "offer") {
     const { data: lead } = await admin.from("crm_leads").select("data").eq("id", d.lead_id).maybeSingle();
     await recordOfferPrint(d.offer, lead?.data || {}, d.decided_by || by).catch(() => {});
+    await remember(t.id, t.memory || {}, { offer: { ref: d.offer?.ref, at: now } });   // "your initial offer was sent N days ago" when the customer comes back
   }
   await admin.from("lara_log").insert({ kind: "send", actor: by, text: `E-mail sent to ${d.customer} (${d.kind}), approved by ${d.decided_by || by}` });
   return { sent: true };
@@ -321,7 +324,7 @@ export function newPart(text: string): string {
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, 2000);
 }
 
-export interface ReplyHooks { answer: (q: string, leadId: string) => Promise<{ answered: boolean; source?: "landbank" | "qa" | "ai"; text?: { ar: string; en: string } }>; writeReply: (leadId: string, ar: boolean, answerText: string | null) => Promise<{ subject: string; body: string }>; autoApprove?: () => Promise<boolean> }
+export interface ReplyHooks { answer: (q: string, leadId: string) => Promise<{ answered: boolean; source?: "landbank" | "qa" | "ai"; text?: { ar: string; en: string } }>; writeReply: (leadId: string, ar: boolean, answerText: string | null, welcome?: string | null) => Promise<{ subject: string; body: string }>; autoApprove?: () => Promise<boolean> }
 
 export async function pollLaraInbox(hooks: ReplyHooks) {
   if (!(await mailboxReady())) return { pollSkipped: "mailbox not connected" };
@@ -394,6 +397,7 @@ export async function handleReply(thread: any, base: any, matchedBy: string, tex
   }
   if (HANDOVER_RE.test(text)) {
     await admin.from("lara_threads").update({ status: "handover", note: "Customer asked for a call / meeting / visit", updated_at: now }).eq("id", thread.id);
+    thread = { ...thread, status: "handover", memory: { ...(thread.memory || {}), handover: now } };
     await notify(`${o.customer} wants to talk — call them now`, `Lara handed this lead to you. Their words: "${text.slice(0, 300)}"`, "escalation");
   } else {
     await notify(`${o.customer} replied to Lara`, text.slice(0, 300));
@@ -403,7 +407,10 @@ export async function handleReply(thread: any, base: any, matchedBy: string, tex
   const ar = isAr(text) || !/[a-z]{3,}/i.test(text);
   const answerText = ans.answered && ans.text ? (ar ? ans.text.ar || ans.text.en : ans.text.en || ans.text.ar) : null;
   if (!ans.answered) await notify(`${o.customer} asked something Lara cannot answer`, `Answer it in Lara > Missed questions, or reply yourself: "${text.slice(0, 200)}"`);
-  const w = await hooks.writeReply(thread.lead_id, ar, answerText);
+  // memory of THIS conversation (rules): a customer back after a week is welcomed with the last step of their own conversation
+  const back = welcomeBack(thread, ar, { customer: firstNameOf(o.customer), owner: firstNameOf(o.name) }, 24 * 7, false);
+  await remember(thread.id, learn(thread.memory || {}, text, ch), { answer: ans.source || "holding", ...(thread.memory?.handover ? { handover: thread.memory.handover } : {}) });
+  const w = await hooks.writeReply(thread.lead_id, ar, answerText, back);
   await admin.from("lara_drafts").insert({
     lead_id: thread.lead_id, rule: "customer_reply", kind: "reply", situation: answerText ? "reply_answer" : "reply_holding", channel: ch, lang: ar ? "ar" : "en", to_phone: ch === "whatsapp" ? base.from_addr : null,
     subject: ch === "email" ? `Re: ${String(base.subject || "").replace(LARA_CODE_RE, "").replace(/^(re:\s*)+/i, "").trim()}` : "", body: w.body, to_addr: ch === "email" ? base.from_addr || thread.customer_email : null,

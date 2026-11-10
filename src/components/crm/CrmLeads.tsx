@@ -25,6 +25,7 @@ import { KanbanCard, LeadRow, PageSize, PagerBar, ALL_CHUNK } from './LeadListPa
 import { LeadEditor, NATIONALITIES } from './LeadEditor';
 import { ChipBar, EMPTY_XF, XF, XFilterPanel, makeXfPredicate, xfChips, xfCount } from './LeadFilters';
 import { LeadAuditHistory } from './LeadAuditHistory';
+import { LaraLeadSection } from './LaraLeadSection';
 import { LeadScoreChip, sourceWinRates } from './LeadScoreChip';
 import { WA_LANGS, WaLang, WA_TEMPLATES, getWaLang, setWaLang, suggestTemplate, waCompose, waFill } from './waTemplates';
 import DOMPurify from 'dompurify';
@@ -2850,6 +2851,9 @@ ${user.name || ''}`);
                 onSaved={(u) => { setSelectedLead(u); onLeadsUpdated(); }}
                 onOpenLead={(id) => { const f = crmService.getLeads().find(x => x.id === id); if (f) setSelectedLead(f); }}
               />
+
+              {/* Lara: her conversation with this customer + "Start with Lara" (loads only when opened) */}
+              <LaraLeadSection lead={selectedLead} />
 
               {/* Description Comments */}
               <div>

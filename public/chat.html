@@ -126,7 +126,9 @@ button.go:disabled{opacity:.5}
       if (!r.open) { note(ar ? "المحادثة غير متاحة حالياً. تقدر تتصل بنا أو ترد على الإيميل." : "Chat is not available yet. Please call us or reply to our e-mail."); return; }
       $("f").hidden = false;
       r.messages.forEach(add);
-      if (!r.messages.some(function (m) { return m.dir === "in"; })) {
+      var back = r.back && (ar ? r.back.ar : r.back.en);
+      if (back) { note(back); chips(ar ? r.suggest.ar : r.suggest.en); }   // a returning customer: the last step of THEIR conversation
+      else if (!r.messages.some(function (m) { return m.dir === "in"; })) {
         var w = ar ? (r.welcome && r.welcome.ar) : (r.welcome && r.welcome.en);
         note(w || (ar ? "أهلاً" + (r.customer ? " أ. " + r.customer : "") + "، أنا لارا. اسألني عن الأراضي المتاحة وطرق السداد." : "Hello" + (r.customer ? " " + r.customer : "") + ", I'm Lara. Ask me about available plots and payment plans."));
         chips(ar ? r.suggest.ar : r.suggest.en);

@@ -5,6 +5,7 @@ import { loadLists } from './leadConfig';
 import { adminService } from '../../services/adminService';
 import { Lead, Contact, Company, EmailImportLog } from './types';
 import { toast } from 'sonner';
+import { LeadQuickView } from './LeadQuickView';
 const CrmDashboard = lazy(() => import('./CrmDashboard').then(m => ({ default: m.CrmDashboard })));
 const CrmMyDay = lazy(() => import('./CrmMyDay').then(m => ({ default: m.CrmMyDay })));
 const CrmLeads = lazy(() => import('./CrmLeads').then(m => ({ default: m.CrmLeads })));
@@ -79,11 +80,15 @@ export const SalesCrmModule: React.FC<SalesCrmModuleProps> = ({
     return () => { off = true; window.removeEventListener('crm-lists-changed', again); };
   }, []);
 
-  // a number or ID clicked on any screen (see crmNav.ts): jump to the record or to the filtered list
+  // a number or ID clicked on any screen (see crmNav.ts): a lead opens IN PLACE as a drawer (360, owner 11 Nov 2026), except on the Leads
+  // page (its own panel) or when the full page is asked for; lists and customers jump as before
+  const tabRef = React.useRef(activeSubTab); tabRef.current = activeSubTab;
   useEffect(() => {
     const go = (e: Event) => {
       const d: any = (e as CustomEvent).detail || {};
       try {
+        if (d.kind === 'lead' && !d.full && tabRef.current !== 'leads') { window.dispatchEvent(new CustomEvent('crm-peek', { detail: { id: d.id, tab: d.tab } })); return; }
+        if (d.kind === 'interaction') { sessionStorage.setItem('lara_open_thread', d.id); setActiveSubTab('lara-convos'); setTimeout(() => window.dispatchEvent(new CustomEvent('lara-open-thread', { detail: d.id })), 60); return; }
         if (d.kind === 'lead') { localStorage.setItem('selected_lead_id', d.id); localStorage.setItem('crm_selected_lead_id_from_notification', d.id); setActiveSubTab('leads'); setTimeout(() => window.dispatchEvent(new CustomEvent('crm-select-lead', { detail: { leadId: d.id } })), 60); }
         else if (d.kind === 'customer') { localStorage.setItem('selected_contact_id', d.id); setActiveSubTab('contacts'); setTimeout(() => window.dispatchEvent(new Event('crm-open-contact')), 60); }
         else if (d.kind === 'leads') { localStorage.setItem('crm_leads_preset', JSON.stringify(d.preset || {})); setActiveSubTab('leads'); setTimeout(() => window.dispatchEvent(new Event('crm-leads-preset')), 60); }
@@ -272,6 +277,7 @@ export const SalesCrmModule: React.FC<SalesCrmModuleProps> = ({
         {activeSubTab === 'contracts' && <CrmContracts leads={leads} onLeadsUpdated={() => afterChange()} currentRole={currentRole} setActiveSubTab={setActiveSubTab} />}
         {activeSubTab === 'targets' && <CrmTargets leads={leads} onLeadsUpdated={() => afterChange()} currentRole={currentRole} setActiveSubTab={setActiveSubTab} />}
         {activeSubTab === 'external-sales' && <CrmExternalSales leads={leads} onLeadsUpdated={() => afterChange()} currentRole={currentRole} setActiveSubTab={setActiveSubTab} />}
+        <LeadQuickView leads={leads} contacts={contacts} companies={companies} setActiveSubTab={setActiveSubTab} />
         {activeSubTab.startsWith('lara') && <LaraModule sub={activeSubTab} leads={leads} setActiveSubTab={setActiveSubTab} />}
         {activeSubTab === 'smart' && <CrmSmartAssistant leads={leads} onLeadsUpdated={() => afterChange()} setActiveSubTab={setActiveSubTab} />}
         {activeSubTab === 'duplicates' && <CrmDuplicates leads={leads} onLeadsUpdated={() => afterChange()} currentRole={currentRole} setActiveSubTab={setActiveSubTab} />}

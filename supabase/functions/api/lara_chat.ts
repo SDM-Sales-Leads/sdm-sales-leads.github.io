@@ -7,9 +7,11 @@ import { admin, bad, body, Caller, getConfig, HttpError, needAdmin, normPhone, n
 import { route } from "./router.ts";
 import { pg } from "./db.ts";
 import { firstNameOf } from "../../../src/lib/personName.ts";
-import { activeKb, availabilityAnswer, laraAnswer, laraConfig, laraWho, log, ownsLead, who } from "./routes_lara.ts";
-import { appendTimeline, contactButtons, ensureChatKey, HANDOVER_RE, isOptedOut, ownerOf, sendDraft, STOP_RE } from "./lara_mail.ts";
+import { activeKb, availabilityAnswer, canSeeOwner, laraAnswer, laraConfig, laraOwners, laraWho, log, ownsLead, who } from "./routes_lara.ts";
+import { appendTimeline, contactButtons, ensureChatKey, ensureThread, HANDOVER_RE, isOptedOut, ownerOf, sendDraft, STOP_RE } from "./lara_mail.ts";
 import { addNotifications } from "./notify.ts";
+import { learn, remember, welcomeBack } from "./lara_memory.ts";
+import { graphOf, nextOf } from "../../../src/components/lara/flow/graph.ts";
 import { aiAnswer, aiCfg, saveAi } from "./lara_ai.ts";
 import { intl, waCfg } from "./lara_wa.ts";
 import { canonicalParks } from "../../../src/lib/parkAliases.ts";
@@ -79,11 +81,17 @@ export async function chatTurn(t: any, text: string): Promise<{ messages: any[];
   if (fresh) await notify(`${o.customer} is chatting with Lara`, text.slice(0, 200));
 
   const ownerFirst = firstNameOf(o.name || "");
+  const custFirst = firstNameOf(String(lead?.customerName || t.visitor?.name || ""));
+  // a returning customer (this same conversation, 6 h+ since their last message) is welcomed with the last step of THEIR conversation
+  const back = welcomeBack(t, ar, { customer: custFirst, owner: ownerFirst });
+  const hiBack = back ? (ar ? `أهلاً بيك تاني${custFirst ? ` أ. ${custFirst}` : ""} 👋\n\n` : `Welcome back${custFirst ? `, ${custFirst}` : ""} 👋\n\n`) : "";
+  const mem0 = learn(t.memory || {}, text, "web");
   let reply = ""; let by = "rule"; let suggest: string[] = [];
   // a salesperson answered in this chat within the last 2 hours: Lara keeps quiet and lets the person talk
   const { data: lastStaff } = await admin.from("lara_messages").select("at").eq("thread_id", t.id).eq("kind", "staff").order("at", { ascending: false }).limit(1).maybeSingle();
   if (lastStaff && Date.now() - Date.parse(lastStaff.at) < 2 * 3600e3) {
     await notify(`${o.customer} wrote in the chat`, text.slice(0, 300), "escalation");
+    await remember(t.id, mem0, { visits: (Number(t.memory?.visits) || 0) + (fresh ? 1 : 0) });
     return { messages: [ins.data], suggest: [] };
   }
   if (STOP_RE.test(text) && text.length < 250) {
@@ -91,8 +99,10 @@ export async function chatTurn(t: any, text: string): Promise<{ messages: any[];
     if (contact) await admin.from("lara_optout").upsert({ contact, reason: text.slice(0, 200), lead_id: t.lead_id, by_who: "Web chat" });
     await admin.from("lara_threads").update({ status: "stopped", note: "Customer asked to stop (chat)", updated_at: now }).eq("id", t.id);
     reply = ar ? "تمام، مش هنبعت لحضرتك رسائل تانية. لو احتجت أي حاجة إحنا موجودين." : "Understood — we will not message you again. We are here if you need anything.";
+  } else if (GREET_RE.test(text) && back) {
+    reply = back; suggest = SUGGEST[ar ? "ar" : "en"];
   } else if (GREET_RE.test(text)) {
-    const first = firstNameOf(String(lead?.customerName || t.visitor?.name || ""));
+    const first = custFirst;
     reply = ar ? `أهلاً ${first ? `أ. ${first}` : "بحضرتك"}، أنا لارا المساعدة الرقمية لمبيعات السويدي للتنمية الصناعية. أقدر أساعد حضرتك في الأراضي المتاحة وطرق السداد، أو أخلي مسؤول المبيعات يكلمك.` : `Hello${first ? ` ${first}` : ""}, I'm Lara, the digital sales assistant of Elsewedy Industrial Development. I can help with available plots and payment plans, or ask your account manager to call you.`;
     suggest = SUGGEST[ar ? "ar" : "en"];
   } else if (THANKS_RE.test(text)) {
@@ -100,7 +110,8 @@ export async function chatTurn(t: any, text: string): Promise<{ messages: any[];
   } else if (HANDOVER_RE.test(text) || /please call me|عايز حد يكلمني/i.test(text)) {
     await admin.from("lara_threads").update({ status: "handover", note: "Customer asked for a call (chat)", updated_at: now }).eq("id", t.id);
     await notify(`${o.customer} wants a call — from the chat`, `Their words: "${text.slice(0, 300)}"`, "escalation");
-    reply = ar ? `تمام، بلّغت ${ownerFirst ? `أ. ${ownerFirst}` : "مسؤول المبيعات"} وهيتواصل مع حضرتك في أقرب وقت خلال مواعيد العمل (الأحد–الخميس). ممكن تكتب هنا أنسب وقت للمكالمة.` : `Done — I've told ${ownerFirst || "your account manager"}, who will call you as soon as possible in working hours (Sun–Thu). You can write here the best time to call.`;
+    mem0.handover = now;
+    reply = hiBack + (ar ? `تمام، بلّغت ${ownerFirst ? `أ. ${ownerFirst}` : "مسؤول المبيعات"} وهيتواصل مع حضرتك في أقرب وقت خلال مواعيد العمل (الأحد–الخميس). ممكن تكتب هنا أنسب وقت للمكالمة.` : `Done — I've told ${ownerFirst || "your account manager"}, who will call you as soon as possible in working hours (Sun–Thu). You can write here the best time to call.`);
   } else {
     // Land Bank data first (a park in the question, or the lead's own park), then the approved Q&A
     let q = text;
@@ -128,8 +139,10 @@ export async function chatTurn(t: any, text: string): Promise<{ messages: any[];
       }
     }
     if (by !== "holding") reply += ar ? "\n\nفي حاجة تانية أقدر أساعد فيها؟" : "\n\nAnything else I can help with?";
+    reply = hiBack + reply;
     suggest = SUGGEST[ar ? "ar" : "en"];
   }
+  await remember(t.id, mem0, { answer: by, visits: (Number(t.memory?.visits) || 0) + (fresh ? 1 : 0) });
   const out = await admin.from("lara_messages").insert({ thread_id: t.id, lead_id: t.lead_id, direction: "out", kind: "chat", channel: "web", author: "Lara", matched_by: by, body: reply, from_addr: "Lara", to_addr: "web chat", at: new Date(Date.now() + 5).toISOString() }).select("id,direction,kind,channel,author,body,at").single();
   return { messages: [ins.data, out.data].filter(Boolean), suggest };
 }
@@ -158,6 +171,7 @@ route("GET", "/chat/s/:key", async ({ req, params }) => {
     success: true, open, status: t.status, lara: { ar: cfg.nameAr, en: cfg.nameEn },
     customer: firstNameOf(String(lead?.customerName || t.visitor?.name || "")), owner: firstNameOf(o?.name || ""),
     call: btn.call || null, whatsapp: btn.whatsapp || null, welcome: { ar: cc.welcomeAr, en: cc.welcomeEn },
+    back: open ? { ar: welcomeBack(t, true, { customer: firstNameOf(String(lead?.customerName || t.visitor?.name || "")), owner: firstNameOf(o?.name || "") }), en: welcomeBack(t, false, { customer: firstNameOf(String(lead?.customerName || t.visitor?.name || "")), owner: firstNameOf(o?.name || "") }) } : null,
     messages: (msgs || []).reverse().map(pub), suggest: SUGGEST,
   };
 }, { public: true });
@@ -196,19 +210,15 @@ route("POST", "/chat/start", async ({ req }) => {
   const text = str(b.text, 1500).trim();
   if (name.length < 2 || !phone) throw bad("Write your name and mobile number");
   if (!text) throw bad("Write your question");
+  // a typed mobile / e-mail proves nothing: the visitor gets their OWN conversation (never a lead's history); a possible match is only a hint
+  // for staff, who link it in Interactions after checking (owner, 11 Nov 2026: "don't mix history of any customer")
   const local = normPhone(phone);
   let { data: lead } = await admin.from("crm_leads").select("id").eq("phone_norm", local).is("deleted_at", null).order("updated_at", { ascending: false }).limit(1).maybeSingle();
   if (!lead && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) ({ data: lead } = await admin.from("crm_leads").select("id").ilike("data->>email", email).is("deleted_at", null).limit(1).maybeSingle());
-  let t: any = null;
-  if (lead) {
-    t = (await admin.from("lara_threads").select("*").eq("lead_id", lead.id).maybeSingle()).data;
-    if (!t) t = (await admin.from("lara_threads").insert({ lead_id: lead.id, code: `SDM-${String(lead.id).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`, customer_email: email, wa_phone: phone }).select("*").single()).data;
-  } else {
-    const vid = `VISIT-${crypto.randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
-    t = (await admin.from("lara_threads").insert({ lead_id: vid, code: `SDM-${vid}`, customer_email: email, wa_phone: phone, visitor: { name, phone, email, page: str(b.page, 200), at: nowIso() } }).select("*").single()).data;
-    const to = await staffTo(null);
-    if (to.length) await addNotifications(to.map((userId) => ({ userId, type: "escalation", leadId: undefined, title: `New website chat: ${name}`, body: `${phone}${email ? ` · ${email}` : ""} — "${text.slice(0, 160)}". Not a lead yet: add it from the Interactions inbox.` }))).catch(() => {});
-  }
+  const vid = `VISIT-${crypto.randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
+  const t: any = (await admin.from("lara_threads").insert({ lead_id: vid, code: `SDM-${vid}`, customer_email: email, wa_phone: phone, match_lead_id: lead?.id || null, visitor: { name, phone, email, page: str(b.page, 200), at: nowIso() } }).select("*").single()).data;
+  const to = await staffTo(null);
+  if (to.length) await addNotifications(to.map((userId) => ({ userId, type: "escalation", leadId: undefined, title: `New website chat: ${name}`, body: `${phone}${email ? ` · ${email}` : ""} — "${text.slice(0, 160)}".${lead ? ` Same mobile/e-mail as ${lead.id}: check and link it in Interactions.` : " Not a lead yet."}` }))).catch(() => {});
   if (!t) throw new HttpError(500, "Could not start the chat");
   const key = await ensureChatKey(t);
   const r = await chatTurn({ ...t, chat_key: key }, text);
@@ -221,6 +231,7 @@ route("POST", "/chat/start", async ({ req }) => {
 const SIZES = [10, 25, 50, 100];
 route("GET", "/lara/inbox", async ({ c, query }) => {
   const w = laraWho(c);
+  const owners = await laraOwners(c);
   const size = SIZES.includes(Number(query.get("size"))) ? Number(query.get("size")) : 25;
   const page = Math.max(1, Math.min(10000, Number(query.get("page")) || 1));
   const qs = str(query.get("q") || "", 80).trim();
@@ -231,7 +242,7 @@ route("GET", "/lara/inbox", async ({ c, query }) => {
   const from = /^\d{4}-\d{2}-\d{2}$/.test(query.get("from") || "") ? query.get("from")! : "";
   const to = /^\d{4}-\d{2}-\d{2}$/.test(query.get("to") || "") ? query.get("to")! : "";
   return await pg(async (q) => {
-    const scope = w.admin ? q`true` : q`l.assigned_to = ${c.id}`;
+    const scope = owners === null ? q`true` : q`l.assigned_to::text = any(${owners})`;   // the CRM's rule: all / team / own; visitors only for "all"
     const like = `%${qs.replace(/[%_\\]/g, "")}%`; const digits = qs.replace(/\D/g, "");
     const where = q`${scope}
       ${ch ? q`and ${ch} = any(t.channels)` : q``}
@@ -337,5 +348,134 @@ route("POST", "/lara/inbox/:id/chat-link", async ({ c, params }) => {
   if (!t) throw new HttpError(404, "Conversation not found");
   if (!(await chatOpen(t))) throw new HttpError(403, "Test lock: only conversations with a staff address can be opened in the chat");
   return { success: true, url: `https://sdm-sales-leads.github.io/chat.html#k=${await ensureChatKey(t)}` };
+});
+// ---------------------------------------------------------------------------------------------
+// 360: Lara's history inside the lead and the customer pages; "Start with Lara"; link a website visitor to a lead
+// ---------------------------------------------------------------------------------------------
+/** one lead's conversation with Lara (all channels), newest 40 messages; same visibility as the lead itself */
+route("GET", "/lara/lead/:id", async ({ c, params, query }) => {
+  const w = laraWho(c);
+  const id = str(params.id, 40).toUpperCase();
+  if (!w.admin) await ownsLead(c, id);
+  const { data: t } = await admin.from("lara_threads").select("id,lead_id,code,status,customer_email,wa_phone,last_at,last_channel,msg_count,unread,channels,memory,started_by,chat_key,created_at").eq("lead_id", id).maybeSingle();
+  const [enr, drafts] = await Promise.all([
+    admin.from("lara_enrollments").select("status,why,next_at,node,started_at,workflow_id,lara_workflows(name)").eq("lead_id", id).order("started_at", { ascending: false }).limit(1).maybeSingle(),
+    admin.from("lara_drafts").select("id,kind,channel,situation,status,send_status,send_error,created_at").eq("lead_id", id).in("status", ["shadow", "approved"]).neq("send_status", "sent").order("created_at", { ascending: false }).limit(5),
+  ]);
+  if (!t) return { success: true, thread: null, messages: [], workflow: enr.data || null, pending: drafts.data || [] };
+  const before = /^\d{4}-\d{2}-\d{2}T/.test(query.get("before") || "") ? query.get("before")! : "";
+  let mq: any = admin.from("lara_messages").select("id,direction,kind,channel,author,matched_by,wa_status,subject,body,at").eq("thread_id", t.id).in("kind", ["mail", "chat", "staff", "auto"]).order("at", { ascending: false }).limit(40);
+  if (before) mq = mq.lt("at", before);
+  const { data: msgs } = await mq;
+  return { success: true, thread: { ...t, chat_key: undefined, hasChat: !!t.chat_key }, messages: (msgs || []).reverse(), more: (msgs || []).length === 40, workflow: enr.data || null, pending: drafts.data || [] };
+});
+
+/** a customer (contact) has several leads: their conversations, only the leads this person may see */
+route("GET", "/lara/contact", async ({ c, query }) => {
+  laraWho(c);
+  const ids = String(query.get("leads") || "").split(",").map((x) => str(x, 40).toUpperCase()).filter((x) => /^[A-Z0-9-]{2,40}$/.test(x)).slice(0, 50);
+  if (!ids.length) return { success: true, rows: [] };
+  const owners = await laraOwners(c);
+  let lq: any = admin.from("crm_leads").select("id,assigned_to,status,data->project,data->assignedSalespersonName").in("id", ids);
+  if (owners) lq = lq.in("assigned_to", owners);
+  const { data: leads } = await lq;
+  const ok = (leads || []).map((l: any) => l.id);
+  if (!ok.length) return { success: true, rows: [] };
+  const { data: th } = await admin.from("lara_threads").select("id,lead_id,code,status,last_at,last_dir,last_channel,last_preview,msg_count,channels").in("lead_id", ok).order("last_at", { ascending: false, nullsFirst: false });
+  const lm = new Map((leads || []).map((l: any) => [l.id, l]));
+  return { success: true, rows: (th || []).map((t: any) => ({ ...t, project: (lm.get(t.lead_id) as any)?.project || "", owner: (lm.get(t.lead_id) as any)?.assignedSalespersonName || "", leadStatus: (lm.get(t.lead_id) as any)?.status || "" })) };
+});
+
+/** find a lead to start with (number, name, mobile or e-mail), only within this person's leads */
+route("GET", "/lara/lead-search", async ({ c, query }) => {
+  laraWho(c);
+  await rateLimit(`larasearch:${c.id}`, 60, 60);
+  const q0 = str(query.get("q") || "", 60).trim();
+  if (q0.length < 2) return { success: true, rows: [] };
+  const owners = await laraOwners(c);
+  const qs = q0.replace(/[%_\\,()]/g, " ").trim();
+  const digits = q0.replace(/\D/g, "");
+  let lq: any = admin.from("crm_leads").select("id,status,assigned_to,phone_norm,data->customerName,data->email,data->phoneNumber,data->project,data->assignedSalespersonName").is("deleted_at", null);
+  if (owners) lq = lq.in("assigned_to", owners);
+  const ors = [`id.ilike.%${qs}%`, `data->>customerName.ilike.%${qs}%`, `data->>email.ilike.%${qs}%`];
+  if (digits.length >= 6) ors.push(`phone_norm.like.%${digits.slice(-9)}%`);
+  const { data } = await lq.or(ors.join(",")).order("updated_at", { ascending: false }).limit(10);
+  const ids = (data || []).map((l: any) => l.id);
+  const th = ids.length ? (await admin.from("lara_threads").select("lead_id,status,last_at").in("lead_id", ids)).data || [] : [];
+  const tm = new Map(th.map((t: any) => [t.lead_id, t]));
+  return { success: true, rows: (data || []).map((l: any) => ({ id: l.id, name: l.customerName, email: l.email || "", phone: l.phoneNumber || "", status: l.status, project: l.project || "", owner: l.assignedSalespersonName || "", lara: tm.get(l.id) || null })) };
+});
+
+/** "Start with Lara": a person hands a lead to Lara — a first message now (they approve it by sending) or a workflow from its first box */
+route("POST", "/lara/start", async ({ req, c }) => {
+  const w = laraWho(c);
+  const b = await body(req, 10000);
+  const leadId = str(b.leadId, 40).toUpperCase();
+  if (!/^[A-Z0-9-]{2,40}$/.test(leadId)) throw bad("Choose a lead");
+  if (!w.admin) await ownsLead(c, leadId);
+  await rateLimit(`larastart:${c.id}`, 3600, 120);
+  const lead = await leadInfo(leadId);
+  if (!lead) throw new HttpError(404, "Lead not found");
+  const mode = b.mode === "workflow" ? "workflow" : "send";
+  const ch = b.channel === "whatsapp" ? "whatsapp" : "email";
+  const email = String(lead.email || "").trim().toLowerCase();
+  const phone = intl(lead.phoneNumber);
+  if (await isOptedOut([email, phone].filter(Boolean))) throw new HttpError(409, "This customer asked not to be contacted");
+  const t = await ensureThread(leadId, email);
+  await admin.from("lara_threads").update({ status: "open", started_by: who(c), wa_phone: t.wa_phone || phone || null, note: null, updated_at: nowIso() }).eq("id", t.id);
+  const o = await ownerOf(leadId);
+  if (mode === "workflow") {
+    const { data: wf } = await admin.from("lara_workflows").select("*").eq("id", str(b.workflowId, 60)).eq("status", "active").maybeSingle();
+    if (!wf) throw bad("Choose a workflow");
+    const g = graphOf(wf); const trig = g.nodes.find((n: any) => n.type === "trigger");
+    const start = trig ? nextOf(g, trig.id) : null;
+    if (!start) throw bad("This workflow has no first step");
+    await admin.from("lara_enrollments").update({ status: "stopped", stop_reason: `Moved to "${wf.name}" by ${who(c)}`, updated_at: nowIso() }).eq("lead_id", leadId).eq("status", "active");
+    const ins = await admin.from("lara_enrollments").insert({ workflow_id: wf.id, lead_id: leadId, why: `Started by ${who(c)}`, node: start, next_at: nowIso() }).select("id").single();
+    if (ins.error) throw new HttpError(500, "Could not start the workflow");
+    await appendTimeline(leadId, { type: "Comment", title: `Handed to Lara by ${who(c)}`, description: `Workflow "${wf.name}" (next run of Lara, 09:00 Sun–Thu)` }).catch(() => {});
+    await log("run", who(c), `${o.customer} (${leadId}) put in workflow "${wf.name}"`);
+    return { success: true, started: "workflow", note: `In "${wf.name}". Lara takes the first step at her next run.` };
+  }
+  const text = str(b.text, 4000).trim();
+  if (!text) throw bad("Write the first message");
+  if (ch === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw bad("The lead has no e-mail address");
+  if (ch === "whatsapp" && !phone) throw bad("The lead has no usable mobile number");
+  const subject = ch === "email" ? (str(b.subject, 200) || "Elsewedy Industrial Development") : "";
+  const d = await admin.from("lara_drafts").insert({
+    lead_id: leadId, rule: "started_by_staff", kind: "followup", situation: str(b.situation, 40) || "any", channel: ch, lang: isAr(text) ? "ar" : "en", subject, body: text,
+    to_addr: ch === "email" ? email : null, to_phone: ch === "whatsapp" ? phone : null, reason: `Handed to Lara by ${who(c)}`, customer: str(o.customer, 120), owner_id: o.id, owner_name: str(o.name, 80), thread_id: t.id,
+    status: "approved", decided_by: who(c), decided_at: nowIso(), send_status: "queued",
+  }).select("id").single();
+  if (d.error || !d.data) throw new HttpError(409, /one_open/.test(d.error?.message || "") ? "A Lara draft for this lead already waits in Drafts: approve or reject it first" : "Could not start");
+  const r = await sendDraft(d.data.id, { sendEnabled: true, mode: "approve", maxSendPerDay: 10000, minDaysBetween: 0, maxUnanswered: 1000, sendStart: 0, sendEnd: 24 }, who(c));
+  await appendTimeline(leadId, { type: "Comment", title: `Handed to Lara by ${who(c)} (${ch === "whatsapp" ? "WhatsApp" : "e-mail"})`, description: r.sent ? "First message sent; Lara answers the customer's replies" : `Not sent yet: ${r.reason}` }).catch(() => {});
+  await log("mail", who(c), `${o.customer} (${leadId}) handed to Lara by ${ch}: ${r.sent ? "sent" : r.reason}`);
+  return { success: true, started: "message", sent: r.sent, note: r.sent ? "Sent. Lara now answers this customer." : r.reason, threadId: t.id };
+});
+
+/** a website visitor checked by staff and linked to the lead: the chat moves into that lead's conversation (nothing is deleted) */
+route("POST", "/lara/inbox/:id/link-lead", async ({ req, c, params }) => {
+  const w = laraWho(c);
+  if (!w.admin) throw new HttpError(403, "Only people who see every lead (admin, Sales Operation) link website chats");
+  const b = await body(req, 500);
+  const leadId = str(b.leadId, 40).toUpperCase();
+  const { data: v } = await admin.from("lara_threads").select("*").eq("id", params.id).maybeSingle();
+  if (!v?.visitor) throw bad("Only a website visitor's chat can be linked");
+  const lead = await leadInfo(leadId);
+  if (!lead) throw new HttpError(404, "Lead not found");
+  const t = await ensureThread(leadId, String(lead.email || v.customer_email || ""));
+  await admin.from("lara_messages").update({ thread_id: t.id, lead_id: leadId }).eq("thread_id", v.id);
+  await pg(async (q) => {
+    await q`update lara_threads t set last_at = s.last_at, last_dir = s.last_dir, last_channel = s.last_channel, last_preview = s.last_preview, msg_count = s.n, channels = s.chs,
+        chat_key = coalesce(t.chat_key, ${v.chat_key}), unread = t.unread + ${v.unread || 0}, wa_phone = coalesce(t.wa_phone, ${v.wa_phone}), last_in_at = greatest(t.last_in_at, ${v.last_in_at})
+      from (select count(*)::int n, max(at) last_at, (array_agg(direction order by at desc))[1] last_dir, (array_agg(coalesce(channel,'email') order by at desc))[1] last_channel,
+                   (array_agg(left(regexp_replace(coalesce(body,''), '\s+', ' ', 'g'), 160) order by at desc))[1] last_preview, array_agg(distinct coalesce(channel,'email')) chs
+            from lara_messages where thread_id = ${t.id} and kind not in ('unmatched','ignored')) s where t.id = ${t.id}`;
+    await q`update lara_threads set status = 'closed', chat_key = null, msg_count = 0, note = ${`Linked to ${leadId} by ${who(c)}`}, updated_at = now() where id = ${v.id}`;
+  }, async () => { throw new HttpError(503, "Try again in a moment"); });
+  await appendTimeline(leadId, { type: "Comment", title: `Website chat linked by ${who(c)}`, description: `${v.visitor?.name || ""} ${v.visitor?.phone ? `+${v.visitor.phone}` : ""}`.trim() }).catch(() => {});
+  await log("mail", who(c), `Website chat of ${v.visitor?.name || "a visitor"} linked to ${leadId}`);
+  return { success: true, threadId: t.id };
 });
 export type { Caller };

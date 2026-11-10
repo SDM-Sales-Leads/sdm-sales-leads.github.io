@@ -10,6 +10,7 @@ import {
 import type { Lead } from '../crm/types';
 import { crmNav } from '../crm/crmNav';
 import { Pager, useDebounced } from './Pager';
+import { StartWithLara } from './StartWithLara';
 
 const api = async (path: string, init?: RequestInit) => {
   const r = await fetch(`/api${path}`, init ? { ...init, headers: { 'Content-Type': 'application/json', ...(init.headers || {}) } } : undefined);
@@ -48,8 +49,11 @@ export const LaraInbox: React.FC<{ leads: Lead[]; isAdmin: boolean; reload: () =
   const [qRaw, setQRaw] = useState(''); const q = useDebounced(qRaw.trim(), 400);
   const [page, setPage] = useState(1); const [size, setSize] = useState(25);
   const [res, setRes] = useState<any>(null); const [busy, setBusy] = useState(false);
-  const [openId, setOpenId] = useState<string | null>(null);
+  // a conversation asked for from elsewhere (lead drawer "In Interactions"): opened once, then forgotten
+  const [openId, setOpenId] = useState<string | null>(() => { try { const v = sessionStorage.getItem('lara_open_thread'); sessionStorage.removeItem('lara_open_thread'); return v; } catch { return null; } });
+  useEffect(() => { const f = (e: Event) => { const id = (e as CustomEvent).detail; if (id) setOpenId(String(id)); }; window.addEventListener('lara-open-thread', f); return () => window.removeEventListener('lara-open-thread', f); }, []);
   const [more, setMore] = useState(false);
+  const [starting, setStarting] = useState(false);
   const owners = useMemo(() => {
     const m = new Map<string, string>();
     for (const l of leads) { const id = l.assignedSalespersonId, n = l.assignedSalespersonName; if (id && n) m.set(String(id), String(n)); }
@@ -77,7 +81,8 @@ export const LaraInbox: React.FC<{ leads: Lead[]; isAdmin: boolean; reload: () =
               {l}{count[v] != null && <span className={`ml-1 ${view === v ? 'text-white/80' : 'text-brand-gray'}`}>{count[v]}</span>}
             </button>
           ))}
-          <button onClick={() => void load()} className="ml-auto text-xs font-bold text-brand-gray flex items-center gap-1" title="Refresh"><RefreshCw size={13} className={busy ? 'animate-spin' : ''} />Refresh</button>
+          <button onClick={() => setStarting(true)} className="ml-auto btn-primary rounded-xl px-3 py-1 text-xs font-bold flex items-center gap-1"><Bot size={13} />New interaction</button>
+          <button onClick={() => void load()} className="text-xs font-bold text-brand-gray flex items-center gap-1" title="Refresh"><RefreshCw size={13} className={busy ? 'animate-spin' : ''} />Refresh</button>
           {extra && <button onClick={() => setMore((v) => !v)} className="text-xs font-bold text-brand-gray underline">{more ? 'Hide' : 'Unknown senders & do-not-contact'}</button>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -91,6 +96,7 @@ export const LaraInbox: React.FC<{ leads: Lead[]; isAdmin: boolean; reload: () =
         </div>
       </div>
       {more && extra}
+      {starting && <StartWithLara onClose={() => setStarting(false)} onDone={(tid) => { void load(); if (tid) setOpenId(tid); }} />}
       <div className="grid lg:grid-cols-[minmax(280px,360px)_1fr] xl:grid-cols-[360px_1fr_280px] gap-3 items-start">
         <section className={`bento-card bg-white border border-brand-gray/20 rounded-2xl shadow-sm p-2 ${openId ? 'hidden lg:block' : ''}`}>
           {!res ? <div className="p-6 flex justify-center"><Loader2 className="animate-spin text-brand-gray" /></div> : res.rows.length === 0 ? (
@@ -126,7 +132,8 @@ export const LaraInbox: React.FC<{ leads: Lead[]; isAdmin: boolean; reload: () =
   );
 };
 
-const Conversation: React.FC<{ id: string; isAdmin: boolean; onBack: () => void; onChanged: () => void }> = ({ id, isAdmin, onBack, onChanged }) => {
+/** one conversation (all channels). `compact` = inside the lead / customer drawer (no side panel). Exported for the 360 views. */
+export const Conversation: React.FC<{ id: string; isAdmin: boolean; onBack?: () => void; onChanged: () => void; compact?: boolean }> = ({ id, isAdmin, onBack, onChanged, compact }) => {
   const [d, setD] = useState<any>(null);
   const [older, setOlder] = useState(false);
   const [text, setText] = useState(''); const [subject, setSubject] = useState('');
@@ -176,11 +183,12 @@ const Conversation: React.FC<{ id: string; isAdmin: boolean; onBack: () => void;
   const chans = [t.hasChat || t.visitor ? 'web' : '', t.visitor ? '' : 'email', t.visitor ? '' : 'whatsapp'].filter(Boolean);
   return (
     <>
-      <section className="bento-card bg-white border border-brand-gray/20 rounded-2xl shadow-sm flex flex-col min-h-[60vh] max-h-[calc(100vh-180px)]">
+      <section className={`bento-card bg-white border border-brand-gray/20 rounded-2xl shadow-sm flex flex-col ${compact ? 'min-h-[320px] max-h-[70vh]' : 'min-h-[60vh] max-h-[calc(100vh-180px)]'}`}>
         <header className="p-3 border-b border-brand-gray/10 flex flex-wrap items-center gap-2">
-          <button onClick={onBack} className="lg:hidden text-brand-gray"><ArrowLeft size={18} /></button>
+          {onBack && !compact && <button onClick={onBack} className="lg:hidden text-brand-gray"><ArrowLeft size={18} /></button>}
           <div className="min-w-0">
-            <p className="font-extrabold text-sm truncate" dir="auto">{name}</p>
+            {t.visitor || compact ? <p className="font-extrabold text-sm truncate" dir="auto">{name}</p>
+              : <button onClick={() => crmNav.lead(t.lead_id)} className="font-extrabold text-sm truncate hover:text-brand-red text-left" dir="auto" title="Open the lead here">{name}</button>}
             <p className="text-[11px] text-brand-gray">{t.visitor ? 'Website visitor (not a lead yet)' : t.lead_id} · <code>{t.code}</code></p>
           </div>
           <span className={`text-[10px] font-bold rounded-full px-2 py-0.5 ${ST[t.status]?.tone}`}>{ST[t.status]?.label}</span>
@@ -232,12 +240,17 @@ const Conversation: React.FC<{ id: string; isAdmin: boolean; onBack: () => void;
           </div>
         )}
       </section>
-      <aside className="hidden xl:block bento-card bg-white border border-brand-gray/20 rounded-2xl shadow-sm p-4 space-y-3 text-xs">
+      {!compact && <aside className="hidden xl:block bento-card bg-white border border-brand-gray/20 rounded-2xl shadow-sm p-4 space-y-3 text-xs">
         {t.visitor ? (
           <>
             <p className="font-extrabold text-sm flex items-center gap-1.5"><Globe size={14} className="text-violet-700" />Website visitor</p>
             <Info k="Name" v={t.visitor.name} /><Info k="Mobile" v={t.visitor.phone ? <a href={`tel:+${t.visitor.phone}`} className="text-brand-red font-bold">+{t.visitor.phone}</a> : '—'} /><Info k="E-mail" v={t.visitor.email || '—'} /><Info k="Started" v={when(t.visitor.at)} />
-            <p className="text-[11px] text-brand-gray">Not a lead yet. Add them as a lead in Leads if they are a real customer; their chat stays here.</p>
+            {t.match_lead_id ? (
+              <div className="rounded-xl bg-amber-50 border border-amber-200 p-2 space-y-1.5">
+                <p className="text-[11px] text-amber-900">Same mobile or e-mail as <button onClick={() => crmNav.lead(t.match_lead_id)} className="font-bold underline">{t.match_lead_id}</button>. Typed numbers prove nothing: check it is really the same customer before linking (their old history then joins this chat).</p>
+                {isAdmin && <button onClick={async () => { if (!window.confirm(`Link this chat to ${t.match_lead_id}?`)) return; try { await post(`/lara/inbox/${id}/link-lead`, { leadId: t.match_lead_id }); toast.success('Linked to the lead'); onChanged(); } catch (e: any) { toast.error(e.message); } }} className="btn-primary w-full rounded-xl py-1 font-bold">It is the same customer — link</button>}
+              </div>
+            ) : <p className="text-[11px] text-brand-gray">Not a lead yet. Add them as a lead in Leads if they are a real customer; their chat stays here.</p>}
           </>
         ) : l ? (
           <>
@@ -246,7 +259,7 @@ const Conversation: React.FC<{ id: string; isAdmin: boolean; onBack: () => void;
             <Info k="Size" v={l.requiredSize || '—'} /><Info k="Budget" v={l.budget || '—'} /><Info k="Source" v={l.source || '—'} />
             <Info k="Mobile" v={l.phoneNumber ? <a href={`tel:${l.phoneNumber}`} className="text-brand-red font-bold flex items-center gap-1"><Phone size={11} />{l.phoneNumber}</a> : '—'} />
             <Info k="E-mail" v={l.email || '—'} /><Info k="Last contact" v={l.lastContactDate ? String(l.lastContactDate).slice(0, 10) : '—'} /><Info k="Next follow-up" v={l.nextFollowUpDate ? String(l.nextFollowUpDate).slice(0, 10) : '—'} />
-            <button onClick={() => crmNav.lead(t.lead_id)} className="btn-secondary w-full rounded-xl py-1.5 font-bold">Open the lead</button>
+            <button onClick={() => crmNav.lead(t.lead_id)} className="btn-primary w-full rounded-xl py-1.5 font-bold">Open the lead here</button>
           </>
         ) : <p className="text-brand-gray">Lead not found.</p>}
         {d.workflow && (
@@ -258,8 +271,20 @@ const Conversation: React.FC<{ id: string; isAdmin: boolean; onBack: () => void;
           </div>
         )}
         <div className="border-t border-brand-gray/10 pt-3 text-brand-gray">Channels used: {(t.channels || []).map((c: string) => CH[c]?.label || c).join(', ') || '—'} · {t.msg_count} messages</div>
-      </aside>
+        {t.memory && (t.memory.parks?.length || t.memory.asked) && <Memory m={t.memory} />}
+      </aside>}
     </>
   );
 };
 const Info: React.FC<{ k: string; v: React.ReactNode }> = ({ k, v }) => <div className="flex justify-between gap-2"><span className="text-brand-gray">{k}</span><span className="text-right font-semibold" dir="auto">{v}</span></div>;
+
+/** what Lara remembers about THIS conversation (rules, no AI) */
+export const Memory: React.FC<{ m: any }> = ({ m }) => (
+  <div className="border-t border-brand-gray/10 pt-3 space-y-1">
+    <p className="font-extrabold flex items-center gap-1.5"><Sparkles size={13} className="text-brand-red" />Lara remembers</p>
+    {m.parks?.length > 0 && <p>Interested in <b>{m.parks.join(', ')}</b>{m.size ? <> · about <b>{Number(m.size).toLocaleString('en-US')} m²</b></> : null}</p>}
+    {m.asked && <p className="text-brand-gray" dir="auto">Last question: "{m.asked}"</p>}
+    {m.offer?.at && <p>Initial offer sent {when(m.offer.at)}</p>}
+    {m.handover && <p>Asked for a call {when(m.handover)}</p>}
+  </div>
+);

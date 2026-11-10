@@ -1,4 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { Suspense, lazy, useMemo, useState } from 'react';
+import { useAuth } from '../../services/AuthContext';
+const LaraContactPanel = lazy(() => import('../lara/LaraLeadPanel').then((m) => ({ default: m.LaraContactPanel })));
 import { Contact, Company, Lead } from './types';
 import { normalizePhone } from './crmService';
 import { channelOf, isOpenStatus, normSource, phoneIntl, statusStage, NO_CHANNEL } from './leadConfig';
@@ -60,7 +62,7 @@ export const waLink = (phone: string | undefined, name: string) => {
   return `https://wa.me/${p}?text=${encodeURIComponent(msg)}`;
 };
 
-type Tab = 'overview' | 'leads' | 'timeline' | 'offers' | 'company';
+type Tab = 'overview' | 'leads' | 'timeline' | 'offers' | 'company' | 'lara';
 
 interface Props {
   contact: Contact;
@@ -85,6 +87,8 @@ const Chips: React.FC<{ items: string[] }> = ({ items }) => items.length
 
 export const Customer360: React.FC<Props> = ({ contact, leads, companies, onBack, onEdit, onDelete, setActiveSubTab }) => {
   const [tab, setTab] = useState<Tab>('overview');
+  const { user, permissions } = useAuth();
+  const laraUser = user?.role === 'Admin' || !!(permissions as any)?.canUseLara;
   const agg = useMemo(() => aggregateLeads(leads), [leads]);
   const sorted = useMemo(() => [...leads].sort((a, b) => (b.date || '').localeCompare(a.date || '')), [leads]);
   const company = useMemo(() => {
@@ -120,6 +124,7 @@ export const Customer360: React.FC<Props> = ({ contact, leads, companies, onBack
     { id: 'timeline', label: 'Timeline', count: timeline.length },
     { id: 'offers', label: 'Offers' },
     { id: 'company', label: 'Company' },
+    ...(laraUser ? [{ id: 'lara' as Tab, label: 'Lara interactions' }] : []),
   ];
 
   return (
@@ -266,6 +271,8 @@ export const Customer360: React.FC<Props> = ({ contact, leads, companies, onBack
           <OfferPrintsList contactId={contact.id} />
         </div>
       )}
+
+      {tab === 'lara' && laraUser && <Suspense fallback={null}><LaraContactPanel leadIds={leads.map((l) => l.id)} /></Suspense>}
 
       {tab === 'company' && (
         <div className="bg-white rounded-2xl border border-brand-gray/20 shadow-sm p-5 text-xs space-y-3">

@@ -5,7 +5,7 @@
 //   Nothing is sent and no lead is changed.
 // - Q&A: approved answers, matched by words and concepts (lara_match.ts). Unmatched questions go to "Missed questions".
 // - Availability questions ("is there land in October around 3,000 m?") are answered from the Land Bank plot list.
-import { admin, bad, body, Caller, can, forbidden, getConfig, getSecret, HttpError, isAdmin, needAdmin, nowIso, rateLimit, setConfig, str, tryLock, unlock } from "./lib.ts";
+import { admin, bad, body, Caller, can, crmScope, forbidden, getConfig, getSecret, HttpError, isAdmin, needAdmin, nowIso, rateLimit, setConfig, str, tryLock, unlock } from "./lib.ts";
 import { inWindow, intl, saveWa, syncTemplates, waCfg, waReady, waSend, waSignatureOk, waThreadFor } from "./lara_wa.ts";
 import { hasSecret } from "./lib.ts";
 import { route } from "./router.ts";
@@ -17,6 +17,7 @@ import { availableByPark, plotFit } from "../../../src/components/crm/smartEngin
 import { firstNameOf } from "../../../src/lib/personName.ts";
 import { triggerHit, condsOk, condOne, stopReason, validateWorkflow, hasEmail, hasPhone, TRIGGERS, Workflow, graphOf, nextOf, NODE_LABEL, type Graph, type GNode } from "./lara_flow.ts";
 import { addNotifications } from "./notify.ts";
+import { teamIds } from "./routes_crm.ts";
 import { aiAnswer } from "./lara_ai.ts";
 import { buildOffer, coverText, offerCandidates, OfferInput } from "./lara_offer.ts";
 import { lbRoute } from "./integration.ts";
@@ -439,15 +440,26 @@ export async function laraAnswer(question: string, opts: { record: boolean; sour
 // ---------------------------------------------------------------------------------------------
 // routes (admin only)
 // ---------------------------------------------------------------------------------------------
-/** who may use Lara: administrators (everything) or roles with canUseLara (their own leads only, phase 7) */
+/** who may use Lara: administrators, or roles with canUseLara. What they SEE follows the CRM's own rule (owner, 11 Nov 2026):
+ *  admin / Sales Operation / everyone with an "all leads" scope -> every lead; team leader -> the team's leads; others -> their own leads.
+ *  `admin` here means "sees every lead" (not "is an administrator"); admin-only screens still use needAdmin. */
 export function laraWho(c: Caller): { admin: boolean; id: string } {
   if (isAdmin(c)) return { admin: true, id: c.id };
-  if (can(c, "canUseLara")) return { admin: false, id: c.id };
+  if (can(c, "canUseLara")) { const s = crmScope(c); return { admin: s === "all" || s === "viewall", id: c.id }; }
   throw forbidden("Lara is not switched on for your role");
+}
+/** the owners whose leads this person may see in Lara (null = every lead) */
+export async function laraOwners(c: Caller): Promise<string[] | null> {
+  if (laraWho(c).admin) return null;
+  return crmScope(c) === "team" ? await teamIds(c) : [c.id];
+}
+export async function canSeeOwner(c: Caller, ownerId: string | null | undefined): Promise<boolean> {
+  const o = await laraOwners(c);
+  return o === null || (!!ownerId && o.includes(ownerId));
 }
 export async function ownsLead(c: Caller, leadId: string) {
   const { data } = await admin.from("crm_leads").select("assigned_to").eq("id", leadId).maybeSingle();
-  if (!data || data.assigned_to !== c.id) throw forbidden("This lead is not yours");
+  if (!data || !(await canSeeOwner(c, data.assigned_to))) throw forbidden("This lead is not in your leads");
 }
 export const who = (c: Caller) => c.name || c.email || "admin";
 
@@ -455,7 +467,7 @@ route("GET", "/lara/overview", async ({ c }) => {
   const w = laraWho(c);
   const cfg = await laraConfig();
   if (!w.admin) {
-    const { data: mine } = await admin.from("lara_drafts").select("status,situation,rule,edited").eq("owner_id", c.id).gte("created_at", new Date(Date.now() - 30 * 864e5).toISOString()).limit(5000);
+    const { data: mine } = await admin.from("lara_drafts").select("status,situation,rule,edited").in("owner_id", (await laraOwners(c)) || []).gte("created_at", new Date(Date.now() - 30 * 864e5).toISOString()).limit(5000);
     const t = { shadow: 0, approved: 0, rejected: 0, expired: 0, edited: 0 } as Record<string, number>;
     for (const d of mine || []) { t[d.status] = (t[d.status] || 0) + 1; if (d.edited) t.edited++; }
     return { success: true, user: true, config: { mode: cfg.mode, sendEnabled: cfg.sendEnabled }, testLock: (await getConfig<any>("lara_test_lock", true)) !== false, drafts30: t, kbActive: 0, missedOpen: 0, openBySituation: {}, openByRule: {}, ruleLabels: RULE_LABEL, channels: { email: false, whatsapp: false }, ai: false };
@@ -525,7 +537,7 @@ route("GET", "/lara/drafts", async ({ c, query }) => {
   const sit = /^[a-z_]{2,40}$/.test(query.get("situation") || "") ? query.get("situation")! : "";
   const kind = ["followup", "reply", "offer"].includes(query.get("kind") || "") ? query.get("kind")! : "";
   let dq: any = admin.from("lara_drafts").select("id,lead_id,rule,kind,situation,channel,lang,subject,body,reason,customer,owner_id,owner_name,status,feedback,edited,decided_by,decided_at,send_status,send_error,sent_at,to_addr,to_phone,offer,thread_id,created_at", { count: "exact" }).eq("status", status);
-  if (!w.admin) dq = dq.eq("owner_id", c.id);
+  if (!w.admin) dq = dq.in("owner_id", (await laraOwners(c)) || []);
   if (ch) dq = dq.eq("channel", ch);
   if (sit) dq = dq.eq("situation", sit);
   if (kind) dq = dq.eq("kind", kind);
@@ -543,7 +555,7 @@ route("POST", "/lara/drafts/:id/decide", async ({ req, c, params }) => {
   if (!decision) throw bad("decision?");
   const { data: d } = await admin.from("lara_drafts").select("*").eq("id", params.id).maybeSingle();
   if (!d) throw new HttpError(404, "Draft not found");
-  if (!w.admin && d.owner_id !== c.id) throw forbidden("This lead is not yours");
+  if (!w.admin && !(await canSeeOwner(c, d.owner_id))) throw forbidden("This lead is not in your leads");
   if (d.status !== "shadow") throw new HttpError(409, "This draft was already decided");
   const newBody = typeof b.body === "string" ? str(b.body, 4000) : d.body;
   const upd = { status: decision, feedback: str(b.feedback, 200) || null, body: newBody, subject: typeof b.subject === "string" ? str(b.subject, 200) : d.subject, edited: newBody !== d.body, decided_by: who(c), decided_at: nowIso(), updated_at: nowIso() };
@@ -556,7 +568,7 @@ route("POST", "/lara/drafts/:id/decide", async ({ req, c, params }) => {
 });
 route("POST", "/lara/drafts/:id/send", async ({ c, params }) => {
   const w = laraWho(c);
-  if (!w.admin) { const { data: d0 } = await admin.from("lara_drafts").select("owner_id").eq("id", params.id).maybeSingle(); if (d0?.owner_id !== c.id) throw forbidden("This lead is not yours"); }
+  if (!w.admin) { const { data: d0 } = await admin.from("lara_drafts").select("owner_id").eq("id", params.id).maybeSingle(); if (!(await canSeeOwner(c, d0?.owner_id))) throw forbidden("This lead is not in your leads"); }
   await admin.from("lara_drafts").update({ send_status: "queued", send_error: null }).eq("id", params.id).eq("status", "approved").neq("send_status", "sent");
   const r = await sendDraft(params.id, rules(await laraConfig()), who(c));
   return { success: true, sent: r.sent, sendNote: r.sent ? "E-mail sent" : r.reason };
@@ -662,19 +674,19 @@ export const replyHooks = {
     if (ai) return { answered: true, source: "ai" as const, text: { ar: ai, en: ai } };
     return { answered: false };
   },
-  writeReply: async (leadId: string, ar: boolean, answerText: string | null) => {
+  writeReply: async (leadId: string, ar: boolean, answerText: string | null, welcome?: string | null) => {
     const cfg = await laraConfig();
     const { data } = await admin.from("crm_leads").select("data->customerName,data->assignedSalespersonName").eq("id", leadId).maybeSingle();
     const first = firstNameOf(String((data as any)?.customerName || ""));
     const owner = String((data as any)?.assignedSalespersonName || "").trim();
     if (ar) {
-      const hi = first ? `أهلاً أ. ${first}،` : "أهلاً بحضرتك،";
+      const hi = welcome || (first ? `أهلاً أ. ${first}،` : "أهلاً بحضرتك،");
       const mid = answerText
         ? `شكراً لرد حضرتك.\n\n${answerText}\n\nلو فيه أي سؤال تاني أنا موجودة${owner ? `، وزميلي ${owner} مسؤول المبيعات الخاص بحضرتك متاح كمان لأي تفاصيل` : ""}.`
         : `شكراً لرد حضرتك. سؤال حضرتك وصل${owner ? ` لزميلي ${owner}، مسؤول المبيعات الخاص بحضرتك،` : " لفريق المبيعات"} وهيرد عليك بالتفاصيل في أقرب وقت.`;
       return { subject: "", body: `${hi}\n\n${mid}\n\n${cfg.nameAr}\nالسويدي للتنمية الصناعية` };
     }
-    const hi = first && !/[؀-ۿ]/.test(first) ? `Dear ${first},` : "Good day,";
+    const hi = welcome || (first && !/[؀-ۿ]/.test(first) ? `Dear ${first},` : "Good day,");
     const mid = answerText
       ? `Thank you for your reply.\n\n${answerText}\n\nIf you have any other question I am here${owner ? `, and your account manager, ${owner}, is also available for any details` : ""}.`
       : `Thank you for your reply. Your question has been passed to ${owner ? `your account manager, ${owner},` : "our sales team,"} who will get back to you with the details shortly.`;
@@ -704,7 +716,7 @@ route("GET", "/lara/threads", async ({ c, query }) => {
   let q: any = admin.from("lara_threads").select("*").order("updated_at", { ascending: false }).limit(300);
   if (st) q = q.eq("status", st);
   let { data } = await q;
-  if (!w.admin && data?.length) { const own = new Set(((await admin.from("crm_leads").select("id").in("id", data.map((t: any) => t.lead_id)).eq("assigned_to", c.id)).data || []).map((r: any) => r.id)); data = data.filter((t: any) => own.has(t.lead_id)); }
+  if (!w.admin && data?.length) { const own = new Set(((await admin.from("crm_leads").select("id").in("id", data.map((t: any) => t.lead_id)).in("assigned_to", (await laraOwners(c)) || [])).data || []).map((r: any) => r.id)); data = data.filter((t: any) => own.has(t.lead_id)); }
   const ids = (data || []).map((t: any) => t.lead_id);
   const names = ids.length ? (await admin.from("crm_leads").select("id,data->customerName,data->assignedSalespersonName").in("id", ids)).data || [] : [];
   const nm = new Map(names.map((r: any) => [r.id, r]));
@@ -905,7 +917,7 @@ route("POST", "/lara/offers/:id/update", async ({ req, c, params }) => {
   const b = await body(req, 5000);
   const { data: d } = await admin.from("lara_drafts").select("*").eq("id", params.id).eq("kind", "offer").maybeSingle();
   if (!d?.offer) throw new HttpError(404, "Offer not found");
-  if (!w.admin && d.owner_id !== c.id) throw forbidden("This lead is not yours");
+  if (!w.admin && !(await canSeeOwner(c, d.owner_id))) throw forbidden("This lead is not in your leads");
   if (d.status !== "shadow") throw new HttpError(409, "Only an offer that waits for approval can be changed");
   const inp = offerInput({ ...b, plotKeys: d.offer.plots.map((p: any) => p.key), mode: b.mode ?? d.offer.mode, plan: b.plan ?? d.offer.plan, discountPct: b.discountPct ?? d.offer.discountPct });
   const { offer, lead } = await buildOffer(d.lead_id, inp);
@@ -917,14 +929,14 @@ route("POST", "/lara/offers/:id/update", async ({ req, c, params }) => {
 route("GET", "/lara/offers", async ({ c }) => {
   const w = laraWho(c);
   let oq: any = admin.from("lara_drafts").select("id,lead_id,customer,owner_name,owner_id,status,send_status,send_error,sent_at,created_at,decided_by,offer,reason").eq("kind", "offer");
-  if (!w.admin) oq = oq.eq("owner_id", c.id);
+  if (!w.admin) oq = oq.in("owner_id", (await laraOwners(c)) || []);
   const { data } = await oq.order("created_at", { ascending: false }).limit(150);
   return { success: true, rows: (data || []).map((r: any) => ({ ...r, offer: r.offer?.listSqm ? offerView(r.offer) : r.offer })) };
 });
 /** the PDF of an offer draft = the Initial financial offer the Land Bank built for it (the same file is attached when sent) */
 route("GET", "/lara/offers/:id/pdf", async ({ c, params }) => {
   const w = laraWho(c);
-  if (!w.admin) { const { data: d0 } = await admin.from("lara_drafts").select("owner_id").eq("id", params.id).maybeSingle(); if (d0?.owner_id !== c.id) throw forbidden("This lead is not yours"); }
+  if (!w.admin) { const { data: d0 } = await admin.from("lara_drafts").select("owner_id").eq("id", params.id).maybeSingle(); if (!(await canSeeOwner(c, d0?.owner_id))) throw forbidden("This lead is not in your leads"); }
   const { data: f } = await admin.from("lara_offer_files").select("file_name,pdf_b64").eq("draft_id", params.id).maybeSingle();
   if (!f) throw new HttpError(409, "Not built yet: press \"Build in Land Bank\" first");
   const raw = Uint8Array.from(atob(f.pdf_b64), (ch) => ch.charCodeAt(0));
@@ -932,11 +944,11 @@ route("GET", "/lara/offers/:id/pdf", async ({ c, params }) => {
 });
 
 // ---- the Land Bank side (Land Bank token): read Lara's offer, send back the PDF it built ----
-const lbAllowed = (c: Caller, ownerId?: string | null) => c.role === "Admin" || c.role === "Sales Operation" || (can(c, "canUseLara") && !!ownerId && ownerId === c.id);
+const lbAllowed = async (c: Caller, ownerId?: string | null) => c.role === "Admin" || c.role === "Sales Operation" || (can(c, "canUseLara") && await canSeeOwner(c, ownerId));
 lbRoute("GET", "/integration/lara-offer/:id", async ({ c, params }) => {
   const { data: d } = await admin.from("lara_drafts").select("id,lead_id,status,offer,customer,owner_name,owner_id").eq("id", params.id).eq("kind", "offer").maybeSingle();
   if (!d?.offer) throw new HttpError(404, "Offer not found");
-  if (!lbAllowed(c, d.owner_id)) throw new HttpError(403, "Only Admin, Sales Operation or the lead's salesperson build Lara's offers");
+  if (!(await lbAllowed(c, d.owner_id))) throw new HttpError(403, "Only Admin, Sales Operation or the lead's salesperson build Lara's offers");
   if (d.status !== "shadow") throw new HttpError(409, "This offer is no longer waiting (it was approved, rejected or expired)");
   const { data: lead } = await admin.from("crm_leads").select("data->customerName,data->companyName,data->industry").eq("id", d.lead_id).maybeSingle();
   const o = d.offer;
@@ -951,7 +963,7 @@ lbRoute("POST", "/integration/lara-offer/:id/pdf", async ({ req, c, params }) =>
   if (pdf.length > 5_500_000) throw bad("The PDF is too large (max ~4 MB)");
   const { data: d } = await admin.from("lara_drafts").select("id,status,offer,owner_id").eq("id", params.id).eq("kind", "offer").maybeSingle();
   if (!d?.offer) throw new HttpError(404, "Offer not found");
-  if (!lbAllowed(c, d.owner_id)) throw new HttpError(403, "Only Admin, Sales Operation or the lead's salesperson build Lara's offers");
+  if (!(await lbAllowed(c, d.owner_id))) throw new HttpError(403, "Only Admin, Sales Operation or the lead's salesperson build Lara's offers");
   if (d.status !== "shadow") throw new HttpError(409, "This offer is no longer waiting");
   const name = str(b.fileName, 140) || `${d.offer.ref}.pdf`;
   const size = Math.round(pdf.length * 3 / 4);
@@ -966,7 +978,7 @@ route("POST", "/lara/offers/:id/test-copy", async ({ c, params }) => {
   await rateLimit(`laraoffertest:${c.id}`, 3600, 10);
   const { data: d } = await admin.from("lara_drafts").select("*").eq("id", params.id).eq("kind", "offer").maybeSingle();
   if (!d?.offer) throw new HttpError(404, "Offer not found");
-  if (!w.admin && d.owner_id !== c.id) throw forbidden("This lead is not yours");
+  if (!w.admin && !(await canSeeOwner(c, d.owner_id))) throw forbidden("This lead is not in your leads");
   if (!c.email) throw bad("Your account has no e-mail address");
   await sendOfferTestCopy(d, c.email);
   await log("offer", who(c), `Test copy of ${d.offer.ref} sent to the admin's own address`);

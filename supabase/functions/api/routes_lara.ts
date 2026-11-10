@@ -388,8 +388,8 @@ export const replyHooks = {
   answer: async (q: string, leadId: string) => {
     const r = await laraAnswer(q.slice(0, 600), { record: true, source: "customer", leadId, by: "Customer reply" });
     const best = r.matches[0];
-    if (r.data) return { answered: true, text: r.data };
-    if (r.answered && best) return { answered: true, text: { ar: best.a_ar, en: best.a_en } };
+    if (r.data) return { answered: true, source: "landbank" as const, text: r.data };
+    if (r.answered && best) return { answered: true, source: "qa" as const, text: { ar: best.a_ar, en: best.a_en } };
     return { answered: false };
   },
   writeReply: async (leadId: string, ar: boolean, answerText: string | null) => {

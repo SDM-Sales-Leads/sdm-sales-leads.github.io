@@ -197,7 +197,7 @@ export function newPart(text: string): string {
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, 2000);
 }
 
-export interface ReplyHooks { answer: (q: string, leadId: string) => Promise<{ answered: boolean; text?: { ar: string; en: string } }>; writeReply: (leadId: string, ar: boolean, answerText: string | null) => Promise<{ subject: string; body: string }> }
+export interface ReplyHooks { answer: (q: string, leadId: string) => Promise<{ answered: boolean; source?: "landbank" | "qa"; text?: { ar: string; en: string } }>; writeReply: (leadId: string, ar: boolean, answerText: string | null) => Promise<{ subject: string; body: string }> }
 
 export async function pollLaraInbox(hooks: ReplyHooks) {
   if (!(await mailboxReady())) return { pollSkipped: "mailbox not connected" };
@@ -253,7 +253,10 @@ export async function handleReply(thread: any, base: any, matchedBy: string, tex
   await appendTimeline(thread.lead_id, { type: "Email", title: "Customer replied to Lara (e-mail)", description: text.slice(0, 600) });
   // pending follow-ups of this lead are no longer right: the customer spoke
   await admin.from("lara_drafts").update({ status: "expired", feedback: "Customer replied", updated_at: now }).eq("lead_id", thread.lead_id).eq("status", "shadow").eq("kind", "followup");
-  const notify = async (title: string, body: string, type = "changed") => { if (o.id) await addNotifications([{ userId: o.id, type, leadId: thread.lead_id, title, body }]).catch(() => {}); };
+  // the owner is told; a lead without an owner goes to the admins and Sales Operation (a reply must never reach nobody)
+  let to: string[] = o.id ? [o.id] : [];
+  if (!to.length) { const { data: m } = await admin.from("app_users").select("id").in("role", ["Admin", "Sales Operation"]).neq("active", false).limit(20); to = (m || []).map((r: any) => r.id); }
+  const notify = async (title: string, body: string, type = "changed") => { if (to.length) await addNotifications(to.map((userId) => ({ userId, type, leadId: thread.lead_id, title: o.id ? title : `${title} (no owner)`, body }))).catch(() => {}); };
 
   if (STOP_RE.test(text) && text.length < 250) {   // a short "stop / not interested"; a long mail that only mentions the word is read normally
     await admin.from("lara_optout").upsert({ contact: String(base.from_addr || thread.customer_email).toLowerCase(), reason: text.slice(0, 200), lead_id: thread.lead_id, by_who: "Customer reply" });
@@ -277,7 +280,7 @@ export async function handleReply(thread: any, base: any, matchedBy: string, tex
   await admin.from("lara_drafts").insert({
     lead_id: thread.lead_id, rule: "customer_reply", kind: "reply", situation: answerText ? "reply_answer" : "reply_holding", channel: "email", lang: ar ? "ar" : "en",
     subject: `Re: ${String(base.subject || "").replace(LARA_CODE_RE, "").replace(/^(re:\s*)+/i, "").trim()}`, body: w.body, to_addr: base.from_addr || thread.customer_email,
-    reason: answerText ? "Customer replied; answer found in the approved Q&A" : "Customer replied; no approved answer (question sent to Missed questions)",
+    reason: answerText ? (ans.source === "landbank" ? "Customer replied; answered from the Land Bank plot list" : "Customer replied; answer found in the approved Q&A") : "Customer replied; no approved answer (question sent to Missed questions)",
     customer: str(o.customer, 120), owner_id: o.id, owner_name: str(o.name, 80), thread_id: thread.id, reply_to: msg.data?.id || null,
   });
 }

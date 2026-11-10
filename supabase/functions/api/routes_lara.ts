@@ -8,9 +8,9 @@
 import { admin, bad, body, Caller, getConfig, HttpError, needAdmin, nowIso, setConfig, str, tryLock, unlock } from "./lib.ts";
 import { route } from "./router.ts";
 import { pg } from "./db.ts";
-import { analyse, isArabic, KbEntry, matchQuestion, THRESHOLD } from "./lara_match.ts";
+import { analyse, isArabic, KbEntry, matchQuestion, normText, THRESHOLD } from "./lara_match.ts";
 import { canonicalParks } from "../../../src/lib/parkAliases.ts";
-import { preferredLang, situationOf, writeFor } from "../../../src/components/crm/smartWriter.ts";
+import { PARK_AR, plotsAr, preferredLang, situationOf, writeFor } from "../../../src/components/crm/smartWriter.ts";
 import { availableByPark, plotFit } from "../../../src/components/crm/smartEngine.ts";
 
 export interface LaraConfig {
@@ -156,19 +156,19 @@ async function activeKb(): Promise<KbEntry[]> {
 async function availabilityAnswer(question: string): Promise<{ ar: string; en: string } | null> {
   const a = analyse(question);
   const parks = canonicalParks(question);
-  if (!parks.length || !(a.concepts.has("availability") || a.concepts.has("size") || /ارض|اراضي|قطع|land|plot/i.test(question))) return null;
+  if (!parks.length || !(a.concepts.has("availability") || a.concepts.has("size") || /ارض|اراضي|قطع|مصنع|مخزن|land|plot/i.test(normText(question)))) return null;
   const nums = (question.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x660)).match(/\d[\d,]{2,}/g) || []).map((x) => Number(x.replace(/,/g, ""))).filter((x) => x >= 100);
   const { data } = await admin.from("plots_snapshot").select("data,updated_at").eq("id", 1).maybeSingle();
   const all: any[] = Array.isArray(data?.data) ? data!.data : [];
   const avail = all.filter((p) => p.status === "available" && parks.includes(p.park) && Number(p.areaSqm) > 0);
   const fit = nums.length ? avail.filter((p) => p.areaSqm >= nums[0] * 0.7 && p.areaSqm <= (nums[1] || nums[0]) * 1.3) : avail;
-  const park = parks[0]; const f = (n: number) => Math.round(n).toLocaleString("en-US");
-  if (!avail.length) return { ar: `حالياً لا توجد قطع متاحة في ${park} حسب آخر تحديث لبنك الأراضي.`, en: `There are no available plots in ${park} in the latest Land Bank list.` };
+  const park = parks[0]; const parkAr = PARK_AR[park] || park; const f = (n: number) => Math.round(n).toLocaleString("en-US");
+  if (!avail.length) return { ar: `حالياً لا توجد قطع متاحة في ${parkAr} حسب آخر تحديث لبنك الأراضي.`, en: `There are no available plots in ${park} in the latest Land Bank list.` };
   const list = fit.length ? fit : avail;
   const areas = list.map((p) => p.areaSqm).sort((x, y) => x - y);
   const span = areas.length === 1 ? `${f(areas[0])}` : `${f(areas[0])} – ${f(areas[areas.length - 1])}`;
-  if (nums.length && !fit.length) return { ar: `مفيش قطعة متاحة بالمساحة دي بالظبط في ${park}، لكن متاح ${avail.length} قطعة بمساحات ${span} م².`, en: `No available plot of that size in ${park}, but ${avail.length} plots are available (${span} sqm).` };
-  return { ar: `متاح حالياً ${list.length} قطعة في ${park}${nums.length ? ' قريبة من المساحة المطلوبة' : ''} بمساحات ${span} م².`, en: `${list.length} plots are available now in ${park}${nums.length ? ' close to the size asked' : ''} (${span} sqm).` };
+  if (nums.length && !fit.length) return { ar: `مفيش قطعة متاحة بالمساحة دي بالظبط في ${parkAr}، لكن متاح ${plotsAr(avail.length)} بمساحات ${span} م².`, en: `No available plot of that size in ${park}, but ${avail.length} plots are available (${span} sqm).` };
+  return { ar: `متاح حالياً ${plotsAr(list.length)} في ${parkAr}${nums.length ? ' قريبة من المساحة المطلوبة' : ''} بمساحات ${span} م².`, en: `${list.length} plots are available now in ${park}${nums.length ? ' close to the size asked' : ''} (${span} sqm).` };
 }
 
 export async function laraAnswer(question: string, opts: { record: boolean; source: "test" | "customer"; leadId?: string; by?: string }) {

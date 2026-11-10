@@ -39,9 +39,17 @@ export const LaraModule: React.FC<Props> = ({ sub, leads, setActiveSubTab }) => 
   useEffect(() => { void load(); }, [load, sub]);
   const leadName = useMemo(() => new Map(leads.map((l) => [l.id, l])), [leads]);
 
+  const slim = sub !== 'lara';   // the full header only on the Control room; the other tabs keep the screen for work (phone)
   return (
     <div className="space-y-5" id="lara-module">
-      <div className="rounded-3xl p-6 text-white shadow-lg bg-gradient-to-br from-brand-black via-[#3b2a33] to-brand-red relative overflow-hidden">
+      {slim && (
+        <div className="rounded-2xl px-4 py-3 text-white bg-gradient-to-r from-brand-black to-brand-red flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+          <span className="font-extrabold flex items-center gap-1.5"><Bot size={15} />Lara · {ov?.config?.mode === 'off' ? 'off' : 'Shadow mode'}</span>
+          {ov && <><span>{ov.drafts30.shadow} drafts waiting</span><span>{ov.kbActive} answers</span><span className={ov.missedOpen ? 'text-amber-200 font-bold' : ''}>{ov.missedOpen} missed questions</span></>}
+          <span className="ml-auto flex items-center gap-1 text-white/80"><ShieldCheck size={12} />nothing is sent</span>
+        </div>
+      )}
+      <div className={`${slim ? 'hidden' : ''} rounded-3xl p-6 text-white shadow-lg bg-gradient-to-br from-brand-black via-[#3b2a33] to-brand-red relative overflow-hidden`}>
         <div className="absolute -right-12 -bottom-16 w-56 h-56 rounded-full bg-brand-red/40 blur-3xl" />
         <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-1">

@@ -22,7 +22,7 @@ export const SITUATION_LABEL: Record<Situation, string> = {
 export interface Draft { situation: Situation; version: number; ar: string; en: string; subjectAr: string; subjectEn: string }
 export interface WriterCtx { rep: string; repAr?: string; fit: PlotFit | null; byKey?: Map<string, Plot>; now?: number; owner?: string }
 
-const PARK_AR: Record<string, string> = {
+export const PARK_AR: Record<string, string> = {
   'Industria October': 'إندستريا أكتوبر', 'Industria New Sadat': 'إندستريا السادات الجديدة', 'Industria Sadat': 'إندستريا السادات',
   'Industria Borg El Arab': 'إندستريا برج العرب', 'Industria Sokhna': 'إندستريا السخنة', 'Sokhna 360': 'سخنة 360',
   'Industria East': 'إندستريا إيست', 'Industria West': 'إندستريا ويست', 'Industria Asher - Plot 10': 'إندستريا عاشر',
@@ -30,7 +30,7 @@ const PARK_AR: Record<string, string> = {
 };
 const n0 = (v: number) => Math.round(v).toLocaleString('en-US');
 /** Arabic count of plots: قطعة واحدة / قطعتين / 3 قطع / 11 قطعة */
-const plotsAr = (n: number) => (n === 1 ? 'قطعة واحدة' : n === 2 ? 'قطعتين' : n <= 10 ? `${n} قطع` : `${n} قطعة`);
+export const plotsAr = (n: number) => (n === 1 ? 'قطعة واحدة' : n === 2 ? 'قطعتين' : n <= 10 ? `${n} قطع` : `${n} قطعة`);
 const IND_AR: Record<string, string> = {
   Engineering: 'الصناعات الهندسية', Pharmaceutical: 'الأدوية', Textile: 'النسيج', Chemical: 'الكيماويات', 'Food & Beverage (F&B)': 'الأغذية والمشروبات',
   Logistics: 'اللوجستيات', 'Heavy Industry': 'الصناعات الثقيلة', Services: 'الخدمات', Automotive: 'السيارات', Warehouse: 'المخازن', Plastic: 'البلاستيك', Plastics: 'البلاستيك',

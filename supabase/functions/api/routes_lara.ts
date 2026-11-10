@@ -102,7 +102,7 @@ async function runContext(includeOld: boolean) {
     admin.from("lara_drafts").select("lead_id").eq("status", "rejected").eq("feedback", "Do not contact").gte("decided_at", new Date(now - 60 * 864e5).toISOString()).limit(5000),
     admin.from("plots_snapshot").select("data").eq("id", 1).maybeSingle(),
     admin.from("lara_threads").select("lead_id,status,unanswered,last_out_at,last_in_at").limit(20000),
-    admin.from("lara_optout").select("contact").limit(20000),
+    admin.from("lara_optout").select("contact").is("removed_at", null).limit(20000),
   ]);
   const plots = (Array.isArray(snap.data?.data) ? snap.data!.data : []).map((p: any) => ({ ...p, areaSqM: Number(p.areaSqm) || 0 }));
   const blocked = new Set((optout.data || []).map((r: any) => String(r.contact).toLowerCase()));
@@ -397,14 +397,16 @@ export async function activeKb(): Promise<KbEntry[]> {
 /** "is there land in October around 3,000 m?" answered from the Land Bank list (no Q&A needed) */
 export async function availabilityAnswer(question: string): Promise<{ ar: string; en: string } | null> {
   const a = analyse(question);
-  const parks = canonicalParks(question);
+  let parks = canonicalParks(question);
+  // "Sokhna" alone could be either Sokhna park: answer for both (a customer rarely says "Industria")
+  if (parks.length === 1 && parks[0] === "Industria Sokhna" && !/industria|اندستريا|إندستريا/i.test(question)) parks = ["Industria Sokhna", "Sokhna 360"];
   if (!parks.length || !(a.concepts.has("availability") || a.concepts.has("size") || /ارض|اراضي|قطع|مصنع|مخزن|land|plot/i.test(normText(question)))) return null;
   const nums = (question.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x660)).match(/\d[\d,]{2,}/g) || []).map((x) => Number(x.replace(/,/g, ""))).filter((x) => x >= 100);
   const { data } = await admin.from("plots_snapshot").select("data,updated_at").eq("id", 1).maybeSingle();
   const all: any[] = Array.isArray(data?.data) ? data!.data : [];
   const avail = all.filter((p) => p.status === "available" && parks.includes(p.park) && Number(p.areaSqm) > 0);
   const fit = nums.length ? avail.filter((p) => p.areaSqm >= nums[0] * 0.7 && p.areaSqm <= (nums[1] || nums[0]) * 1.3) : avail;
-  const park = parks[0]; const parkAr = PARK_AR[park] || park; const f = (n: number) => Math.round(n).toLocaleString("en-US");
+  const park = parks.join(" / "); const parkAr = parks.map((p) => PARK_AR[p] || p).join(" و"); const f = (n: number) => Math.round(n).toLocaleString("en-US");
   if (!avail.length) return { ar: `حالياً لا توجد قطع متاحة في ${parkAr} حسب آخر تحديث لبنك الأراضي.`, en: `There are no available plots in ${park} in the latest Land Bank list.` };
   const list = fit.length ? fit : avail;
   const areas = list.map((p) => p.areaSqm).sort((x, y) => x - y);
@@ -739,7 +741,9 @@ route("POST", "/lara/threads/:id/status", async ({ req, c, params }) => {
   const b = await body(req, 500);
   const status = ["open", "handover", "stopped", "closed"].includes(b.status) ? b.status : "";
   if (!status) throw bad("status?");
-  await admin.from("lara_threads").update({ status, note: str(b.note, 200) || null, updated_at: nowIso() }).eq("id", params.id);
+  const { data: t1 } = await admin.from("lara_threads").select("memory").eq("id", params.id).maybeSingle();
+  const mem = { ...(t1?.memory || {}), ...(status === "open" ? { backAt: nowIso() } : {}) };   // "Give back to Lara": her pause after a salesperson's chat ends now
+  await admin.from("lara_threads").update({ status, note: str(b.note, 200) || null, memory: mem, updated_at: nowIso() }).eq("id", params.id);
   await log("mail", who(c), `Conversation set to ${status}`);
   return { success: true };
 });
@@ -767,8 +771,18 @@ route("POST", "/lara/unmatched/:id", async ({ req, c, params }) => {
 });
 route("GET", "/lara/optout", async ({ c }) => {
   needAdmin(c);
-  const { data } = await admin.from("lara_optout").select("*").order("at", { ascending: false }).limit(500);
+  const { data } = await admin.from("lara_optout").select("*").is("removed_at", null).order("at", { ascending: false }).limit(500);
   return { success: true, rows: data || [] };
+});
+/** the customer asked to hear from us again: off the list (kept with who/when; nothing deleted) */
+route("POST", "/lara/optout/remove", async ({ req, c }) => {
+  needAdmin(c);
+  const b = await body(req, 500);
+  const contact = str(b.contact, 200).toLowerCase();
+  if (!contact) throw bad("contact?");
+  await admin.from("lara_optout").update({ removed_at: nowIso(), removed_by: who(c) }).eq("contact", contact);
+  await log("config", who(c), `${contact} taken off the do-not-contact list`);
+  return { success: true };
 });
 
 // ---------------------------------------------------------------------------------------------

@@ -514,7 +514,7 @@ const MailLists: React.FC = () => {
       </Card>
       <Card title={<><ShieldCheck size={16} className="text-rose-600" />Do-not-contact list</>} className="lg:col-span-2">
         <p className="text-xs text-brand-gray">Customers who replied "stop" / "مش مهتم". Lara never writes to them again.</p>
-        {opt.length === 0 ? <p className="text-sm text-brand-gray">Empty.</p> : <ul className="text-xs divide-y divide-brand-gray/10 max-h-80 overflow-y-auto">{opt.map((o) => <li key={o.contact} className="py-1.5"><b>{o.contact}</b> · {o.lead_id || '—'} · {when(o.at)}</li>)}</ul>}
+        {opt.length === 0 ? <p className="text-sm text-brand-gray">Empty.</p> : <ul className="text-xs divide-y divide-brand-gray/10 max-h-80 overflow-y-auto">{opt.map((o) => <li key={o.contact} className="py-1.5 flex items-center gap-2"><span className="flex-1"><b>{o.contact}</b> · {o.lead_id || '—'} · {when(o.at)}{o.reason ? <span className="text-brand-gray" dir="auto"> · "{String(o.reason).slice(0, 60)}"</span> : null}</span><button onClick={async () => { if (!window.confirm(`Take ${o.contact} off the do-not-contact list? Only do this when the customer asked to hear from us again.`)) return; try { await post('/lara/optout/remove', { contact: o.contact }); toast.success('Taken off the list'); void load(); } catch (e: any) { toast.error(e.message); } }} className="text-[11px] font-bold text-brand-red underline shrink-0">Remove</button></li>)}</ul>}
       </Card>
     </div>
   );

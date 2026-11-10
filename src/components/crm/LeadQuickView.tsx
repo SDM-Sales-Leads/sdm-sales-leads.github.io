@@ -3,6 +3,7 @@
 // plots, history, the customer's other leads and Lara's conversation — then close and carry on where you were. One drawer for the whole app,
 // built from the same parts as the Leads page (LeadEditor, LeadPlotsPanel, LeadAuditHistory, Customer360), so there is no second copy to keep.
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { X, Phone, Mail, MessageCircle, Bot, ExternalLink, Loader2, UserRound, Clock, Map as MapIcon, History, Users } from 'lucide-react';
 import type { Company, Contact, Lead } from './types';
@@ -77,8 +78,8 @@ export const LeadQuickView: React.FC<{ leads: Lead[]; contacts: Contact[]; compa
     ...((lead as any).comments || []).filter((c: any) => !c.isPrivate).map((c: any) => ({ ts: c.timestamp || c.date, who: c.user || c.author, title: 'Comment', text: c.text || c.content, type: 'Comment' })),
   ].sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || ''))) : [];
 
-  return (
-    <div className="fixed inset-0 z-[70] flex justify-end" role="dialog" aria-modal="true">
+  return createPortal(
+    <div className="fixed inset-0 z-[150] flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-brand-black/40 backdrop-blur-xs" onClick={close} />
       <div className="relative w-full max-w-3xl h-full bg-[#F7F6F5] shadow-2xl flex flex-col animate-[slideIn_.18s_ease-out]">
         {!lead ? (
@@ -148,6 +149,7 @@ export const LeadQuickView: React.FC<{ leads: Lead[]; contacts: Contact[]; compa
         )}
       </div>
       {start && lead && <Suspense fallback={null}><StartWithLara lead={lead} onClose={() => setStart(false)} onDone={() => setTab('lara')} /></Suspense>}
-    </div>
+    </div>,
+    document.body,
   );
 };

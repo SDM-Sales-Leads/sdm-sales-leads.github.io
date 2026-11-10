@@ -89,14 +89,16 @@ export async function chatTurn(t: any, text: string): Promise<{ messages: any[];
   let reply = ""; let by = "rule"; let suggest: string[] = [];
   // a salesperson answered in this chat within the last 2 hours: Lara keeps quiet and lets the person talk
   const { data: lastStaff } = await admin.from("lara_messages").select("at").eq("thread_id", t.id).eq("kind", "staff").order("at", { ascending: false }).limit(1).maybeSingle();
-  if (lastStaff && Date.now() - Date.parse(lastStaff.at) < 2 * 3600e3) {
-    await notify(`${o.customer} wrote in the chat`, text.slice(0, 300), "escalation");
+  const backAt = Date.parse(t.memory?.backAt || "") || 0;
+  if (lastStaff && Date.now() - Date.parse(lastStaff.at) < 2 * 3600e3 && Date.parse(lastStaff.at) > backAt) {
+    // the salesperson is in the chat: one bell per 10 minutes, not one per message
+    if (!t.last_in_at || Date.now() - Date.parse(t.last_in_at) > 10 * 60e3) await notify(`${o.customer} wrote in the chat`, text.slice(0, 300), "escalation");
     await remember(t.id, mem0, { visits: (Number(t.memory?.visits) || 0) + (fresh ? 1 : 0) });
     return { messages: [ins.data], suggest: [] };
   }
   if (STOP_RE.test(text) && text.length < 250) {
     const contact = String(t.customer_email || t.wa_phone || "").toLowerCase();
-    if (contact) await admin.from("lara_optout").upsert({ contact, reason: text.slice(0, 200), lead_id: t.lead_id, by_who: "Web chat" });
+    if (contact) await admin.from("lara_optout").upsert({ contact, reason: text.slice(0, 200), lead_id: t.lead_id, by_who: "Web chat", removed_at: null, removed_by: null });
     await admin.from("lara_threads").update({ status: "stopped", note: "Customer asked to stop (chat)", updated_at: now }).eq("id", t.id);
     reply = ar ? "تمام، مش هنبعت لحضرتك رسائل تانية. لو احتجت أي حاجة إحنا موجودين." : "Understood — we will not message you again. We are here if you need anything.";
   } else if (GREET_RE.test(text) && back) {
@@ -111,7 +113,10 @@ export async function chatTurn(t: any, text: string): Promise<{ messages: any[];
     await admin.from("lara_threads").update({ status: "handover", note: "Customer asked for a call (chat)", updated_at: now }).eq("id", t.id);
     await notify(`${o.customer} wants a call — from the chat`, `Their words: "${text.slice(0, 300)}"`, "escalation");
     mem0.handover = now;
-    reply = hiBack + (ar ? `تمام، بلّغت ${ownerFirst ? `أ. ${ownerFirst}` : "مسؤول المبيعات"} وهيتواصل مع حضرتك في أقرب وقت خلال مواعيد العمل (الأحد–الخميس). ممكن تكتب هنا أنسب وقت للمكالمة.` : `Done — I've told ${ownerFirst || "your account manager"}, who will call you as soon as possible in working hours (Sun–Thu). You can write here the best time to call.`);
+    const gaveTime = /\b(today|tomorrow|morning|evening|afternoon|\d{1,2}(:\d{2})?\s*(am|pm)|at \d{1,2})\b|بكره|بكرة|النهارده|الصبح|بالليل|العصر|المغرب|الساعة|الساعه/i.test(text);
+    if (gaveTime) {
+      reply = hiBack + (ar ? `تمام، بلّغت ${ownerFirst ? `أ. ${ownerFirst}` : "مسؤول المبيعات"} بالميعاد اللي حضرتك قلته وهيتصل بيك فيه إن شاء الله.` : `Noted — I've passed the time you gave to ${ownerFirst || "your account manager"}, who will call you then.`);
+    } else reply = hiBack + (ar ? `تمام، بلّغت ${ownerFirst ? `أ. ${ownerFirst}` : "مسؤول المبيعات"} وهيتواصل مع حضرتك في أقرب وقت خلال مواعيد العمل (الأحد–الخميس). ممكن تكتب هنا أنسب وقت للمكالمة.` : `Done — I've told ${ownerFirst || "your account manager"}, who will call you as soon as possible in working hours (Sun–Thu). You can write here the best time to call.`);
   } else {
     // Land Bank data first (a park in the question, or the lead's own park), then the approved Q&A
     let q = text;
@@ -302,6 +307,7 @@ route("POST", "/lara/inbox/:id/reply", async ({ req, c, params }) => {
     if (!t.chat_key) throw bad("This customer has not opened the chat");
     if (!(await chatOpen(t))) throw new HttpError(403, "Test lock: chat replies go only to staff test conversations until the owner lifts the lock");
     const m = await admin.from("lara_messages").insert({ thread_id: t.id, lead_id: t.lead_id, direction: "out", kind: "staff", channel: "web", author: who(c), body: text, from_addr: who(c), to_addr: "web chat", at: nowIso() }).select("*").single();
+    if (t.status === "open") await admin.from("lara_threads").update({ status: "handover", note: `${who(c)} took over the chat`, updated_at: nowIso() }).eq("id", t.id);   // Lara pauses until "Give back to Lara"
     await log("mail", who(c), `Answered ${t.code} in the web chat`);
     return { success: true, sent: true, message: m.data };
   }
@@ -449,7 +455,7 @@ route("POST", "/lara/start", async ({ req, c }) => {
   }).select("id").single();
   if (d.error || !d.data) throw new HttpError(409, /one_open/.test(d.error?.message || "") ? "A Lara draft for this lead already waits in Drafts: approve or reject it first" : "Could not start");
   const r = await sendDraft(d.data.id, { sendEnabled: true, mode: "approve", maxSendPerDay: 10000, minDaysBetween: 0, maxUnanswered: 1000, sendStart: 0, sendEnd: 24 }, who(c));
-  await appendTimeline(leadId, { type: "Comment", title: `Handed to Lara by ${who(c)} (${ch === "whatsapp" ? "WhatsApp" : "e-mail"})`, description: r.sent ? "First message sent; Lara answers the customer's replies" : `Not sent yet: ${r.reason}` }).catch(() => {});
+  if (!r.sent) await appendTimeline(leadId, { type: "Comment", title: `Handed to Lara by ${who(c)} (${ch === "whatsapp" ? "WhatsApp" : "e-mail"})`, description: `Not sent yet: ${r.reason}` }).catch(() => {});
   await log("mail", who(c), `${o.customer} (${leadId}) handed to Lara by ${ch}: ${r.sent ? "sent" : r.reason}`);
   return { success: true, started: "message", sent: r.sent, note: r.sent ? "Sent. Lara now answers this customer." : r.reason, threadId: t.id };
 });

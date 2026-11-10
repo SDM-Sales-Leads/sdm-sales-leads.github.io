@@ -2,6 +2,7 @@
 // see). Either Lara writes the first message now (the person reads/edits it and sends it, so it is approved by them) or the lead enters a
 // workflow from its first box. The message is written in the browser by the rule-based writer (no AI, no server cost).
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { Bot, Mail, MessageSquare, Search, Loader2, X, RefreshCw, Workflow, Send, ShieldCheck } from 'lucide-react';
 import type { Lead } from '../crm/types';
@@ -77,9 +78,9 @@ export const StartWithLara: React.FC<{ lead?: Lead | null; onClose: () => void; 
   };
   const canSend = !!lead && (mode === 'workflow' ? !!wf : !!text.trim() && (channel === 'email' ? okMail(lead.email) : okPhone(lead.phoneNumber)));
 
-  return (
-    <div className="fixed inset-0 z-[80] bg-brand-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-2 sm:p-4" onClick={onClose}>
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+  return createPortal(
+    <div className="fixed inset-0 z-[200] bg-brand-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-2 sm:p-4" onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[calc(100dvh-16px)] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 px-5 py-4 border-b border-brand-gray/10 sticky top-0 bg-white rounded-t-3xl z-10">
           <Bot size={18} className="text-brand-red" /><h3 className="font-extrabold">Start with Lara</h3>
           <button onClick={onClose} className="ml-auto text-brand-gray"><X size={18} /></button>
@@ -141,6 +142,7 @@ export const StartWithLara: React.FC<{ lead?: Lead | null; onClose: () => void; 
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };

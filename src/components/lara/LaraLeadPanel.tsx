@@ -32,7 +32,7 @@ export const LaraLeadPanel: React.FC<{ lead: Lead; isAdmin: boolean }> = ({ lead
       <div className="flex flex-wrap items-center gap-2">
         {t ? <span className="font-bold rounded-full px-2.5 py-1 bg-brand-red/10 text-brand-red flex items-center gap-1"><Bot size={12} />{ST[t.status] || t.status}</span>
           : <span className="text-brand-gray">Lara has not talked to this customer yet.</span>}
-        {t && <span className="text-brand-gray flex items-center gap-1">{(t.channels || []).map((c: string) => <span key={c}>{CHI[c]}</span>)}{t.msg_count} messages · last {when(t.last_at)}{t.started_by ? ` · handed to Lara by ${t.started_by}` : ''}</span>}
+        {t && <span className="text-brand-gray flex items-center gap-1">{(t.channels || []).map((c: string) => <span key={c}>{CHI[c]}</span>)}{t.msg_count} message{t.msg_count === 1 ? '' : 's'} · last {when(t.last_at)}{t.started_by ? ` · handed to Lara by ${t.started_by}` : ''}</span>}
         <div className="ml-auto flex gap-1.5">
           {t && <button onClick={() => crmNav.interaction(t.id)} className="btn-secondary rounded-xl px-2.5 py-1 font-bold flex items-center gap-1"><Inbox size={12} />In Interactions</button>}
           {t?.status !== 'stopped' && <button onClick={() => setStart(true)} className="btn-primary rounded-xl px-3 py-1 font-bold flex items-center gap-1"><Bot size={12} />{t ? 'Lara: new message / workflow' : 'Start with Lara'}</button>}

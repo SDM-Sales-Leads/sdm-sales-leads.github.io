@@ -138,7 +138,7 @@ export async function ensureThread(leadId: string, email: string) {
 export async function isOptedOut(contacts: string[]): Promise<boolean> {
   const c = contacts.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
   if (!c.length) return false;
-  const { data } = await admin.from("lara_optout").select("contact").in("contact", c).limit(1);
+  const { data } = await admin.from("lara_optout").select("contact").in("contact", c).is("removed_at", null).limit(1);
   return !!data?.length;
 }
 
@@ -389,7 +389,7 @@ export async function handleReply(thread: any, base: any, matchedBy: string, tex
   const notify = async (title: string, body: string, type = "changed") => { if (to.length) await addNotifications(to.map((userId) => ({ userId, type, leadId: thread.lead_id, title: o.id ? title : `${title} (no owner)`, body }))).catch(() => {}); };
 
   if (STOP_RE.test(text) && text.length < 250) {   // a short "stop / not interested"; a long mail that only mentions the word is read normally
-    await admin.from("lara_optout").upsert({ contact: String(base.from_addr || thread.customer_email).toLowerCase(), reason: text.slice(0, 200), lead_id: thread.lead_id, by_who: "Customer reply" });
+    await admin.from("lara_optout").upsert({ contact: String(base.from_addr || thread.customer_email).toLowerCase(), reason: text.slice(0, 200), removed_at: null, removed_by: null, lead_id: thread.lead_id, by_who: "Customer reply" });
     await admin.from("lara_threads").update({ status: "stopped", note: "Customer asked to stop", updated_at: now }).eq("id", thread.id);
     await notify(`${o.customer} asked Lara to stop`, `Lara will not write again. Their words: "${text.slice(0, 200)}"`);
     await admin.from("lara_log").insert({ kind: "mail", actor: "Lara", text: `${o.customer} asked to stop: conversation stopped, address on the do-not-contact list` });

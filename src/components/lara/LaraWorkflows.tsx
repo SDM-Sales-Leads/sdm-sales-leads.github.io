@@ -142,7 +142,7 @@ const Editor: React.FC<{ w: any; onClose: () => void; onSaved: () => void }> = (
   const t = TRIGGER[w.trigger.type];
   const statusSet = useMemo(() => new Set(w.trigger.statuses || []), [w.trigger.statuses]);
   return (
-    <div className="fixed inset-0 z-[80] bg-black/40 flex justify-end" onClick={onClose}>
+    <div className="fixed inset-0 z-[120] bg-black/40 flex justify-end" onClick={onClose}>
       <aside className="bg-white w-full max-w-3xl h-full shadow-2xl overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b border-brand-gray/10 px-5 py-3 flex items-center justify-between z-10">
           <h3 className="font-extrabold text-brand-black flex items-center gap-2"><GitBranch size={16} className="text-brand-red" />{w.id ? 'Edit workflow' : 'New workflow'}</h3>
@@ -152,7 +152,7 @@ const Editor: React.FC<{ w: any; onClose: () => void; onSaved: () => void }> = (
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-brand-gray/10"><X size={18} /></button>
           </div>
         </div>
-        <div className="p-5 grid lg:grid-cols-2 gap-5">
+        <div className="p-5 pb-28 lg:pb-5 grid lg:grid-cols-2 gap-5">
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-2">
               <label className="col-span-2 text-xs font-bold">Name<input value={w.name} onChange={(e) => set({ name: e.target.value })} className="input-field w-full text-sm mt-0.5" /></label>

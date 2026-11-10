@@ -19,6 +19,7 @@ import {
   NextAction, Signal, availableByPark, briefOf, dataFixes, myWeek, nextActions, plotFit, signals, teamInsight, tips,
 } from './smartEngine';
 import { trackFeature } from './smartService';
+import { SmartAskTips } from './SmartAskTips';
 import { SITUATION_LABEL, Situation, preferredLang, situationsFor, writeFor } from './smartWriter';
 import type { PlotFit } from './smartEngine';
 
@@ -254,6 +255,7 @@ export const CrmSmartAssistant: React.FC<Props> = ({ leads, setActiveSubTab }) =
               ))}
             </ul>
           </Section>
+          <SmartAskTips />
         </div>
       </div>
 

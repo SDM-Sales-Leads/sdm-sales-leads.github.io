@@ -10,6 +10,7 @@ import type { Lead } from '../crm/types';
 import { crmNav } from '../crm/crmNav';
 import { SITUATION_LABEL } from '../crm/smartWriter';
 import { LaraWorkflows } from './LaraWorkflows';
+import { LaraWhatsApp } from './LaraWhatsApp';
 import { LaraOffers, openInLandBank, openOfferPdf } from './LaraOffers';
 
 const api = async (path: string, init?: RequestInit) => {
@@ -56,7 +57,7 @@ export const LaraModule: React.FC<Props> = ({ sub, leads, setActiveSubTab }) => 
         <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-1">
             <p className="text-xs font-bold uppercase tracking-widest text-white/70 flex items-center gap-1.5"><Bot size={14} />Lara Sales AI · admin preview</p>
-            <h2 className="text-2xl font-extrabold">{ov?.config?.mode === 'off' ? 'Lara is switched off' : ov?.config?.mode === 'approve' ? 'Lara is working in Approve-first mode' : 'Lara is working in Shadow mode'}</h2>
+            <h2 className="text-2xl font-extrabold">{ov?.config?.mode === 'off' ? 'Lara is switched off' : ov?.config?.mode === 'approve' ? 'Lara is working in Approve-first mode' : ov?.config?.mode === 'auto' ? 'Lara is on Autopilot' : 'Lara is working in Shadow mode'}</h2>
             <p className="text-sm text-white/85 max-w-2xl">She finds the leads nobody followed up and writes the message she would send. <b>Nothing is sent</b> and no lead is changed: you approve or reject each draft to judge her before she gets a channel. She uses rules, the team's message writer and your approved answers — <b>no AI, no cost</b>.</p>
           </div>
           <span className="text-[11px] font-bold bg-white/15 rounded-full px-3 py-1 flex items-center gap-1"><ShieldCheck size={13} />{ov?.config?.mode === 'approve' && ov?.config?.sendEnabled && ov?.channels?.email ? 'Only e-mails you approve are sent' : 'Safe: no messages leave the system'}</span>
@@ -74,7 +75,7 @@ export const LaraModule: React.FC<Props> = ({ sub, leads, setActiveSubTab }) => 
       {ov?.testLock && <p className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 flex items-center gap-2"><ShieldCheck size={14} />ON HOLD for testing: Lara can e-mail only staff addresses (test lock). No customer receives anything until the owner lifts the lock.</p>}
       {err && <p className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{err}</p>}
 
-      {sub === 'lara' && <Control ov={ov} reload={load} go={setActiveSubTab} />}
+      {sub === 'lara' && (ov?.user ? <DraftInbox leadName={leadName} reload={load} ov={ov} /> : <Control ov={ov} reload={load} go={setActiveSubTab} />)}
       {sub === 'lara-inbox' && <DraftInbox leadName={leadName} reload={load} ov={ov} />}
       {sub === 'lara-convos' && <Conversations reload={load} />}
       {sub === 'lara-flows' && <LaraWorkflows reload={load} />}
@@ -136,7 +137,7 @@ const Control: React.FC<{ ov: any; reload: () => void; go: (t: string) => void }
         <Row label="Sending" value={ov?.config?.mode === 'approve' && ov?.config?.sendEnabled ? <span className="text-emerald-700">On (approved only)</span> : <span className="text-brand-gray">Off</span>} />
         {ov?.send && <Row label="E-mails (30 d)" value={`${ov.send.sent} sent · ${ov.send.queued} queued · ${ov.send.failed} failed`} />}
         {ov && <Row label="Conversations" value={`${ov.threads?.open || 0} open · ${ov.threads?.handover || 0} handed over · ${ov.threads?.stopped || 0} stopped`} />}
-        <Row label="WhatsApp (Meta Cloud API)" value={<span className="text-brand-gray">Phase 6</span>} />
+        <Row label="WhatsApp (Meta Cloud API)" value={ov?.channels?.whatsapp ? <span className="text-emerald-700">Connected</span> : <span className="text-amber-700">Not set up</span>} />
         <Row label="AI model" value={<span className="text-emerald-700 font-bold">Not used</span>} />
         <button onClick={() => go('lara-settings')} className="text-xs font-bold text-brand-red flex items-center">Settings<ChevronRight size={14} /></button>
       </Card>
@@ -392,12 +393,13 @@ const SettingsTab: React.FC<{ ov: any; reload: () => void }> = ({ ov, reload }) 
       <Card title={<><Settings size={16} className="text-brand-red" />Lara's rules</>}>
         <label className="text-xs block"><span className="font-bold">Mode</span>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1">
-            {[['off', 'Off', true, 'Nothing runs'], ['shadow', 'Shadow', true, 'Drafts only'], ['approve', 'Approve first', true, 'You approve each mail'], ['auto', 'Autopilot', false, 'later phase']].map(([k, l, ok, h]: any) => (
+            {[['off', 'Off', true, 'Nothing runs'], ['shadow', 'Shadow', true, 'Drafts only'], ['approve', 'Approve first', true, 'You approve each mail'], ['auto', 'Autopilot', true, 'Your workflows send alone']].map(([k, l, ok, h]: any) => (
               <button key={k} disabled={!ok} onClick={() => setC({ ...c, mode: k })} className={`rounded-xl border px-2 py-2 text-xs font-bold ${c.mode === k ? 'bg-brand-red text-white border-brand-red' : 'border-brand-gray/20'} disabled:opacity-40`}>{l}<span className="block text-[9px] font-normal">{h}</span></button>
             ))}
           </div>
         </label>
         <p className="text-xs bg-sky-50 text-sky-900 rounded-xl px-3 py-2">When Lara starts on a lead (hours, days, statuses) is now set in each <b>Workflow</b>.</p>
+        {c.mode === 'auto' && <div className="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3 space-y-1"><p className="font-bold">Autopilot</p><p>Messages from workflows marked "Autopilot" go out without a person (offers always need approval). Everything else still waits in Drafts. While the test lock is on, only staff e-mails and test numbers can receive anything.</p><label className="flex items-center gap-2"><input type="checkbox" checked={!!c.autoReplies} onChange={(e) => setC({ ...c, autoReplies: e.target.checked })} />Also answer customer replies without a person (approved answers and polite holding replies)</label></div>}
         {n('maxPerRun', 'Drafts per run, at most', 'Keeps the list reviewable', 'drafts')}
         <div className="grid sm:grid-cols-2 gap-2">
           <label className="text-xs block"><span className="font-bold">Name in English messages</span><input value={c.nameEn} onChange={(e) => setC({ ...c, nameEn: e.target.value })} className="input-field w-full text-sm mt-0.5" /></label>
@@ -416,14 +418,13 @@ const SettingsTab: React.FC<{ ov: any; reload: () => void }> = ({ ov, reload }) 
           <p className="text-xs text-brand-gray">Even in Approve-first mode Lara sends nothing until this is on. Only drafts a person approved are sent; replies from customers are read every 10 minutes.</p>
           <div className="flex items-center justify-between gap-2 bg-brand-gray/5 rounded-xl p-3">
             <span className="text-sm font-bold">{c.sendEnabled ? 'Sending is ON' : 'Sending is OFF'}</span>
-            <button disabled={!c.sendEnabled && (!mailOk || c.mode !== 'approve')} onClick={() => save({ sendEnabled: !c.sendEnabled })} className={`rounded-xl px-3 py-1.5 text-xs font-extrabold disabled:opacity-40 ${c.sendEnabled ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'}`}>{c.sendEnabled ? 'Switch off' : 'Switch on'}</button>
+            <button disabled={!c.sendEnabled && (!mailOk || (c.mode !== 'approve' && c.mode !== 'auto'))} onClick={() => save({ sendEnabled: !c.sendEnabled })} className={`rounded-xl px-3 py-1.5 text-xs font-extrabold disabled:opacity-40 ${c.sendEnabled ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'}`}>{c.sendEnabled ? 'Switch off' : 'Switch on'}</button>
           </div>
-          {!c.sendEnabled && (!mailOk || c.mode !== 'approve') && <p className="text-[11px] text-amber-800">To switch on: {!mailOk ? 'connect the mailbox' : ''}{!mailOk && c.mode !== 'approve' ? ' and ' : ''}{c.mode !== 'approve' ? 'save mode "Approve first"' : ''}.</p>}
+          {!c.sendEnabled && (!mailOk || (c.mode !== 'approve' && c.mode !== 'auto')) && <p className="text-[11px] text-amber-800">To switch on: {!mailOk ? 'connect the mailbox' : ''}{!mailOk && c.mode !== 'approve' && c.mode !== 'auto' ? ' and ' : ''}{c.mode !== 'approve' && c.mode !== 'auto' ? 'save mode "Approve first" or "Autopilot"' : ''}.</p>}
         </Card>
-        <Card title={<><MessageSquare size={16} className="text-green-600" />WhatsApp channel — phase 6</>}>
-          <p className="text-xs text-brand-gray">Meta WhatsApp Cloud API, direct. Until then, WhatsApp drafts are for the salesperson to send by hand.</p>
-        </Card>
+
       </div>
+      <LaraWhatsApp reload={reload} />
     </div>
   );
 };
@@ -516,7 +517,7 @@ const Conversations: React.FC<{ reload: () => void }> = ({ reload }) => {
             {open.messages.length === 0 && <p className="text-xs text-brand-gray">No messages yet.</p>}
             {open.messages.map((m: any) => (
               <div key={m.id} className={`rounded-2xl p-3 text-sm max-w-[92%] ${m.direction === 'out' ? 'bg-brand-red/5 border border-brand-red/10 ml-auto' : 'bg-sky-50 border border-sky-100'}`}>
-                <p className="text-[10px] text-brand-gray mb-1">{m.direction === 'out' ? 'Lara' : m.from_addr} · {when(m.at)}{m.matched_by ? ` · matched by ${m.matched_by}` : ''}</p>
+                <p className="text-[10px] text-brand-gray mb-1">{m.channel === 'whatsapp' ? 'WhatsApp · ' : 'E-mail · '}{m.direction === 'out' ? 'Lara' : m.from_addr} · {when(m.at)}{m.matched_by ? ` · matched by ${m.matched_by}` : ''}{m.wa_status ? ` · ${m.wa_status}` : ''}</p>
                 <p dir={isAr(m.body) ? 'rtl' : 'ltr'} className="whitespace-pre-line">{m.body}</p>
               </div>
             ))}

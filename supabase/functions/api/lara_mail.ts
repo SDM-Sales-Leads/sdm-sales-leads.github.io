@@ -11,6 +11,8 @@ import { admin, getConfig, getSecret, HttpError, nowIso, setConfig, setSecret, s
 import { pg } from "./db.ts";
 import { EwsConfig, getBodies, htmlToText, listFolder, loadEws, sendMail, sendMailWithAttachment, verify } from "./ews.ts";
 import { recordOfferPrint } from "./lara_offer.ts";
+import { inWindow, intl, waCfg, waReady, waSend } from "./lara_wa.ts";
+import { normPhone } from "./lib.ts";
 import { addNotifications } from "./notify.ts";
 import { LARA_CODE_RE } from "./ingest.ts";
 
@@ -117,12 +119,69 @@ export async function isOptedOut(contacts: string[]): Promise<boolean> {
 // ---------------------------------------------------------------------------------------------
 export interface SendRules { sendEnabled: boolean; mode: string; maxSendPerDay: number; minDaysBetween: number; maxUnanswered: number; sendStart: number; sendEnd: number }
 
+/** the approved Meta template linked to this kind of message (needed outside the 24-hour window) */
+export async function templateFor(d: any) {
+  const { data } = await admin.from("lara_wa_templates").select("name,lang,params,body").eq("status", "APPROVED").in("situation", [d.situation, "any"]).limit(20);
+  const list = data || [];
+  const want = d.lang === "en" ? /^en/ : /^ar/;
+  return list.find((t: any) => want.test(t.lang)) || list[0] || null;
+}
+/** WhatsApp rules (Meta + owner): connected, quality not RED, test lock, stop list, 24-hour window or an approved template */
+async function waBlocker(d: any, r: SendRules): Promise<string> {
+  if (!(await waReady())) return "WhatsApp is not connected (Lara > Settings > WhatsApp)";
+  const c = await waCfg();
+  if (String(c.status?.quality || "").toUpperCase() === "RED") return "Meta rates the number RED: Lara pauses WhatsApp";
+  const to = intl(d.to_phone);
+  if (!to) return "The lead has no usable mobile number";
+  if ((await getConfig<any>("lara_test_lock", true)) !== false && !c.testNumbers.includes(to)) return "Test lock: Lara may only message the test numbers until the owner lifts it";
+  if (await isOptedOut([to, normPhone(to)])) return "The customer asked not to be contacted";
+  const { data: t } = await admin.from("lara_threads").select("status,unanswered,last_out_at,wa_last_in,wa_consent").eq("lead_id", d.lead_id).maybeSingle();
+  if (t && t.status !== "open" && d.kind === "followup") return `Conversation is ${t.status}`;
+  if (t && d.kind === "followup" && t.unanswered >= r.maxUnanswered) return `${t.unanswered} messages without a reply: Lara stops`;
+  if (t && d.kind === "followup" && t.last_out_at && Date.now() - Date.parse(t.last_out_at) < r.minDaysBetween * 864e5) return `Last message was less than ${r.minDaysBetween} days ago`;
+  if (!inWindow(t)) {
+    if (!c.consentFromEnquiry && !t?.wa_consent) return "No WhatsApp consent recorded for this customer";
+    if (!(await templateFor(d))) return "Outside WhatsApp's 24-hour window and no approved Meta template is linked to this kind of message (Lara > Settings > WhatsApp)";
+  }
+  const since = new Date(Date.now() - 864e5).toISOString();
+  const { count } = await admin.from("lara_messages").select("id", { count: "exact", head: true }).eq("direction", "out").gte("at", since);
+  if ((count || 0) >= r.maxSendPerDay) return `Daily limit reached (${r.maxSendPerDay})`;
+  return "";
+}
+/** sends one approved WhatsApp draft (free text inside the 24-hour window, else the linked template) */
+async function sendWaDraft(d: any, by: string): Promise<{ sent: boolean; reason?: string }> {
+  const to = intl(d.to_phone);
+  const t = await ensureThread(d.lead_id, "");
+  const { data: tt } = await admin.from("lara_threads").select("*").eq("id", t.id).single();
+  let waId = "", used = "text";
+  try {
+    if (inWindow(tt)) waId = await waSend(to, { text: d.body });
+    else {
+      const tpl = await templateFor(d);
+      const { data: lead } = await admin.from("crm_leads").select("data->customerName,data->project,data->assignedSalespersonName").eq("id", d.lead_id).maybeSingle();
+      const vals = [String((lead as any)?.customerName || "").split(/[\/]/).pop()?.trim() || "", String((lead as any)?.project || ""), String((lead as any)?.assignedSalespersonName || "")];
+      waId = await waSend(to, { template: { name: tpl!.name, lang: tpl!.lang, params: vals.slice(0, tpl!.params) } }); used = `template ${tpl!.name}`;
+    }
+  } catch (e: any) {
+    await admin.from("lara_drafts").update({ send_status: "failed", send_error: String(e?.message || e).slice(0, 200), updated_at: nowIso() }).eq("id", d.id);
+    await admin.from("lara_log").insert({ kind: "send", actor: by, text: `WhatsApp failed for ${d.customer}: ${String(e?.message || e).slice(0, 160)}` });
+    return { sent: false, reason: String(e?.message || e) };
+  }
+  const now = nowIso();
+  await admin.from("lara_messages").insert({ thread_id: t.id, lead_id: d.lead_id, direction: "out", channel: "whatsapp", wa_id: waId, wa_status: "sent", body: d.body, from_addr: "whatsapp", to_addr: to, draft_id: d.id, at: now });
+  await admin.from("lara_threads").update({ wa_phone: to, wa_consent: tt?.wa_consent || "enquiry", out_count: (tt?.out_count || 0) + 1, unanswered: (tt?.unanswered || 0) + 1, last_out_at: now, updated_at: now }).eq("id", t.id);
+  await admin.from("lara_drafts").update({ send_status: "sent", sent_at: now, send_error: null, thread_id: t.id, updated_at: now }).eq("id", d.id);
+  await appendTimeline(d.lead_id, { type: "WhatsApp", title: d.kind === "reply" ? "Lara replied on WhatsApp" : "Lara sent a WhatsApp", description: `${used === "text" ? "" : `(${used}) `}${String(d.body).slice(0, 600)}` });
+  await admin.from("lara_log").insert({ kind: "send", actor: by, text: `WhatsApp sent to ${d.customer} (${d.kind}, ${used}), approved by ${d.decided_by || by}` });
+  return { sent: true };
+}
+
 /** why this approved draft cannot go out now ('' = it can) */
 async function blocker(d: any, r: SendRules): Promise<string> {
-  if (r.mode !== "approve") return "Lara is not in Approve-first mode";
+  if (r.mode !== "approve" && r.mode !== "auto") return "Lara is not in Approve-first or Autopilot mode";
   if (!r.sendEnabled) return "Sending is switched off";
+  if (d.channel === "whatsapp") return await waBlocker(d, r);
   if (!(await mailboxReady())) return "Lara's mailbox is not connected";
-  if (d.channel !== "email") return "WhatsApp is not connected yet (phase 6)";
   // TEST LOCK (owner, 10 Nov 2026: "don't send to any real customer until I say so"): while on, Lara may e-mail ONLY staff
   // addresses (app_users). It is on unless the owner explicitly lifts it.
   if ((await getConfig<any>("lara_test_lock", true)) !== false) {
@@ -163,6 +222,7 @@ export async function sendDraft(draftId: string, r: SendRules, by: string): Prom
     await admin.from("lara_drafts").update({ send_status: "queued", send_error: `Waits for working hours (${r.sendStart}:00–${r.sendEnd}:00, Sun–Thu)`, updated_at: nowIso() }).eq("id", d.id);
     return { sent: false, reason: "Queued until working hours" };
   }
+  if (d.channel === "whatsapp") return await sendWaDraft(d, by);
   const t = await ensureThread(d.lead_id, d.to_addr);
   const base = String(d.subject || "Elsewedy Industrial Development").replace(LARA_CODE_RE, "").trim();
   const subject = `${base} [${t.code}]`;
@@ -207,7 +267,7 @@ export async function sendOfferTestCopy(d: any, to: string) {
 
 /** cron: queued drafts go out in working hours, oldest first, within the daily limit */
 export async function sendQueued(r: SendRules) {
-  if (r.mode !== "approve" || !r.sendEnabled || !inSendHours(r.sendStart, r.sendEnd)) return { queuedSkipped: true };
+  if ((r.mode !== "approve" && r.mode !== "auto") || !r.sendEnabled || !inSendHours(r.sendStart, r.sendEnd)) return { queuedSkipped: true };
   const { data } = await admin.from("lara_drafts").select("id").eq("status", "approved").eq("send_status", "queued").order("decided_at").limit(10);
   let sent = 0;
   for (const d of data || []) { const x = await sendDraft(d.id, r, "Scheduled send"); if (x.sent) sent++; else if (/Daily limit/.test(x.reason || "")) break; }
@@ -235,7 +295,7 @@ export function newPart(text: string): string {
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, 2000);
 }
 
-export interface ReplyHooks { answer: (q: string, leadId: string) => Promise<{ answered: boolean; source?: "landbank" | "qa"; text?: { ar: string; en: string } }>; writeReply: (leadId: string, ar: boolean, answerText: string | null) => Promise<{ subject: string; body: string }> }
+export interface ReplyHooks { answer: (q: string, leadId: string) => Promise<{ answered: boolean; source?: "landbank" | "qa"; text?: { ar: string; en: string } }>; writeReply: (leadId: string, ar: boolean, answerText: string | null) => Promise<{ subject: string; body: string }>; autoApprove?: () => Promise<boolean> }
 
 export async function pollLaraInbox(hooks: ReplyHooks) {
   if (!(await mailboxReady())) return { pollSkipped: "mailbox not connected" };
@@ -288,7 +348,10 @@ export async function handleReply(thread: any, base: any, matchedBy: string, tex
   const msg = await admin.from("lara_messages").insert({ ...base, thread_id: thread.id, lead_id: thread.lead_id, kind: "mail", matched_by: matchedBy }).select("id").single();
   const o = await ownerOf(thread.lead_id);
   await admin.from("lara_threads").update({ unanswered: 0, last_in_at: now, updated_at: now }).eq("id", thread.id);
-  await appendTimeline(thread.lead_id, { type: "Email", title: "Customer replied to Lara (e-mail)", description: text.slice(0, 600) });
+  const ch = base.channel === "whatsapp" ? "whatsapp" : "email";
+  // WhatsApp: the customer wrote, so the 24-hour window is open and consent is clear
+  if (ch === "whatsapp") await admin.from("lara_threads").update({ wa_phone: base.from_addr, wa_last_in: base.at || now, wa_consent: "replied" }).eq("id", thread.id);
+  await appendTimeline(thread.lead_id, { type: ch === "whatsapp" ? "WhatsApp" : "Email", title: `Customer replied to Lara (${ch === "whatsapp" ? "WhatsApp" : "e-mail"})`, description: text.slice(0, 600) });
   // pending follow-ups of this lead are no longer right: the customer spoke
   await admin.from("lara_drafts").update({ status: "expired", feedback: "Customer replied", updated_at: now }).eq("lead_id", thread.lead_id).eq("status", "shadow").eq("kind", "followup");
   // the owner is told; a lead without an owner goes to the admins and Sales Operation (a reply must never reach nobody)
@@ -316,9 +379,11 @@ export async function handleReply(thread: any, base: any, matchedBy: string, tex
   if (!ans.answered) await notify(`${o.customer} asked something Lara cannot answer`, `Answer it in Lara > Missed questions, or reply yourself: "${text.slice(0, 200)}"`);
   const w = await hooks.writeReply(thread.lead_id, ar, answerText);
   await admin.from("lara_drafts").insert({
-    lead_id: thread.lead_id, rule: "customer_reply", kind: "reply", situation: answerText ? "reply_answer" : "reply_holding", channel: "email", lang: ar ? "ar" : "en",
-    subject: `Re: ${String(base.subject || "").replace(LARA_CODE_RE, "").replace(/^(re:\s*)+/i, "").trim()}`, body: w.body, to_addr: base.from_addr || thread.customer_email,
+    lead_id: thread.lead_id, rule: "customer_reply", kind: "reply", situation: answerText ? "reply_answer" : "reply_holding", channel: ch, lang: ar ? "ar" : "en", to_phone: ch === "whatsapp" ? base.from_addr : null,
+    subject: ch === "email" ? `Re: ${String(base.subject || "").replace(LARA_CODE_RE, "").replace(/^(re:\s*)+/i, "").trim()}` : "", body: w.body, to_addr: ch === "email" ? base.from_addr || thread.customer_email : null,
     reason: answerText ? (ans.source === "landbank" ? "Customer replied; answered from the Land Bank plot list" : "Customer replied; answer found in the approved Q&A") : "Customer replied; no approved answer (question sent to Missed questions)",
     customer: str(o.customer, 120), owner_id: o.id, owner_name: str(o.name, 80), thread_id: thread.id, reply_to: msg.data?.id || null,
+    // Autopilot (phase 7): replies go out without a person when the owner switched Lara to Autopilot with auto-replies on
+    ...((await hooks.autoApprove?.().catch(() => false)) ? { status: "approved", decided_by: "Autopilot", decided_at: now, send_status: "queued" } : {}),
   });
 }

@@ -6,6 +6,7 @@
 import { admin, bad, body, can, HttpError, needCrm, rateLimit, str } from "./lib.ts";
 import { route } from "./router.ts";
 import { pg } from "./db.ts";
+import { matchQuestion, THRESHOLD } from "./lara_match.ts";
 
 const cairoDay = (d = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
@@ -34,4 +35,26 @@ route("GET", "/smart/usage", async ({ c, query }) => {
     e.uses += r.uses; e.people.add(r.user_id); e.days.add(r.day); by.set(r.feature, e);
   }
   return { success: true, from, rows: [...by.values()].map((e) => ({ feature: e.feature, uses: e.uses, people: e.people.size, days: e.days.size })).sort((a, b) => b.uses - a.uses) };
+});
+
+// ---------------------------------------------------------------------------------------------
+// phase 7: tips from the person's own usage, and "Ask Lara" for the team (no AI: approved Q&A + rules)
+// ---------------------------------------------------------------------------------------------
+route("GET", "/smart/my-usage", async ({ c }) => {
+  needCrm(c);
+  const from = cairoDay(new Date(Date.now() - 30 * 864e5));
+  const { data } = await admin.from("usage_feature_daily").select("feature,uses,day").eq("user_id", c.id).gte("day", from).limit(2000);
+  const by: Record<string, number> = {}; const days = new Set<string>();
+  for (const r of data || []) { by[r.feature] = (by[r.feature] || 0) + r.uses; days.add(r.day); }
+  return { success: true, from, days: days.size, features: by };
+});
+route("POST", "/smart/ask", async ({ req, c }) => {
+  needCrm(c);
+  await rateLimit(`smartask:${c.id}`, 3600, 60);
+  const b = await body(req, 2000);
+  const q = str(b.question, 400);
+  if (q.length < 3) throw bad("Write a question");
+  const { data } = await admin.from("lara_kb").select("id,topic,q_ar,q_en,phrasings,a_ar,a_en,status").eq("status", "active").limit(3000);
+  const m = matchQuestion(q, (data || []) as any, 3);
+  return { success: true, answered: !!m[0] && m[0].score >= THRESHOLD, matches: m.map((x) => ({ topic: x.entry.topic, q: x.entry.q_ar || x.entry.q_en, a_ar: x.entry.a_ar, a_en: x.entry.a_en, score: x.score })) };
 });

@@ -177,6 +177,7 @@ export interface RolePermissions {
   canViewSalesCrm?: boolean;
   canViewSalesDashboard?: boolean;
   canViewSalesLeads?: boolean;
+  canUseLara?: boolean;            // Lara Sales AI for their own leads (phase 7)
   canViewSalesContacts?: boolean;
   canViewSalesCompanies?: boolean;
   canViewSalesMail?: boolean;

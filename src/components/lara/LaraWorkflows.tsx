@@ -218,6 +218,7 @@ const Editor: React.FC<{ w: any; onClose: () => void; onSaved: () => void }> = (
                 <label key={k} className="text-xs flex items-center gap-2"><input type="checkbox" checked={w.stop?.[k] !== false} onChange={(e) => set({ stop: { ...w.stop, [k]: e.target.checked } })} />{l}</label>
               ))}
               <p className="text-[10px] text-brand-gray">Always: the customer says stop, the lead is closed, or you reject a draft with "Do not contact".</p>
+              <label className="text-xs flex items-center gap-2 pt-1 border-t border-rose-100"><input type="checkbox" checked={!!w.autopilot} onChange={(e) => set({ autopilot: e.target.checked })} /><b>Autopilot</b>: when Lara is in Autopilot mode, this workflow's messages go out without approval (offers never)</label>
             </div>
           </div>
 

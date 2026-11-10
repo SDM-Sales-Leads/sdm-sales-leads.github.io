@@ -5,7 +5,9 @@
 //   Nothing is sent and no lead is changed.
 // - Q&A: approved answers, matched by words and concepts (lara_match.ts). Unmatched questions go to "Missed questions".
 // - Availability questions ("is there land in October around 3,000 m?") are answered from the Land Bank plot list.
-import { admin, bad, body, Caller, getConfig, HttpError, needAdmin, nowIso, rateLimit, setConfig, str, tryLock, unlock } from "./lib.ts";
+import { admin, bad, body, Caller, can, forbidden, getConfig, getSecret, HttpError, isAdmin, needAdmin, nowIso, rateLimit, setConfig, str, tryLock, unlock } from "./lib.ts";
+import { inWindow, intl, saveWa, syncTemplates, waCfg, waReady, waSend, waSignatureOk, waThreadFor } from "./lara_wa.ts";
+import { hasSecret } from "./lib.ts";
 import { route } from "./router.ts";
 import { pg } from "./db.ts";
 import { analyse, isArabic, KbEntry, matchQuestion, normText, THRESHOLD } from "./lara_match.ts";
@@ -21,7 +23,7 @@ import { sendOfferTestCopy } from "./lara_mail.ts";
 import { handleReply, laraMailCfg, pollLaraInbox, saveMailbox, sendDraft, sendQueued, SendRules } from "./lara_mail.ts";
 
 export interface LaraConfig {
-  mode: "off" | "shadow" | "approve";
+  mode: "off" | "shadow" | "approve" | "auto";
   firstContactHours: number;   // new lead with an owner, no first contact after this many hours
   overdueDays: number;         // follow-up date passed by this many days
   offerSilentDays: number;     // offer sent, nothing logged since
@@ -31,11 +33,12 @@ export interface LaraConfig {
   // phase 3 (e-mail, approve first)
   sendEnabled: boolean;        // master switch for sending: off until the admin turns it on
   maxSendPerDay: number; minDaysBetween: number; maxUnanswered: number; sendStart: number; sendEnd: number;
+  autoReplies: boolean;        // phase 7: in Autopilot, customer replies are answered without a person
 }
 export const LARA_DEFAULT: LaraConfig = {
   mode: "shadow", firstContactHours: 24, overdueDays: 3, offerSilentDays: 3, noAnswerDays: 2, maxPerRun: 60,
   nameEn: "Lara, digital sales assistant", nameAr: "لارا، المساعدة الرقمية للمبيعات",
-  sendEnabled: false, maxSendPerDay: 30, minDaysBetween: 3, maxUnanswered: 3, sendStart: 9, sendEnd: 17,
+  sendEnabled: false, maxSendPerDay: 30, minDaysBetween: 3, maxUnanswered: 3, sendStart: 9, sendEnd: 17, autoReplies: false,
 };
 export async function laraConfig(): Promise<LaraConfig> {
   const c = await getConfig<any>("lara_config", {});
@@ -108,7 +111,7 @@ async function runContext(includeOld: boolean) {
     dnc: new Set((rejected.data || []).map((r: any) => r.lead_id)),
     threads: new Map<string, any>((threads.data || []).map((t: any) => [t.lead_id, t])),
     optedOut: (l: any) => (l.email && blocked.has(String(l.email).toLowerCase())) || (l.phoneNumber && blocked.has(digits(l.phoneNumber))),
-    byPark: availableByPark(plots as any), byKey: new Map(plots.map((p: any) => [p.key, p])),
+    byPark: availableByPark(plots as any), byKey: new Map(plots.map((p: any) => [p.key, p])), waLive: await waReady().catch(() => false),
     notes: { owner: {} as Record<string, { handover: NoteItem[]; remind: NoteItem[] }>, director: [] as NoteItem[] },
   };
 }
@@ -143,14 +146,16 @@ function draftFor(cfg: LaraConfig, x: Ctx, wf: Workflow, step: Step, i: number, 
   let channel: "email" | "whatsapp";
   if (step.channel === "email") { if (!mail) return null; channel = "email"; }
   else if (step.channel === "whatsapp") { if (!hasPhone(l)) return null; channel = "whatsapp"; }
-  else channel = (cfg.mode === "approve" && mail) || !hasPhone(l) ? "email" : "whatsapp";   // e-mail is live from phase 3; WhatsApp is sent by hand until phase 6
+  else channel = x.waLive && hasPhone(l) ? "whatsapp" : (cfg.mode === "approve" || cfg.mode === "auto") && mail ? "email" : hasPhone(l) ? "whatsapp" : "email";   /* WhatsApp when connected (phase 6), else e-mail */
   if (channel === "email" && !mail) return null;
   return {
     lead_id: l.id, run_id: runId, rule: `wf:${wf.id}`, situation: sit, channel, lang,
     subject: lang === "ar" ? d.subjectAr : d.subjectEn, body: lang === "ar" ? d.ar : d.en,
     reason: `${wf.name} · step ${i + 1} of ${wf.steps.length}: ${why}`,
     customer: str(l.customerName || l.companyName || l.id, 120), owner_id: l.assigned_to, owner_name: str(l.assignedSalespersonName, 80),
-    kind: "followup", to_addr: mail || null,
+    kind: "followup", to_addr: mail || null, to_phone: hasPhone(l) ? intl(l.phoneNumber) || null : null,
+    /* Autopilot (phase 7): only when the owner chose Autopilot AND this workflow allows it; offers never */
+    ...(cfg.mode === "auto" && (wf as any).autopilot ? { status: "approved", decided_by: "Autopilot", decided_at: nowIso(), send_status: "queued" } : {}),
   };
 }
 
@@ -350,11 +355,27 @@ export async function laraAnswer(question: string, opts: { record: boolean; sour
 // ---------------------------------------------------------------------------------------------
 // routes (admin only)
 // ---------------------------------------------------------------------------------------------
+/** who may use Lara: administrators (everything) or roles with canUseLara (their own leads only, phase 7) */
+function laraWho(c: Caller): { admin: boolean; id: string } {
+  if (isAdmin(c)) return { admin: true, id: c.id };
+  if (can(c, "canUseLara")) return { admin: false, id: c.id };
+  throw forbidden("Lara is not switched on for your role");
+}
+async function ownsLead(c: Caller, leadId: string) {
+  const { data } = await admin.from("crm_leads").select("assigned_to").eq("id", leadId).maybeSingle();
+  if (!data || data.assigned_to !== c.id) throw forbidden("This lead is not yours");
+}
 const who = (c: Caller) => c.name || c.email || "admin";
 
 route("GET", "/lara/overview", async ({ c }) => {
-  needAdmin(c);
+  const w = laraWho(c);
   const cfg = await laraConfig();
+  if (!w.admin) {
+    const { data: mine } = await admin.from("lara_drafts").select("status,situation,rule,edited").eq("owner_id", c.id).gte("created_at", new Date(Date.now() - 30 * 864e5).toISOString()).limit(5000);
+    const t = { shadow: 0, approved: 0, rejected: 0, expired: 0, edited: 0 } as Record<string, number>;
+    for (const d of mine || []) { t[d.status] = (t[d.status] || 0) + 1; if (d.edited) t.edited++; }
+    return { success: true, user: true, config: { mode: cfg.mode, sendEnabled: cfg.sendEnabled }, testLock: (await getConfig<any>("lara_test_lock", true)) !== false, drafts30: t, kbActive: 0, missedOpen: 0, openBySituation: {}, openByRule: {}, ruleLabels: RULE_LABEL, channels: { email: false, whatsapp: false }, ai: false };
+  }
   const since = new Date(Date.now() - 30 * 864e5).toISOString();
   const [drafts, kb, missed, lastRun] = await Promise.all([
     admin.from("lara_drafts").select("status,situation,rule,edited").gte("created_at", since).limit(20000),
@@ -390,14 +411,14 @@ route("PUT", "/lara/config", async ({ req, c }) => {
   const cur = await laraConfig();
   const num = (v: any, lo: number, hi: number, d: number) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : d; };
   const next: LaraConfig = {
-    mode: b.mode === "off" ? "off" : b.mode === "approve" ? "approve" : "shadow",
+    mode: b.mode === "off" ? "off" : b.mode === "approve" ? "approve" : b.mode === "auto" ? "auto" : "shadow",
     firstContactHours: num(b.firstContactHours, 1, 240, cur.firstContactHours),
     overdueDays: num(b.overdueDays, 1, 60, cur.overdueDays),
     offerSilentDays: num(b.offerSilentDays, 1, 60, cur.offerSilentDays),
     noAnswerDays: num(b.noAnswerDays, 1, 30, cur.noAnswerDays),
     maxPerRun: num(b.maxPerRun, 5, 200, cur.maxPerRun),
     nameEn: str(b.nameEn, 60) || cur.nameEn, nameAr: str(b.nameAr, 60) || cur.nameAr,
-    sendEnabled: b.sendEnabled === true,
+    sendEnabled: b.sendEnabled === true, autoReplies: b.autoReplies === true,
     maxSendPerDay: num(b.maxSendPerDay, 1, 200, cur.maxSendPerDay), minDaysBetween: num(b.minDaysBetween, 1, 30, cur.minDaysBetween),
     maxUnanswered: num(b.maxUnanswered, 1, 10, cur.maxUnanswered), sendStart: num(b.sendStart, 6, 20, cur.sendStart), sendEnd: num(b.sendEnd, 8, 23, cur.sendEnd),
   };
@@ -410,32 +431,37 @@ route("PUT", "/lara/config", async ({ req, c }) => {
 route("POST", "/lara/run", async ({ c }) => { needAdmin(c); return { success: true, ...(await runShadow(who(c))) }; });
 
 route("GET", "/lara/drafts", async ({ c, query }) => {
-  needAdmin(c);
+  const w = laraWho(c);
   const status = ["shadow", "approved", "rejected", "expired"].includes(query.get("status") || "") ? query.get("status")! : "shadow";
   const limit = Math.min(200, Math.max(10, Number(query.get("limit")) || 100));
-  const { data, error } = await admin.from("lara_drafts").select("*").eq("status", status).order(status === "shadow" ? "created_at" : "decided_at", { ascending: false }).limit(limit);
+  let dq: any = admin.from("lara_drafts").select("*").eq("status", status);
+  if (!w.admin) dq = dq.eq("owner_id", c.id);
+  const { data, error } = await dq.order(status === "shadow" ? "created_at" : "decided_at", { ascending: false }).limit(limit);
   if (error) throw new HttpError(500, "Could not read the drafts");
   return { success: true, rows: data || [] };
 });
 
 route("POST", "/lara/drafts/:id/decide", async ({ req, c, params }) => {
-  needAdmin(c);
+  const w = laraWho(c);
   const b = await body(req, 8000);
   const decision = b.decision === "approved" ? "approved" : b.decision === "rejected" ? "rejected" : "";
   if (!decision) throw bad("decision?");
   const { data: d } = await admin.from("lara_drafts").select("*").eq("id", params.id).maybeSingle();
   if (!d) throw new HttpError(404, "Draft not found");
+  if (!w.admin && d.owner_id !== c.id) throw forbidden("This lead is not yours");
   if (d.status !== "shadow") throw new HttpError(409, "This draft was already decided");
   const newBody = typeof b.body === "string" ? str(b.body, 4000) : d.body;
   const upd = { status: decision, feedback: str(b.feedback, 200) || null, body: newBody, subject: typeof b.subject === "string" ? str(b.subject, 200) : d.subject, edited: newBody !== d.body, decided_by: who(c), decided_at: nowIso(), updated_at: nowIso() };
-  const willSend = decision === "approved" && d.channel === "email" && (await laraConfig()).mode === "approve";
+  const md = (await laraConfig()).mode;
+  const willSend = decision === "approved" && (md === "approve" || md === "auto");
   await admin.from("lara_drafts").update({ ...upd, send_status: willSend ? "queued" : "none" }).eq("id", d.id);
   await log("decision", who(c), `${decision === "approved" ? "Approved" : "Rejected"} draft for ${d.customer} (${d.situation})${upd.feedback ? `: ${upd.feedback}` : ""}${upd.edited ? " — edited" : ""}`);
-  if (willSend) { const r = await sendDraft(d.id, rules(await laraConfig()), who(c)); return { success: true, sent: r.sent, sendNote: r.sent ? "E-mail sent" : r.reason }; }
+  if (willSend) { const r = await sendDraft(d.id, rules(await laraConfig()), who(c)); return { success: true, sent: r.sent, sendNote: r.sent ? (d.channel === "whatsapp" ? "WhatsApp sent" : "E-mail sent") : r.reason }; }
   return { success: true, sent: false };
 });
 route("POST", "/lara/drafts/:id/send", async ({ c, params }) => {
-  needAdmin(c);
+  const w = laraWho(c);
+  if (!w.admin) { const { data: d0 } = await admin.from("lara_drafts").select("owner_id").eq("id", params.id).maybeSingle(); if (d0?.owner_id !== c.id) throw forbidden("This lead is not yours"); }
   await admin.from("lara_drafts").update({ send_status: "queued", send_error: null }).eq("id", params.id).eq("status", "approved").neq("send_status", "sent");
   const r = await sendDraft(params.id, rules(await laraConfig()), who(c));
   return { success: true, sent: r.sent, sendNote: r.sent ? "E-mail sent" : r.reason };
@@ -518,10 +544,11 @@ route("GET", "/lara/log", async ({ c, query }) => {
 // ---------------------------------------------------------------------------------------------
 // phase 3: mailbox, conversations, replies
 // ---------------------------------------------------------------------------------------------
-const rules = (c: LaraConfig): SendRules => ({ sendEnabled: c.sendEnabled, mode: c.mode, maxSendPerDay: c.maxSendPerDay, minDaysBetween: c.minDaysBetween, maxUnanswered: c.maxUnanswered, sendStart: c.sendStart, sendEnd: c.sendEnd });
+const rules = (c: LaraConfig): SendRules => ({  sendEnabled: c.sendEnabled, mode: c.mode, maxSendPerDay: c.maxSendPerDay, minDaysBetween: c.minDaysBetween, maxUnanswered: c.maxUnanswered, sendStart: c.sendStart, sendEnd: c.sendEnd });
 
 /** what Lara does with a customer's reply (no AI): the approved answer when there is one; otherwise a polite holding reply */
 export const replyHooks = {
+  autoApprove: async () => { const c = await laraConfig(); return c.mode === "auto" && c.autoReplies === true; },
   answer: async (q: string, leadId: string) => {
     const r = await laraAnswer(q.slice(0, 600), { record: true, source: "customer", leadId, by: "Customer reply" });
     const best = r.matches[0];
@@ -552,7 +579,7 @@ export const replyHooks = {
 /** cron (every 10 minutes, 07:00–22:00): read Lara's mailbox and send the approved mails that wait for working hours */
 export async function laraMailTick() {
   const cfg = await laraConfig();
-  if (cfg.mode !== "approve") return { laraMail: "not in approve-first mode" };
+  if (cfg.mode !== "approve" && cfg.mode !== "auto") return { laraMail: "not in approve-first / autopilot mode" };
   const read = await pollLaraInbox(replyHooks).catch((e: any) => ({ pollError: String(e?.message || e).slice(0, 120) }));
   const sent = await sendQueued(rules(cfg)).catch((e: any) => ({ sendError: String(e?.message || e).slice(0, 120) }));
   return { ...read, ...sent };
@@ -566,28 +593,31 @@ route("POST", "/lara/mailbox", async ({ req, c }) => {
 route("POST", "/lara/mailbox/check", async ({ c }) => { needAdmin(c); return { success: true, ...(await laraMailTick()) }; });
 
 route("GET", "/lara/threads", async ({ c, query }) => {
-  needAdmin(c);
+  const w = laraWho(c);
   const st = ["open", "handover", "stopped", "closed"].includes(query.get("status") || "") ? query.get("status")! : "";
   let q: any = admin.from("lara_threads").select("*").order("updated_at", { ascending: false }).limit(300);
   if (st) q = q.eq("status", st);
-  const { data } = await q;
+  let { data } = await q;
+  if (!w.admin && data?.length) { const own = new Set(((await admin.from("crm_leads").select("id").in("id", data.map((t: any) => t.lead_id)).eq("assigned_to", c.id)).data || []).map((r: any) => r.id)); data = data.filter((t: any) => own.has(t.lead_id)); }
   const ids = (data || []).map((t: any) => t.lead_id);
   const names = ids.length ? (await admin.from("crm_leads").select("id,data->customerName,data->assignedSalespersonName").in("id", ids)).data || [] : [];
   const nm = new Map(names.map((r: any) => [r.id, r]));
   return { success: true, rows: (data || []).map((t: any) => ({ ...t, customer: (nm.get(t.lead_id) as any)?.customerName || t.lead_id, owner: (nm.get(t.lead_id) as any)?.assignedSalespersonName || "" })) };
 });
 route("GET", "/lara/threads/:id", async ({ c, params }) => {
-  needAdmin(c);
+  const w = laraWho(c);
   const { data: t } = await admin.from("lara_threads").select("*").eq("id", params.id).maybeSingle();
   if (!t) throw new HttpError(404, "Conversation not found");
+  if (!w.admin) await ownsLead(c, t.lead_id);
   const [msgs, drafts] = await Promise.all([
-    admin.from("lara_messages").select("id,direction,kind,matched_by,subject,body,from_addr,to_addr,at").eq("thread_id", t.id).order("at").limit(200),
+    admin.from("lara_messages").select("id,direction,kind,channel,wa_status,matched_by,subject,body,from_addr,to_addr,at").eq("thread_id", t.id).order("at").limit(200),
     admin.from("lara_drafts").select("id,kind,status,send_status,send_error,body,created_at").eq("lead_id", t.lead_id).in("status", ["shadow", "approved"]).neq("send_status", "sent").order("created_at", { ascending: false }).limit(10),
   ]);
   return { success: true, thread: t, messages: msgs.data || [], pending: drafts.data || [] };
 });
 route("POST", "/lara/threads/:id/status", async ({ req, c, params }) => {
-  needAdmin(c);
+  const w = laraWho(c);
+  if (!w.admin) { const { data: t0 } = await admin.from("lara_threads").select("lead_id").eq("id", params.id).maybeSingle(); if (!t0) throw new HttpError(404, "Conversation not found"); await ownsLead(c, t0.lead_id); }
   const b = await body(req, 500);
   const status = ["open", "handover", "stopped", "closed"].includes(b.status) ? b.status : "";
   if (!status) throw bad("status?");
@@ -632,6 +662,7 @@ const cleanWf = (b: any) => ({
   conditions: (Array.isArray(b.conditions) ? b.conditions : []).slice(0, 10).map((c: any) => ({ field: str(c.field, 30), op: str(c.op, 10) || "in", value: typeof c.value === "boolean" ? c.value : Array.isArray(c.value) ? c.value.map((v: any) => str(v, 80)).slice(0, 30) : str(c.value, 400) })),
   steps: (Array.isArray(b.steps) ? b.steps : []).slice(0, 8).map((s: any) => ({ waitDays: Math.max(0, Math.min(60, Math.round(Number(s.waitDays) || 0))), action: str(s.action, 20), channel: ["auto", "email", "whatsapp"].includes(s.channel) ? s.channel : "auto", situation: str(s.situation, 30) || "auto" })),
   stop: { onActivity: b.stop?.onActivity !== false, onReply: b.stop?.onReply !== false, onMeeting: b.stop?.onMeeting !== false },
+  autopilot: b.autopilot === true,
 });
 
 route("GET", "/lara/workflows", async ({ c }) => {
@@ -716,27 +747,31 @@ const offerInput = (b: any): OfferInput => ({
 const offerView = (o: any) => ({ ...o, maxDiscountPct: o.listSqm ? Math.floor((1 - o.realSqm / o.listSqm) * 10000) / 100 : 0 });
 
 route("GET", "/lara/offers/candidates", async ({ c, query }) => {
-  needAdmin(c);
-  return { success: true, ...(await offerCandidates(str(query.get("leadId"), 40).toUpperCase())) };
+  const w = laraWho(c); const id = str(query.get("leadId"), 40).toUpperCase();
+  if (!w.admin) await ownsLead(c, id);
+  return { success: true, ...(await offerCandidates(id)) };
 });
 route("POST", "/lara/offers/preview", async ({ req, c }) => {
-  needAdmin(c);
+  const w = laraWho(c);
   const b = await body(req, 5000);
+  if (!w.admin) await ownsLead(c, str(b.leadId, 40).toUpperCase());
   const { offer } = await buildOffer(str(b.leadId, 40).toUpperCase(), offerInput(b));
   return { success: true, offer: offerView(offer) };
 });
 route("POST", "/lara/offers", async ({ req, c }) => {
-  needAdmin(c);
+  const w = laraWho(c);
   const b = await body(req, 5000);
+  if (!w.admin) await ownsLead(c, str(b.leadId, 40).toUpperCase());
   const r = await createOfferDraft(await laraConfig(), str(b.leadId, 40).toUpperCase(), offerInput(b), `Prepared by ${who(c)}`, "manual_offer", null);
   return { success: true, draftId: r.id, offer: offerView(r.offer) };
 });
 /** change discount / cash or instalments on an offer that waits for approval (same plots, prices re-read from the Land Bank) */
 route("POST", "/lara/offers/:id/update", async ({ req, c, params }) => {
-  needAdmin(c);
+  const w = laraWho(c);
   const b = await body(req, 5000);
   const { data: d } = await admin.from("lara_drafts").select("*").eq("id", params.id).eq("kind", "offer").maybeSingle();
   if (!d?.offer) throw new HttpError(404, "Offer not found");
+  if (!w.admin && d.owner_id !== c.id) throw forbidden("This lead is not yours");
   if (d.status !== "shadow") throw new HttpError(409, "Only an offer that waits for approval can be changed");
   const inp = offerInput({ ...b, plotKeys: d.offer.plots.map((p: any) => p.key), mode: b.mode ?? d.offer.mode, plan: b.plan ?? d.offer.plan, discountPct: b.discountPct ?? d.offer.discountPct });
   const { offer, lead } = await buildOffer(d.lead_id, inp);
@@ -746,13 +781,16 @@ route("POST", "/lara/offers/:id/update", async ({ req, c, params }) => {
   return { success: true, offer: offerView(offer) };
 });
 route("GET", "/lara/offers", async ({ c }) => {
-  needAdmin(c);
-  const { data } = await admin.from("lara_drafts").select("id,lead_id,customer,owner_name,status,send_status,send_error,sent_at,created_at,decided_by,offer,reason").eq("kind", "offer").order("created_at", { ascending: false }).limit(150);
+  const w = laraWho(c);
+  let oq: any = admin.from("lara_drafts").select("id,lead_id,customer,owner_name,owner_id,status,send_status,send_error,sent_at,created_at,decided_by,offer,reason").eq("kind", "offer");
+  if (!w.admin) oq = oq.eq("owner_id", c.id);
+  const { data } = await oq.order("created_at", { ascending: false }).limit(150);
   return { success: true, rows: (data || []).map((r: any) => ({ ...r, offer: r.offer?.listSqm ? offerView(r.offer) : r.offer })) };
 });
 /** the PDF of an offer draft = the Initial financial offer the Land Bank built for it (the same file is attached when sent) */
 route("GET", "/lara/offers/:id/pdf", async ({ c, params }) => {
-  needAdmin(c);
+  const w = laraWho(c);
+  if (!w.admin) { const { data: d0 } = await admin.from("lara_drafts").select("owner_id").eq("id", params.id).maybeSingle(); if (d0?.owner_id !== c.id) throw forbidden("This lead is not yours"); }
   const { data: f } = await admin.from("lara_offer_files").select("file_name,pdf_b64").eq("draft_id", params.id).maybeSingle();
   if (!f) throw new HttpError(409, "Not built yet: press \"Build in Land Bank\" first");
   const raw = Uint8Array.from(atob(f.pdf_b64), (ch) => ch.charCodeAt(0));
@@ -760,11 +798,11 @@ route("GET", "/lara/offers/:id/pdf", async ({ c, params }) => {
 });
 
 // ---- the Land Bank side (Land Bank token): read Lara's offer, send back the PDF it built ----
-const lbAllowed = (c: Caller) => c.role === "Admin" || c.role === "Sales Operation";
+const lbAllowed = (c: Caller, ownerId?: string | null) => c.role === "Admin" || c.role === "Sales Operation" || (can(c, "canUseLara") && !!ownerId && ownerId === c.id);
 lbRoute("GET", "/integration/lara-offer/:id", async ({ c, params }) => {
-  if (!lbAllowed(c)) throw new HttpError(403, "Only Admin and Sales Operation build Lara's offers");
-  const { data: d } = await admin.from("lara_drafts").select("id,lead_id,status,offer,customer,owner_name").eq("id", params.id).eq("kind", "offer").maybeSingle();
+  const { data: d } = await admin.from("lara_drafts").select("id,lead_id,status,offer,customer,owner_name,owner_id").eq("id", params.id).eq("kind", "offer").maybeSingle();
   if (!d?.offer) throw new HttpError(404, "Offer not found");
+  if (!lbAllowed(c, d.owner_id)) throw new HttpError(403, "Only Admin, Sales Operation or the lead's salesperson build Lara's offers");
   if (d.status !== "shadow") throw new HttpError(409, "This offer is no longer waiting (it was approved, rejected or expired)");
   const { data: lead } = await admin.from("crm_leads").select("data->customerName,data->companyName,data->industry").eq("id", d.lead_id).maybeSingle();
   const o = d.offer;
@@ -773,13 +811,13 @@ lbRoute("GET", "/integration/lara-offer/:id", async ({ c, params }) => {
     expect: { realTotal: o.realTotal, listTotal: o.listTotal, netTotal: o.netTotal, due: o.due } };
 });
 lbRoute("POST", "/integration/lara-offer/:id/pdf", async ({ req, c, params }) => {
-  if (!lbAllowed(c)) throw new HttpError(403, "Only Admin and Sales Operation build Lara's offers");
   const b = await body(req, 6_000_000);
   const pdf = String(b.pdfBase64 || "");
   if (!/^JVBERi0/.test(pdf)) throw bad("That is not a PDF");
   if (pdf.length > 5_500_000) throw bad("The PDF is too large (max ~4 MB)");
-  const { data: d } = await admin.from("lara_drafts").select("id,status,offer").eq("id", params.id).eq("kind", "offer").maybeSingle();
+  const { data: d } = await admin.from("lara_drafts").select("id,status,offer,owner_id").eq("id", params.id).eq("kind", "offer").maybeSingle();
   if (!d?.offer) throw new HttpError(404, "Offer not found");
+  if (!lbAllowed(c, d.owner_id)) throw new HttpError(403, "Only Admin, Sales Operation or the lead's salesperson build Lara's offers");
   if (d.status !== "shadow") throw new HttpError(409, "This offer is no longer waiting");
   const name = str(b.fileName, 140) || `${d.offer.ref}.pdf`;
   const size = Math.round(pdf.length * 3 / 4);
@@ -790,10 +828,11 @@ lbRoute("POST", "/integration/lara-offer/:id/pdf", async ({ req, c, params }) =>
 });
 
 route("POST", "/lara/offers/:id/test-copy", async ({ c, params }) => {
-  needAdmin(c);
+  const w = laraWho(c);
   await rateLimit(`laraoffertest:${c.id}`, 3600, 10);
   const { data: d } = await admin.from("lara_drafts").select("*").eq("id", params.id).eq("kind", "offer").maybeSingle();
   if (!d?.offer) throw new HttpError(404, "Offer not found");
+  if (!w.admin && d.owner_id !== c.id) throw forbidden("This lead is not yours");
   if (!c.email) throw bad("Your account has no e-mail address");
   await sendOfferTestCopy(d, c.email);
   await log("offer", who(c), `Test copy of ${d.offer.ref} sent to the admin's own address`);
@@ -809,3 +848,67 @@ route("POST", "/lara/test-lock", async ({ req, c }) => {
   await log("config", who(c), b.locked === false ? "TEST LOCK LIFTED: Lara may e-mail customers" : "Test lock on: Lara may e-mail staff addresses only");
   return { success: true, locked: b.locked !== false };
 });
+
+// ---------------------------------------------------------------------------------------------
+// phase 6: WhatsApp (Meta Cloud API)
+// ---------------------------------------------------------------------------------------------
+const WEBHOOK_URL = "https://iyubegbevtjcvtuubpaq.supabase.co/functions/v1/api/wa/webhook";
+route("GET", "/lara/wa", async ({ c }) => {
+  needAdmin(c);
+  const w = await waCfg();
+  const { data: tpl } = await admin.from("lara_wa_templates").select("*").order("name").limit(300);
+  return { success: true, wa: { ...w, webhookUrl: WEBHOOK_URL, hasToken: await hasSecret("wa_token"), hasAppSecret: await hasSecret("wa_app_secret") }, templates: tpl || [], situations: Object.keys(RULE_LABEL) };
+});
+route("POST", "/lara/wa", async ({ req, c }) => { needAdmin(c); return { success: true, wa: { ...(await saveWa(await body(req, 4000), who(c))), webhookUrl: WEBHOOK_URL } }; });
+route("POST", "/lara/wa/templates/sync", async ({ c }) => { needAdmin(c); return { success: true, ...(await syncTemplates()) }; });
+route("POST", "/lara/wa/templates/link", async ({ req, c }) => {
+  needAdmin(c);
+  const b = await body(req, 1000);
+  await admin.from("lara_wa_templates").update({ situation: str(b.situation, 40) || null }).eq("name", str(b.name, 120)).eq("lang", str(b.lang, 20));
+  await log("config", who(c), `WhatsApp template ${b.name} (${b.lang}) linked to: ${b.situation || "nothing"}`);
+  return { success: true };
+});
+/** a test message to one of the TEST numbers (Meta's own "hello_world" template works on every new number) */
+route("POST", "/lara/wa/test", async ({ req, c }) => {
+  needAdmin(c);
+  await rateLimit(`lara-watest:${c.id}`, 3600, 10);
+  const b = await body(req, 1000);
+  const w = await waCfg();
+  const to = intl(b.to);
+  if (!to || !w.testNumbers.includes(to)) throw bad("Send tests only to a number in the test list");
+  const id = await waSend(to, b.text ? { text: str(b.text, 500) } : { template: { name: str(b.template, 120) || "hello_world", lang: str(b.lang, 20) || "en_US", params: [] } });
+  await log("config", who(c), `WhatsApp test message sent to a test number (${id.slice(-8)})`);
+  return { success: true, id };
+});
+
+// Meta's webhook: GET = verification handshake, POST = messages and delivery statuses (signature checked with the app secret)
+route("GET", "/wa/webhook", async ({ query }) => {
+  const w = await waCfg();
+  if (query.get("hub.mode") === "subscribe" && w.verifyToken && query.get("hub.verify_token") === w.verifyToken) return new Response(query.get("hub.challenge") || "", { status: 200, headers: { "Content-Type": "text/plain" } });
+  return new Response("forbidden", { status: 403 });
+}, { public: true });
+route("POST", "/wa/webhook", async ({ req }) => {
+  const raw = await req.text();
+  if (raw.length > 500_000) return new Response("too large", { status: 413 });
+  if (!(await waSignatureOk(raw, req.headers.get("x-hub-signature-256")))) return new Response("bad signature", { status: 401 });
+  let j: any = {}; try { j = JSON.parse(raw); } catch { return new Response("bad json", { status: 400 }); }
+  let n = 0;
+  for (const e of j.entry || []) for (const ch of e.changes || []) {
+    const v = ch.value || {};
+    for (const st of v.statuses || []) { if (st.id) await admin.from("lara_messages").update({ wa_status: str(st.status, 20) }).eq("wa_id", st.id); }
+    for (const m of v.messages || []) {
+      const from = intl(m.from); if (!from || !m.id) continue;
+      const text = str(m.text?.body || m.button?.text || m.interactive?.button_reply?.title || m.interactive?.list_reply?.title || (m.type ? `[${m.type}]` : ""), 2000);
+      const at = m.timestamp ? new Date(Number(m.timestamp) * 1000).toISOString() : nowIso();
+      const { data: seen } = await admin.from("lara_messages").select("id").eq("wa_id", m.id).maybeSingle();
+      if (seen) continue;
+      const base = { wa_id: m.id, direction: "in", channel: "whatsapp", subject: "", body: text, from_addr: from, to_addr: "whatsapp", at };
+      const thread = await waThreadFor(from);
+      if (!thread) { await admin.from("lara_messages").insert({ ...base, kind: "unmatched" }); continue; }
+      n++;
+      await handleReply(thread, base, "phone", text, replyHooks);
+    }
+  }
+  if (n) await log("mail", "WhatsApp", `${n} WhatsApp message(s) from customers`);
+  return new Response("ok", { status: 200 });
+}, { public: true });

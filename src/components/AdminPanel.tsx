@@ -875,6 +875,7 @@ export const AdminPanel: React.FC = () => {
                         <div className="pl-4 border-l-2 border-black/5 flex flex-wrap gap-2">
                           <PermissionToggle label="Reports dashboard (Home numbers and Reports)" active={!!rolePermissions[selectedRoleIndex].canViewSalesDashboard} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesDashboard', val)} />
                           <PermissionToggle label="Leads (list, calendar)" active={!!rolePermissions[selectedRoleIndex].canViewSalesLeads} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesLeads', val)} />
+                          <PermissionToggle label="Lara Sales AI: drafts, conversations and offers of their own leads" active={!!(rolePermissions[selectedRoleIndex] as any).canUseLara} onChange={(val) => updatePermission(selectedRoleIndex, 'canUseLara' as any, val)} />
                           <PermissionToggle label="Customers: contacts" active={!!rolePermissions[selectedRoleIndex].canViewSalesContacts} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesContacts', val)} />
                           <PermissionToggle label="Customers: corporate accounts" active={!!rolePermissions[selectedRoleIndex].canViewSalesCompanies} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesCompanies', val)} />
                           <PermissionToggle label="Intake: mailbox" active={!!rolePermissions[selectedRoleIndex].canViewSalesMail} onChange={(val) => updatePermission(selectedRoleIndex, 'canViewSalesMail', val)} />

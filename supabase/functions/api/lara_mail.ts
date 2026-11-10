@@ -124,6 +124,12 @@ async function blocker(d: any, r: SendRules): Promise<string> {
   if (!r.sendEnabled) return "Sending is switched off";
   if (!(await mailboxReady())) return "Lara's mailbox is not connected";
   if (d.channel !== "email") return "WhatsApp is not connected yet (phase 6)";
+  // TEST LOCK (owner, 10 Nov 2026: "don't send to any real customer until I say so"): while on, Lara may e-mail ONLY staff
+  // addresses (app_users). It is on unless the owner explicitly lifts it.
+  if ((await getConfig<any>("lara_test_lock", true)) !== false) {
+    const { data: staff } = await admin.from("app_users").select("id").ilike("email", String(d.to_addr || "").replace(/[%_\\]/g, "")).limit(1);
+    if (!staff?.length) return "Test lock: Lara may only e-mail staff addresses until the owner lifts it";
+  }
   if (!d.to_addr) return "The lead has no e-mail address";
   if (await isOptedOut([d.to_addr])) return "The customer asked not to be contacted";
   const { data: t } = await admin.from("lara_threads").select("status,unanswered,last_out_at").eq("lead_id", d.lead_id).maybeSingle();

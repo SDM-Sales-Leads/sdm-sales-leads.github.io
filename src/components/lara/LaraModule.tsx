@@ -71,6 +71,7 @@ export const LaraModule: React.FC<Props> = ({ sub, leads, setActiveSubTab }) => 
           </div>
         )}
       </div>
+      {ov?.testLock && <p className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 flex items-center gap-2"><ShieldCheck size={14} />ON HOLD for testing: Lara can e-mail only staff addresses (test lock). No customer receives anything until the owner lifts the lock.</p>}
       {err && <p className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{err}</p>}
 
       {sub === 'lara' && <Control ov={ov} reload={load} go={setActiveSubTab} />}

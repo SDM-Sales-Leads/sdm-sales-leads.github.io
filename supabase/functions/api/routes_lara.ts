@@ -379,7 +379,8 @@ route("GET", "/lara/overview", async ({ c }) => {
   const wfl = await loadWorkflows(false);
   const labels: Record<string, string> = { ...RULE_LABEL, customer_reply: "Customer replied", test: "Test" };
   for (const w of wfl) labels[`wf:${w.id}`] = w.name;
-  return { success: true, ruleLabels: labels, workflows: wfl.map((w) => ({ id: w.id, name: w.name, enabled: w.enabled })), mailbox: { address: mb.address, user: mb.user, host: mb.host, shared: !!mb.shared, status: mb.status || null }, threads, unmatched: um.count || 0, send, config: cfg, drafts30: t, openBySituation: bySituation, openByRule: byRule, kbActive: kb.count || 0, missedOpen: missed.count || 0, lastRun: lastRun.data || null, channels: { email: !!mb.status?.ok, whatsapp: false }, ai: false };
+  const testLock = (await getConfig<any>("lara_test_lock", true)) !== false;
+  return { success: true, testLock, ruleLabels: labels, workflows: wfl.map((w) => ({ id: w.id, name: w.name, enabled: w.enabled })), mailbox: { address: mb.address, user: mb.user, host: mb.host, shared: !!mb.shared, status: mb.status || null }, threads, unmatched: um.count || 0, send, config: cfg, drafts30: t, openBySituation: bySituation, openByRule: byRule, kbActive: kb.count || 0, missedOpen: missed.count || 0, lastRun: lastRun.data || null, channels: { email: !!mb.status?.ok, whatsapp: false }, ai: false };
 });
 
 route("PUT", "/lara/config", async ({ req, c }) => {
@@ -740,4 +741,14 @@ route("POST", "/lara/offers/:id/test-copy", async ({ c, params }) => {
   await sendOfferTestCopy(d, c.email);
   await log("offer", who(c), `Test copy of ${d.offer.ref} sent to the admin's own address`);
   return { success: true };
+});
+
+// the test lock can only be lifted on purpose (typed confirmation); the screens show it but have no switch for it
+route("POST", "/lara/test-lock", async ({ req, c }) => {
+  needAdmin(c);
+  const b = await body(req, 500);
+  if (b.locked === false && b.confirm !== "LIFT TEST LOCK") throw bad('To lift the test lock send confirm: "LIFT TEST LOCK"');
+  await setConfig("lara_test_lock", b.locked !== false);
+  await log("config", who(c), b.locked === false ? "TEST LOCK LIFTED: Lara may e-mail customers" : "Test lock on: Lara may e-mail staff addresses only");
+  return { success: true, locked: b.locked !== false };
 });

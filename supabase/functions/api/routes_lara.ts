@@ -726,8 +726,10 @@ export const replyHooks = {
 /** cron (every 10 minutes, 07:00–22:00): read Lara's mailbox and send the approved mails that wait for working hours */
 export async function laraMailTick() {
   const cfg = await laraConfig();
-  if (cfg.mode !== "approve" && cfg.mode !== "auto") return { laraMail: "not in approve-first / autopilot mode" };
+  // customers' replies are ALWAYS read (salespeople answer from Interactions even while Lara is off or on hold); reading sends nothing.
+  // Only sending Lara's queued mails depends on her mode.
   const read = await pollLaraInbox(replyHooks).catch((e: any) => ({ pollError: String(e?.message || e).slice(0, 120) }));
+  if (cfg.mode !== "approve" && cfg.mode !== "auto") return { ...read, laraSend: "not in approve-first / autopilot mode: nothing sent" };
   const sent = await sendQueued(rules(cfg)).catch((e: any) => ({ sendError: String(e?.message || e).slice(0, 120) }));
   return { ...read, ...sent };
 }

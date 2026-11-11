@@ -13,6 +13,7 @@ import { LaraWorkflows } from './LaraWorkflows';
 import { LaraWhatsApp } from './LaraWhatsApp';
 import { LaraInbox } from './LaraInbox';
 import { LaraChannels } from './LaraChannels';
+import { LaraInsights } from './LaraInsights';
 import { Pager, useDebounced } from './Pager';
 import { LaraOffers, openInLandBank, openOfferPdf } from './LaraOffers';
 
@@ -104,6 +105,7 @@ const Control: React.FC<{ ov: any; reload: () => void; go: (t: string) => void }
   const labels = ov?.ruleLabels || {};
   return (
     <div className="grid lg:grid-cols-3 gap-5">
+      <div className="lg:col-span-3 grid"><LaraInsights /></div>
       <Card title={<><Play size={16} className="text-brand-red" />Run Lara</>} className="lg:col-span-1">
         <p className="text-xs text-brand-gray">Lara runs by herself every working day (Sun–Thu) at 09:00 Cairo time. You can also run her now. A lead that already has a draft waiting is skipped.</p>
         <button onClick={run} disabled={busy || ov?.config?.mode === 'off'} className="btn-primary w-full rounded-xl py-2.5 text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50">{busy ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}Run Shadow now</button>

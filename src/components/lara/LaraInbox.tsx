@@ -31,6 +31,7 @@ const CH: Record<string, { label: string; icon: React.ReactNode; tone: string }>
   email: { label: 'E-mail', icon: <Mail size={12} />, tone: 'bg-sky-100 text-sky-800' },
   whatsapp: { label: 'WhatsApp', icon: <MessageSquare size={12} />, tone: 'bg-green-100 text-green-800' },
   web: { label: 'Chat', icon: <MessageCircle size={12} />, tone: 'bg-violet-100 text-violet-800' },
+  call: { label: 'Voice call', icon: <Phone size={12} />, tone: 'bg-rose-100 text-rose-800' },
 };
 const ST: Record<string, { label: string; tone: string }> = {
   open: { label: 'Lara', tone: 'bg-brand-gray/10 text-brand-black' },
@@ -89,7 +90,7 @@ export const LaraInbox: React.FC<{ leads: Lead[]; isAdmin: boolean; reload: () =
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[200px]"><Search size={14} className="absolute left-3 top-2.5 text-brand-gray" /><input value={qRaw} onChange={(e) => setQRaw(e.target.value)} placeholder="Search name, phone, e-mail, code or any message text…" className="input-field w-full pl-8 text-sm" /></div>
           <div className="flex rounded-xl border border-brand-gray/20 overflow-hidden text-xs font-bold">
-            {[['', 'All'], ['email', 'E-mail'], ['whatsapp', 'WhatsApp'], ['web', 'Chat']].map(([v, l]) => <button key={v} onClick={() => setCh(v)} className={`px-2.5 py-1.5 ${ch === v ? 'bg-brand-black text-white' : ''}`}>{l}</button>)}
+            {[['', 'All'], ['email', 'E-mail'], ['whatsapp', 'WhatsApp'], ['web', 'Chat'], ['call', 'Calls']].map(([v, l]) => <button key={v} onClick={() => setCh(v)} className={`px-2.5 py-1.5 ${ch === v ? 'bg-brand-black text-white' : ''}`}>{l}</button>)}
           </div>
           <button onClick={() => setShowFilters((v) => !v)} className={`sm:hidden text-xs font-bold rounded-xl px-2.5 py-1.5 border ${owner || from || to ? 'border-brand-red text-brand-red' : 'border-brand-gray/20'}`}>Filters{owner || from || to ? ' •' : ''}</button>
           <div className={`${showFilters ? 'grid' : 'hidden'} sm:flex grid-cols-2 gap-2 w-full sm:w-auto items-center`}>
@@ -229,6 +230,7 @@ export const Conversation: React.FC<{ id: string; isAdmin: boolean; onBack?: () 
           })}
           <div ref={end} />
         </div>
+        {d.calls?.length > 0 && <Calls calls={d.calls} />}
         {d.pending.length > 0 && (
           <div className="mx-3 mt-2 space-y-1">
             {d.pending.filter((p: any) => p.status === 'shadow').map((p: any) => (
@@ -286,6 +288,7 @@ export const Conversation: React.FC<{ id: string; isAdmin: boolean; onBack?: () 
         )}
         <div className="border-t border-brand-gray/10 pt-3 text-brand-gray">Channels used: {(t.channels || []).map((c: string) => CH[c]?.label || c).join(', ') || '—'} · {t.msg_count} messages</div>
         {t.memory && (t.memory.parks?.length || t.memory.asked) && <Memory m={t.memory} />}
+        {t.rating ? <div className="border-t border-brand-gray/10 pt-3"><p className="font-extrabold">Customer's rating of Lara</p><p className="text-amber-500 text-base">{'★'.repeat(t.rating)}<span className="text-brand-gray/30">{'★'.repeat(5 - t.rating)}</span></p>{t.rating_note && <p className="text-brand-gray" dir="auto">"{t.rating_note}"</p>}</div> : null}
       </aside>}
     </>
   );
@@ -302,3 +305,19 @@ export const Memory: React.FC<{ m: any }> = ({ m }) => (
     {m.handover && <p>Asked for a call {when(m.handover)}</p>}
   </div>
 );
+
+/** the customer's voice calls with Lara: play the recording (a private 10-minute link); the words are in the conversation above (🎤 Voice call) */
+const Calls: React.FC<{ calls: any[] }> = ({ calls }) => {
+  const [url, setUrl] = useState<Record<string, string>>({});
+  const play = async (id: string) => { try { const r = await api(`/lara/calls/${id}/audio`); setUrl((u) => ({ ...u, [id]: r.url })); } catch (e: any) { toast.error(e.message); } };
+  return (
+    <div className="mx-3 mt-2 space-y-1">
+      {calls.map((k) => (
+        <div key={k.id} className="text-xs bg-rose-50 border border-rose-200 text-rose-900 rounded-lg px-2 py-1.5 flex flex-wrap items-center gap-2">
+          <Phone size={12} /><span className="font-bold">Voice call with Lara</span><span>{when(k.started_at)} · {Math.floor(k.seconds / 60)}:{String(k.seconds % 60).padStart(2, '0')} · {k.turns} turns · {String(k.lang).toUpperCase()}</span>
+          {url[k.id] ? <audio controls autoPlay src={url[k.id]} className="h-8 w-full" /> : k.audio_bytes > 0 ? <button onClick={() => play(k.id)} className="ml-auto font-bold underline">▶ Play the recording</button> : <span className="ml-auto text-rose-900/60">no recording (not agreed, or not supported)</span>}
+        </div>
+      ))}
+    </div>
+  );
+};

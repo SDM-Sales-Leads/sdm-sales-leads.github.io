@@ -19,14 +19,15 @@ import { PARK_AR } from "../../../src/components/crm/smartWriter.ts";
 
 const isAr = (t: string) => /[؀-ۿ]/.test(t || "");
 const ipOf = (req: Request) => (req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "").split(",")[0].trim().slice(0, 60) || "unknown";
-const GREET_RE = /^\s*(hi|hello|hey|good (morning|evening|afternoon)|السلام عليكم|سلام|اهلا|أهلا|مرحبا|هاي|صباح الخير|مساء الخير|ازيك|إزيك)[\s!.,؟?]*$/i;
-const THANKS_RE = /^\s*(thanks?|thank you|thx|ok(ay)?|شكرا|شكراً|متشكر|تمام|ماشي|اوك)[\s!.,؟?]*$/i;
-const PLOTS_RE = /^\s*(available plots|الأراضي المتاحة|الاراضي المتاحة)\s*$/i;
+const GREET_RE = /^\s*(bonjour|bonsoir|salut|merhaba|selam|你好|您好|hi|hello|hey|good (morning|evening|afternoon)|السلام عليكم|سلام|اهلا|أهلا|مرحبا|هاي|صباح الخير|مساء الخير|ازيك|إزيك)[\s!.,؟?]*$/i;
+const THANKS_RE = /^\s*(merci( beaucoup)?|teşekkürler|teşekkür ederim|sağ ol|谢谢|多谢|thanks?|thank you|thx|ok(ay)?|شكرا|شكراً|متشكر|تمام|ماشي|اوك)[\s!.,؟?]*$/i;
+const PLOTS_RE = /^\s*(terrains disponibles|mevcut arsalar|可售地块|available plots|الأراضي المتاحة|الاراضي المتاحة)\s*$/i;
 
-export interface ChatCfg { enabled: boolean; callNumber: string; welcomeAr: string; welcomeEn: string }
+export interface ChatCfg { enabled: boolean; callNumber: string; welcomeAr: string; welcomeEn: string; voice: boolean; record: boolean; provider: string; liveModel: string; liveVoice: string }
 export async function chatCfg(): Promise<ChatCfg> {
   const c = await getConfig<any>("lara_chat", {});
-  return { enabled: c.enabled === true, callNumber: String(c.callNumber || ""), welcomeAr: String(c.welcomeAr || ""), welcomeEn: String(c.welcomeEn || "") };
+  return { enabled: c.enabled === true, callNumber: String(c.callNumber || ""), welcomeAr: String(c.welcomeAr || ""), welcomeEn: String(c.welcomeEn || ""),
+    voice: c.voice !== false, record: c.record !== false, provider: c.provider === "gemini-live" ? "gemini-live" : "browser", liveModel: String(c.liveModel || ""), liveVoice: String(c.liveVoice || "") };
 }
 
 /** while the owner keeps Lara on hold, chat answers only staff (test) conversations */
@@ -63,15 +64,50 @@ async function parksOverview(ar: boolean): Promise<string | null> {
   return (ar ? "المتاح حالياً حسب آخر تحديث لبنك الأراضي:\n" : "Available now (latest Land Bank list):\n") + lines.join("\n") + (ar ? "\nأي منطقة ومساحة تناسبك؟" : "\nWhich park and size suit you?");
 }
 
-const SUGGEST = { ar: ["الأراضي المتاحة", "طرق السداد", "عايز حد يكلمني"], en: ["Available plots", "Payment plans", "Please call me"] };
+const SUGGEST: Record<string, string[]> = { ar: ["الأراضي المتاحة", "طرق السداد", "عايز حد يكلمني"], en: ["Available plots", "Payment plans", "Please call me"],
+  fr: ["Terrains disponibles", "Modalités de paiement", "Rappelez-moi"], tr: ["Mevcut arsalar", "Ödeme planları", "Beni arayın"], zh: ["可售地块", "付款方式", "请给我回电"] };
+// French, Turkish, Chinese: Lara's own sentences (rules, no AI). Approved answers exist in Arabic/English only, so those are given in English
+// (or translated by the AI when the owner switched it on).
+const TR: Record<string, Record<string, string>> = {
+  fr: { o: "votre conseiller", greet: "Bonjour{n}, je suis Lara, l'assistante commerciale digitale d'Elsewedy Industrial Development. Je peux vous renseigner sur les terrains disponibles et les modalités de paiement, ou demander à votre conseiller de vous appeler.",
+    back: "Ravie de vous revoir{n} 👋 Souhaitez-vous reprendre là où nous nous étions arrêtés ?", hi: "Ravie de vous revoir{n} 👋\n\n", thanks: "Avec plaisir ! Je reste à votre disposition.",
+    stop: "C'est noté, nous ne vous enverrons plus de messages. Nous restons à votre disposition.", call: "C'est noté — j'ai prévenu {o}, qui vous appellera dès que possible pendant les heures de travail (dimanche–jeudi). Vous pouvez indiquer ici le meilleur moment pour l'appel.",
+    calltime: "C'est noté — j'ai transmis l'horaire indiqué à {o}, qui vous appellera à ce moment-là.", holding: "Bonne question — pour vous donner une réponse exacte, je l'ai transmise à {o}, qui vous répondra ici ou par téléphone.",
+    more: "\n\nPuis-je vous aider pour autre chose ?", fit: "{n} terrain(s) disponible(s) actuellement à {park}{sized} ({span} m²).", sized: " proches de la surface demandée", none: "Aucun terrain disponible actuellement à {park} selon la dernière mise à jour.",
+    nofit: "Pas de terrain exactement de cette surface à {park}, mais {n} terrains sont disponibles ({span} m²).", oh: "Disponible actuellement (dernière mise à jour) :", ol: "• {park} : {n} terrains ({a} – {b} m²)", ot: "Quel parc et quelle surface vous conviennent ?" },
+  tr: { o: "satış temsilciniz", greet: "Merhaba{n}, ben Lara, Elsewedy Industrial Development'ın dijital satış asistanıyım. Mevcut arsalar ve ödeme planları konusunda yardımcı olabilirim ya da satış temsilcinizin sizi aramasını sağlayabilirim.",
+    back: "Tekrar hoş geldiniz{n} 👋 Kaldığımız yerden devam edelim mi?", hi: "Tekrar hoş geldiniz{n} 👋\n\n", thanks: "Rica ederim! Başka sorunuz olursa buradayım.",
+    stop: "Anlaşıldı, size bir daha mesaj göndermeyeceğiz. İhtiyacınız olursa buradayız.", call: "Tamam — {o} bilgilendirildi; çalışma saatlerinde (Pazar–Perşembe) en kısa sürede sizi arayacak. Size uygun saati buraya yazabilirsiniz.",
+    calltime: "Not aldım — belirttiğiniz saati {o} ile paylaştım; o saatte sizi arayacak.", holding: "Güzel soru — size kesin bir yanıt verebilmek için sorunuzu {o} ile paylaştım; buradan ya da telefonla yanıt verecek.",
+    more: "\n\nBaşka bir konuda yardımcı olabilir miyim?", fit: "{park} bölgesinde şu anda {n} arsa mevcut{sized} ({span} m²).", sized: ", istediğiniz büyüklüğe yakın", none: "Son güncellemeye göre {park} bölgesinde şu anda uygun arsa yok.",
+    nofit: "{park} bölgesinde tam bu büyüklükte arsa yok, ancak {n} arsa mevcut ({span} m²).", oh: "Şu anda mevcut (son güncelleme):", ol: "• {park}: {n} arsa ({a} – {b} m²)", ot: "Hangi bölge ve büyüklük size uygun?" },
+  zh: { o: "您的销售经理", greet: "您好{n}，我是Lara，Elsewedy Industrial Development的数字销售助理。我可以为您介绍可售地块和付款方式，或安排销售经理给您回电。",
+    back: "欢迎回来{n} 👋 我们从上次的话题继续吗？", hi: "欢迎回来{n} 👋\n\n", thanks: "不客气！如有其他问题，随时告诉我。",
+    stop: "好的，我们不会再给您发送消息。如有需要，随时联系我们。", call: "好的——我已通知{o}，将在工作时间（周日至周四）尽快给您回电。您可以在这里留下方便接听的时间。",
+    calltime: "已记录——我已将您说的时间转告{o}，届时会给您回电。", holding: "这个问题很好——为了给您准确的答复，我已转给{o}，会在这里或通过电话回复您。",
+    more: "\n\n还有什么可以帮您的吗？", fit: "{park}目前有{n}块可售地块{sized}（{span}平方米）。", sized: "，接近您需要的面积", none: "根据最新数据，{park}目前没有可售地块。",
+    nofit: "{park}没有正好这个面积的地块，但有{n}块可售（{span}平方米）。", oh: "目前可售（最新数据）：", ol: "• {park}：{n}块（{a} – {b}平方米）", ot: "您需要哪个园区、多大面积？" },
+};
+const fill = (s: string, v: Record<string, any>) => s.replace(/\{(\w+)\}/g, (_m, k) => String(v[k] ?? ""));
+async function overviewIn(L: string): Promise<string | null> {
+  const { data } = await admin.from("plots_snapshot").select("data").eq("id", 1).maybeSingle();
+  const by = new Map<string, number[]>();
+  for (const p of (Array.isArray(data?.data) ? data!.data : []) as any[]) if (p.status === "available" && Number(p.areaSqm) > 0) { const l = by.get(p.park) || []; l.push(Number(p.areaSqm)); by.set(p.park, l); }
+  if (!by.size) return null;
+  const f = (n: number) => Math.round(n).toLocaleString("en-US");
+  return [TR[L].oh, ...[...by.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 8).map(([park, a]) => { a.sort((x, y) => x - y); return fill(TR[L].ol, { park, n: a.length, a: f(a[0]), b: f(a[a.length - 1]) }); }), TR[L].ot].join("\n");
+}
 
 /** one customer message in the web chat -> Lara's instant answer. Returns the new messages. */
-export async function chatTurn(t: any, text: string): Promise<{ messages: any[]; suggest: string[] }> {
+export async function chatTurn(t: any, text: string, opts: { lang?: string; mode?: string } = {}): Promise<{ messages: any[]; suggest: string[] }> {
   const now = nowIso();
-  const ar = isAr(text) || !/[a-z]{3,}/i.test(text);
+  const L = opts.lang && TR[opts.lang] ? opts.lang : null;                      // French / Turkish / Chinese chosen in the widget
+  const ar = L ? false : opts.lang === "ar" ? true : opts.lang === "en" ? false : (isAr(text) || !/[a-z]{3,}/i.test(text));
+  const CHN = opts.mode === "call" ? "call" : "web";                            // a voice call is its own channel in Interactions
+  let cat = ""; let facts: any = null;
   const lead = t.visitor ? null : await leadInfo(t.lead_id);
   const o = t.visitor ? { id: null, name: "", customer: String(t.visitor?.name || "Website visitor") } : await ownerOf(t.lead_id);
-  const ins = await admin.from("lara_messages").insert({ thread_id: t.id, lead_id: t.lead_id, direction: "in", kind: "chat", channel: "web", matched_by: "chat", body: text, from_addr: "web chat", to_addr: "Lara", at: now }).select("id,direction,kind,channel,author,body,at").single();
+  const ins = await admin.from("lara_messages").insert({ thread_id: t.id, lead_id: t.lead_id, direction: "in", kind: "chat", channel: CHN, matched_by: "chat", body: text, from_addr: "web chat", to_addr: "Lara", at: now }).select("id,direction,kind,channel,author,body,at").single();
   // the timeline gets one line per chat session (not one per message)
   const fresh = !t.last_in_at || Date.now() - Date.parse(t.last_in_at) > 6 * 3600e3;
   await admin.from("lara_threads").update({ last_in_at: now, unanswered: 0, updated_at: now }).eq("id", t.id);
@@ -100,20 +136,23 @@ export async function chatTurn(t: any, text: string): Promise<{ messages: any[];
     const contact = String(t.customer_email || t.wa_phone || "").toLowerCase();
     if (contact) await admin.from("lara_optout").upsert({ contact, reason: text.slice(0, 200), lead_id: t.lead_id, by_who: "Web chat", removed_at: null, removed_by: null });
     await admin.from("lara_threads").update({ status: "stopped", note: "Customer asked to stop (chat)", updated_at: now }).eq("id", t.id);
+    cat = "stop";
     reply = ar ? "تمام، مش هنبعت لحضرتك رسائل تانية. لو احتجت أي حاجة إحنا موجودين." : "Understood — we will not message you again. We are here if you need anything.";
   } else if (GREET_RE.test(text) && back) {
-    reply = back; suggest = SUGGEST[ar ? "ar" : "en"];
+    cat = "back"; reply = back; suggest = SUGGEST[ar ? "ar" : "en"];
   } else if (GREET_RE.test(text)) {
-    const first = custFirst;
+    const first = custFirst; cat = "greet";
     reply = ar ? `أهلاً ${first ? `أ. ${first}` : "بحضرتك"}، أنا لارا المساعدة الرقمية لمبيعات السويدي للتنمية الصناعية. أقدر أساعد حضرتك في الأراضي المتاحة وطرق السداد، أو أخلي مسؤول المبيعات يكلمك.` : `Hello${first ? ` ${first}` : ""}, I'm Lara, the digital sales assistant of Elsewedy Industrial Development. I can help with available plots and payment plans, or ask your account manager to call you.`;
     suggest = SUGGEST[ar ? "ar" : "en"];
   } else if (THANKS_RE.test(text)) {
+    cat = "thanks";
     reply = ar ? "العفو! لو عندك أي سؤال تاني أنا موجودة." : "You're welcome! I'm here if you have any other question.";
-  } else if (HANDOVER_RE.test(text) || /please call me|عايز حد يكلمني/i.test(text)) {
+  } else if (HANDOVER_RE.test(text) || /please call me|عايز حد يكلمني|rappelez-moi|appelez-moi|beni arayın|beni ara|请给我回电|给我打电话/i.test(text)) {
     await admin.from("lara_threads").update({ status: "handover", note: "Customer asked for a call (chat)", updated_at: now }).eq("id", t.id);
     await notify(`${o.customer} wants a call — from the chat`, `Their words: "${text.slice(0, 300)}"`, "escalation");
     mem0.handover = now;
     const gaveTime = /\b(today|tomorrow|morning|evening|afternoon|\d{1,2}(:\d{2})?\s*(am|pm)|at \d{1,2})\b|بكره|بكرة|النهارده|الصبح|بالليل|العصر|المغرب|الساعة|الساعه/i.test(text);
+    cat = gaveTime ? "calltime" : "call";
     if (gaveTime) {
       reply = hiBack + (ar ? `تمام، بلّغت ${ownerFirst ? `أ. ${ownerFirst}` : "مسؤول المبيعات"} بالميعاد اللي حضرتك قلته وهيتصل بيك فيه إن شاء الله.` : `Noted — I've passed the time you gave to ${ownerFirst || "your account manager"}, who will call you then.`);
     } else reply = hiBack + (ar ? `تمام، بلّغت ${ownerFirst ? `أ. ${ownerFirst}` : "مسؤول المبيعات"} وهيتواصل مع حضرتك في أقرب وقت خلال مواعيد العمل (الأحد–الخميس). ممكن تكتب هنا أنسب وقت للمكالمة.` : `Done — I've told ${ownerFirst || "your account manager"}, who will call you as soon as possible in working hours (Sun–Thu). You can write here the best time to call.`);
@@ -122,10 +161,10 @@ export async function chatTurn(t: any, text: string): Promise<{ messages: any[];
     let q = text;
     if (!parksIn(text).length && lead?.project && /ارض|اراضي|أرض|أراضي|قطع|متاح|مساح|land|plot|available|size/i.test(text)) q = `${text} ${canonicalParks(lead.project)[0] || ""}`;
     const overview = PLOTS_RE.test(text) && !parksIn(text).length ? await parksOverview(ar) : null;
-    if (overview) { reply = overview; by = "landbank"; }
+    if (overview) { reply = overview; by = "landbank"; cat = "overview"; }
     else {
       const data = await availabilityAnswer(q).catch(() => null);
-      if (data) { reply = ar ? data.ar : data.en; by = "landbank"; }
+      if (data) { reply = ar ? data.ar : data.en; by = "landbank"; cat = "plots"; facts = data.f; }
       else {
         if (text.length >= 3) {
           const r = await laraAnswer(text, { record: true, source: "customer", leadId: t.visitor ? undefined : t.lead_id, by: "Web chat" });
@@ -133,13 +172,13 @@ export async function chatTurn(t: any, text: string): Promise<{ messages: any[];
           if (r.answered && best) { reply = (ar ? best.a_ar || best.a_en : best.a_en || best.a_ar) || ""; by = "qa"; }
         }
         if (!reply) {
-          const ai = await aiAnswer(text, await activeKb(), [], { lang: ar ? "ar" : "en" });
+          const ai = await aiAnswer(text, await activeKb(), [], { lang: L || (ar ? "ar" : "en") });
           if (ai) { reply = ai; by = "ai"; }
         }
         if (!reply) {
           await notify(`${o.customer} asked Lara something she cannot answer (chat)`, `Answer in the Interactions inbox, or add it in Lara > Missed questions: "${text.slice(0, 200)}"`, "escalation");
           reply = ar ? `سؤال مهم، وعشان أديك إجابة دقيقة بلّغت ${ownerFirst ? `أ. ${ownerFirst}` : "مسؤول المبيعات"} وهيرد على حضرتك هنا أو بمكالمة.` : `Good question — to give you an exact answer I've passed it to ${ownerFirst || "your account manager"}, who will reply here or call you.`;
-          by = "holding";
+          by = "holding"; cat = "holding";
         }
       }
     }
@@ -147,8 +186,18 @@ export async function chatTurn(t: any, text: string): Promise<{ messages: any[];
     reply = hiBack + reply;
     suggest = SUGGEST[ar ? "ar" : "en"];
   }
-  await remember(t.id, mem0, { answer: by, visits: (Number(t.memory?.visits) || 0) + (fresh ? 1 : 0) });
-  const out = await admin.from("lara_messages").insert({ thread_id: t.id, lead_id: t.lead_id, direction: "out", kind: "chat", channel: "web", author: "Lara", matched_by: by, body: reply, from_addr: "Lara", to_addr: "web chat", at: new Date(Date.now() + 5).toISOString() }).select("id,direction,kind,channel,author,body,at").single();
+  if (L) {   // the same decision, said in the customer's language
+    const T = TR[L]; const n = custFirst ? (L === "zh" ? `，${custFirst}` : ` ${custFirst}`) : ""; const o = ownerFirst || T.o;
+    const hi = back && cat !== "back" && cat !== "stop" && cat !== "greet" && cat !== "thanks" ? fill(T.hi, { n }) : "";
+    let x: string | null = null;
+    if (cat === "plots" && facts) x = fill(T[facts.k] || T.fit, { ...facts, sized: facts.sized ? T.sized : "" }) + T.more;
+    else if (cat === "overview") x = await overviewIn(L);
+    else if (T[cat]) x = fill(T[cat], { n, o });
+    if (x) reply = hi + x; else if (reply && by !== "holding" && cat === "") reply = reply.replace(/\n\nAnything else I can help with\?$/, T.more);
+    if (suggest.length) suggest = SUGGEST[L];
+  }
+  await remember(t.id, mem0, { answer: by, visits: (Number(t.memory?.visits) || 0) + (fresh ? 1 : 0), lang: L || (ar ? "ar" : "en") } as any);
+  const out = await admin.from("lara_messages").insert({ thread_id: t.id, lead_id: t.lead_id, direction: "out", kind: "chat", channel: CHN, author: "Lara", matched_by: by, body: reply, from_addr: "Lara", to_addr: "web chat", at: new Date(Date.now() + 5).toISOString() }).select("id,direction,kind,channel,author,body,at").single();
   return { messages: [ins.data, out.data].filter(Boolean), suggest };
 }
 
@@ -177,7 +226,8 @@ route("GET", "/chat/s/:key", async ({ req, params }) => {
     customer: firstNameOf(String(lead?.customerName || t.visitor?.name || "")), owner: firstNameOf(o?.name || ""),
     call: btn.call || null, whatsapp: btn.whatsapp || null, welcome: { ar: cc.welcomeAr, en: cc.welcomeEn },
     back: open ? { ar: welcomeBack(t, true, { customer: firstNameOf(String(lead?.customerName || t.visitor?.name || "")), owner: firstNameOf(o?.name || "") }), en: welcomeBack(t, false, { customer: firstNameOf(String(lead?.customerName || t.visitor?.name || "")), owner: firstNameOf(o?.name || "") }) } : null,
-    messages: (msgs || []).reverse().map(pub), suggest: SUGGEST,
+    messages: (msgs || []).reverse().map(pub), suggest: SUGGEST, lang: t.memory?.lang || null, rated: !!t.rating,
+    voice: { enabled: cc.voice, record: cc.record, provider: "browser" },   // Gemini Live joins here when its key is connected
   };
 }, { public: true });
 
@@ -200,7 +250,7 @@ route("POST", "/chat/s/:key", async ({ req, params }) => {
   const b = await body(req, 4000);
   const text = str(b.text, 1500).trim();
   if (!text) throw bad("Write a message");
-  const r = await chatTurn(t, text);
+  const r = await chatTurn(t, text, { lang: str(b.lang, 5), mode: str(b.mode, 10) });
   return { success: true, messages: r.messages.map(pub), suggest: r.suggest };
 }, { public: true });
 
@@ -240,7 +290,7 @@ route("GET", "/lara/inbox", async ({ c, query }) => {
   const size = SIZES.includes(Number(query.get("size"))) ? Number(query.get("size")) : 25;
   const page = Math.max(1, Math.min(10000, Number(query.get("page")) || 1));
   const qs = str(query.get("q") || "", 80).trim();
-  const ch = ["email", "whatsapp", "web"].includes(query.get("channel") || "") ? query.get("channel")! : "";
+  const ch = ["email", "whatsapp", "web", "call"].includes(query.get("channel") || "") ? query.get("channel")! : "";
   const st = ["open", "handover", "stopped", "closed"].includes(query.get("status") || "") ? query.get("status")! : "";
   const view = ["unread", "waiting", "mine", "visitors"].includes(query.get("view") || "") ? query.get("view")! : "";
   const owner = /^[0-9a-f-]{36}$/i.test(query.get("owner") || "") ? query.get("owner")! : "";
@@ -281,15 +331,16 @@ route("GET", "/lara/inbox/:id", async ({ c, params, query }) => {
   const before = /^\d{4}-\d{2}-\d{2}T/.test(query.get("before") || "") ? query.get("before")! : "";
   let mq: any = admin.from("lara_messages").select("id,direction,kind,channel,author,matched_by,wa_status,subject,body,from_addr,to_addr,at").eq("thread_id", t.id).in("kind", ["mail", "chat", "staff", "auto"]).order("at", { ascending: false }).limit(40);
   if (before) mq = mq.lt("at", before);
-  const [msgs, drafts, enr, lead] = await Promise.all([
+  const [msgs, drafts, enr, lead, calls] = await Promise.all([
     mq,
     before ? Promise.resolve({ data: [] }) : admin.from("lara_drafts").select("id,kind,channel,situation,status,send_status,send_error,subject,body,created_at").eq("lead_id", t.lead_id).in("status", ["shadow", "approved"]).neq("send_status", "sent").order("created_at", { ascending: false }).limit(5),
     before ? Promise.resolve({ data: null }) : admin.from("lara_enrollments").select("status,step,why,next_at,workflow_id,lara_workflows(name)").eq("lead_id", t.lead_id).order("started_at", { ascending: false }).limit(1).maybeSingle(),
     before || t.visitor ? Promise.resolve(null) : leadInfo(t.lead_id),
+    before ? Promise.resolve({ data: [] }) : admin.from("lara_calls").select("id,started_at,seconds,lang,turns,audio_bytes").eq("thread_id", t.id).order("started_at", { ascending: false }).limit(10),
   ]);
   if (!before && t.unread) await admin.from("lara_threads").update({ unread: 0 }).eq("id", t.id);
   const list = (msgs.data || []).reverse();
-  return { success: true, thread: { ...t, chat_key: undefined, hasChat: !!t.chat_key }, messages: list, more: (msgs.data || []).length === 40, pending: (drafts as any).data || [], workflow: (enr as any).data || null, lead };
+  return { success: true, thread: { ...t, chat_key: undefined, hasChat: !!t.chat_key }, messages: list, more: (msgs.data || []).length === 40, pending: (drafts as any).data || [], workflow: (enr as any).data || null, lead, calls: (calls as any).data || [] };
 });
 
 /** a salesperson answers from the inbox: web chat = instant; e-mail / WhatsApp = sent through the same rules as Lara (test lock, opt-out, 24 h) */
@@ -345,7 +396,8 @@ route("POST", "/lara/chat-settings", async ({ req, c }) => {
   const b = await body(req, 4000);
   const locked = (await getConfig<any>("lara_test_lock", true)) !== false;
   if (b.enabled === true && locked) throw new HttpError(409, "Lara is on hold (test lock). Website chat can be opened only after the lock is lifted.");
-  const next = { enabled: b.enabled === true, callNumber: str(b.callNumber, 30).replace(/[^\d+ ]/g, ""), welcomeAr: str(b.welcomeAr, 400), welcomeEn: str(b.welcomeEn, 400) };
+  const next = { enabled: b.enabled === true, callNumber: str(b.callNumber, 30).replace(/[^\d+ ]/g, ""), welcomeAr: str(b.welcomeAr, 400), welcomeEn: str(b.welcomeEn, 400),
+    voice: b.voice !== false, record: b.record !== false, provider: b.provider === "gemini-live" ? "gemini-live" : "browser", liveModel: str(b.liveModel, 80).replace(/[^a-z0-9.\-]/gi, ""), liveVoice: str(b.liveVoice, 40).replace(/[^a-z0-9 \-]/gi, "") };
   await setConfig("lara_chat", next);
   await log("config", who(c), `Web chat ${next.enabled ? "OPEN to customers" : "closed to customers (staff tests only)"}; call button ${next.callNumber || "none"}`);
   return { success: true, chat: next };
@@ -491,5 +543,83 @@ route("POST", "/lara/inbox/:id/link-lead", async ({ req, c, params }) => {
   await appendTimeline(leadId, { type: "Comment", title: `Website chat linked by ${who(c)}`, description: `${v.visitor?.name || ""} ${v.visitor?.phone ? `+${v.visitor.phone}` : ""}`.trim() }).catch(() => {});
   await log("mail", who(c), `Website chat of ${v.visitor?.name || "a visitor"} linked to ${leadId}`);
   return { success: true, threadId: t.id };
+});
+// ---------------------------------------------------------------------------------------------
+// voice calls with Lara (same chat page), recording, rating, insights
+// ---------------------------------------------------------------------------------------------
+/** the call ended: one row per call; the customer's recording (they agreed before the call) goes to private storage */
+route("POST", "/chat/s/:key/call", async ({ req, params }) => {
+  await rateLimit(`chatcall:${params.key}`, 3600, 12);
+  const t = await threadByKey(params.key);
+  if (!(await chatOpen(t))) throw new HttpError(403, "Chat is not open yet");
+  const b = await body(req, 6_500_000);
+  const seconds = Math.max(0, Math.min(3600, Math.round(Number(b.seconds) || 0)));
+  const started = new Date(Date.now() - seconds * 1000).toISOString();
+  const cc = await chatCfg();
+  let path: string | null = null; let bytes = 0;
+  if (cc.record && b.consent === true && typeof b.audio === "string" && b.audio.length > 200 && b.audio.length < 6_000_000) {
+    const bin = Uint8Array.from(atob(b.audio), (ch) => ch.charCodeAt(0));
+    const ext = /mp4|aac/.test(String(b.mime)) ? "m4a" : "webm";
+    path = `${t.id}/${Date.now()}.${ext}`; bytes = bin.length;
+    const up = await admin.storage.from("lara-calls").upload(path, bin, { contentType: ext === "m4a" ? "audio/mp4" : "audio/webm", upsert: false });
+    if (up.error) { path = null; bytes = 0; }
+  }
+  const ins = await admin.from("lara_calls").insert({ thread_id: t.id, lead_id: t.lead_id, started_at: started, seconds, lang: str(b.lang, 5) || "ar", turns: Math.min(500, Number(b.turns) || 0), audio_path: path, audio_bytes: bytes }).select("id").single();
+  const o = t.visitor ? { id: null, customer: String(t.visitor?.name || "Website visitor") } : await ownerOf(t.lead_id);
+  const mmss = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  if (!t.visitor) await appendTimeline(t.lead_id, { type: "Call", title: `Customer had a voice call with Lara (${mmss})`, description: path ? "Recording and transcript are in Lara › Interactions" : "Transcript is in Lara › Interactions" }).catch(() => {});
+  const to = await staffTo(o.id);
+  if (to.length) await addNotifications(to.map((userId) => ({ userId, type: "changed", leadId: t.visitor ? undefined : t.lead_id, title: `${o.customer} spoke with Lara (${mmss})`, body: "Listen to the call and read the transcript in Lara › Interactions." }))).catch(() => {});
+  return { success: true, id: ins.data?.id || null, recorded: !!path };
+}, { public: true });
+
+route("POST", "/chat/s/:key/rate", async ({ req, params }) => {
+  await rateLimit(`chatrate:${params.key}`, 3600, 10);
+  const t = await threadByKey(params.key);
+  const b = await body(req, 2000);
+  const stars = Math.round(Number(b.stars));
+  if (!(stars >= 1 && stars <= 5)) throw bad("stars?");
+  await admin.from("lara_threads").update({ rating: stars, rating_note: str(b.comment, 400) || null, rating_at: nowIso() }).eq("id", t.id);
+  await log("mail", "Customer", `Rated Lara ${stars}/5 (${t.code})${b.comment ? `: ${str(b.comment, 120)}` : ""}`);
+  if (stars <= 2) { const o = t.visitor ? { id: null, customer: "A website visitor" } : await ownerOf(t.lead_id); const to = await staffTo(o.id); if (to.length) await addNotifications(to.map((userId) => ({ userId, type: "escalation", leadId: t.visitor ? undefined : t.lead_id, title: `${o.customer} rated Lara ${stars}/5`, body: str(b.comment, 300) || "No comment. Read the conversation in Lara › Interactions." }))).catch(() => {}); }
+  return { success: true };
+}, { public: true });
+
+/** staff: a 10-minute link to one call's recording (same visibility as the conversation) */
+route("GET", "/lara/calls/:id/audio", async ({ c, params }) => {
+  const w = laraWho(c);
+  const { data: k } = await admin.from("lara_calls").select("audio_path,lead_id,thread_id").eq("id", params.id).maybeSingle();
+  if (!k?.audio_path) throw new HttpError(404, "This call has no recording");
+  if (!w.admin) await ownsLead(c, k.lead_id);
+  const s = await admin.storage.from("lara-calls").createSignedUrl(k.audio_path, 600);
+  if (s.error || !s.data?.signedUrl) throw new HttpError(500, "Could not open the recording");
+  return { success: true, url: s.data.signedUrl };
+});
+
+/** how Lara is doing (last N days): one small query for the Control room */
+route("GET", "/lara/insights", async ({ c, query }) => {
+  needAdmin(c);
+  const days = Math.min(90, Math.max(1, Number(query.get("days")) || 30));
+  return await pg(async (q) => {
+    const since = new Date(Date.now() - days * 864e5).toISOString();
+    const [m] = await q`select count(*) filter (where direction = 'in')::int as customer_msgs,
+        count(distinct thread_id) filter (where direction = 'in')::int as customers,
+        count(*) filter (where direction = 'out' and author = 'Lara')::int as lara_replies,
+        count(*) filter (where direction = 'out' and matched_by = 'landbank')::int as by_landbank,
+        count(*) filter (where direction = 'out' and matched_by = 'qa')::int as by_qa,
+        count(*) filter (where direction = 'out' and matched_by = 'ai')::int as by_ai,
+        count(*) filter (where direction = 'out' and matched_by = 'holding')::int as by_holding,
+        count(*) filter (where direction = 'out' and kind = 'staff')::int as by_staff,
+        count(*) filter (where direction = 'in' and coalesce(channel,'email') = 'email')::int as in_email,
+        count(*) filter (where direction = 'in' and channel = 'whatsapp')::int as in_whatsapp,
+        count(*) filter (where direction = 'in' and channel = 'web')::int as in_chat,
+        count(*) filter (where direction = 'in' and channel = 'call')::int as in_call
+      from lara_messages where at >= ${since} and kind in ('mail','chat','staff')`;
+    const [k] = await q`select count(*)::int as calls, coalesce(sum(seconds),0)::int as call_seconds, count(*) filter (where audio_path is not null)::int as recorded from lara_calls where started_at >= ${since}`;
+    const [r] = await q`select count(*) filter (where rating is not null)::int as ratings, round(avg(rating)::numeric, 1) as avg_rating, count(*) filter (where status = 'handover')::int as with_salesperson, count(*) filter (where status = 'stopped')::int as stopped from lara_threads where updated_at >= ${since}`;
+    const parks = await q`select p as park, count(*)::int as n from lara_threads t, jsonb_array_elements_text(case when jsonb_typeof(t.memory->'parks') = 'array' then t.memory->'parks' else '[]'::jsonb end) p where t.updated_at >= ${since} group by 1 order by 2 desc limit 5`;
+    const missed = await q`select left(question, 90) as question, asked from lara_missed where status = 'open' order by asked desc, updated_at desc limit 5`;
+    return { success: true, days, ...m, ...k, ...r, parks, missed };
+  }, async () => { throw new HttpError(503, "Try again in a moment"); });
 });
 export type { Caller };

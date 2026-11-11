@@ -11,7 +11,7 @@ export async function aiCfg(): Promise<AiCfg & { hasKey: boolean; usedToday: num
   const c = await getConfig<any>("lara_ai", {});
   const u = await getConfig<any>("lara_ai_usage", {});
   return {
-    enabled: c.enabled === true, model: /^[a-z0-9.\-]{3,60}$/i.test(c.model || "") ? c.model : "gemini-2.5-flash",
+    enabled: c.enabled === true, model: /^[a-z0-9.\-]{3,60}$/i.test(c.model || "") ? c.model : "gemini-2.5-flash-lite",
     dailyCap: Math.min(500, Math.max(0, Number(c.dailyCap ?? 20))), hasKey: await hasSecret("lara_ai_key"),
     usedToday: u.day === day() ? Number(u.n) || 0 : 0,
   };
@@ -19,7 +19,7 @@ export async function aiCfg(): Promise<AiCfg & { hasKey: boolean; usedToday: num
 const day = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo" }).format(new Date());
 export async function saveAi(b: any, by: string) {
   const cur = await getConfig<any>("lara_ai", {});
-  const next = { ...cur, enabled: b.enabled === true, model: /^[a-z0-9.\-]{3,60}$/i.test(b.model || "") ? b.model : cur.model || "gemini-2.5-flash", dailyCap: Math.min(500, Math.max(0, Number(b.dailyCap ?? cur.dailyCap ?? 20))) };
+  const next = { ...cur, enabled: b.enabled === true, model: /^[a-z0-9.\-]{3,60}$/i.test(b.model || "") ? b.model : cur.model || "gemini-2.5-flash-lite", dailyCap: Math.min(500, Math.max(0, Number(b.dailyCap ?? cur.dailyCap ?? 20))) };
   if (typeof b.key === "string" && b.key.trim()) await setSecret("lara_ai_key", b.key.trim());
   await setConfig("lara_ai", next);
   await admin.from("lara_log").insert({ kind: "config", actor: by, text: `AI for hard questions ${next.enabled ? `ON (cap ${next.dailyCap}/day, ${next.model})` : "OFF"}` });
@@ -27,7 +27,7 @@ export async function saveAi(b: any, by: string) {
 }
 
 /** try the AI for a question the rules and the approved Q&A could not answer. Returns null when off, over the cap, or no grounded answer. */
-export async function aiAnswer(question: string, kb: KbEntry[], extraFacts: string[], customer: { lang: "ar" | "en"; firstName?: string }): Promise<string | null> {
+export async function aiAnswer(question: string, kb: KbEntry[], extraFacts: string[], customer: { lang: string; firstName?: string }): Promise<string | null> {
   const c = await aiCfg();
   if (!c.enabled || !c.hasKey || c.usedToday >= c.dailyCap) return null;
   const key = await getSecret("lara_ai_key"); if (!key) return null;
@@ -38,7 +38,7 @@ export async function aiAnswer(question: string, kb: KbEntry[], extraFacts: stri
   const sys = `You are Lara, the digital sales assistant of Elsewedy Industrial Development (SDM), industrial land in Egyptian industrial parks.
 Answer the customer's question using ONLY the FACTS below. If the facts do not answer it, reply exactly NO_ANSWER.
 Never invent prices, dates, areas, discounts or promises. Never say you are human. Be short (max 4 sentences), polite and professional.
-Reply in ${customer.lang === "ar" ? "Egyptian-friendly Modern Standard Arabic" : "English"}.`;
+Reply in ${({ ar: "Egyptian-friendly Modern Standard Arabic", fr: "French", tr: "Turkish", zh: "Simplified Chinese" } as any)[customer.lang] || "English"}.`;
   try {
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${c.model}:generateContent`, {
       method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key }, signal: AbortSignal.timeout(15000),

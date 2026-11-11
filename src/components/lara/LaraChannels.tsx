@@ -34,6 +34,17 @@ export const LaraChannels: React.FC = () => {
           <label className="text-xs">Welcome (Arabic, optional)<textarea dir="rtl" rows={2} value={chat.welcomeAr || ''} onChange={(e) => setChat({ ...chat, welcomeAr: e.target.value })} className="input-field w-full text-sm mt-0.5" /></label>
           <label className="text-xs">Welcome (English, optional)<textarea rows={2} value={chat.welcomeEn || ''} onChange={(e) => setChat({ ...chat, welcomeEn: e.target.value })} className="input-field w-full text-sm mt-0.5" /></label>
         </div>
+        <div className="border-t border-brand-gray/10 pt-3 space-y-2">
+          <p className="text-[11px] font-extrabold text-brand-gray">VOICE CALL WITH LARA (same chat page: the customer sees Lara and talks to her)</p>
+          <label className="text-xs flex items-center gap-2"><input type="checkbox" checked={chat.voice !== false} onChange={(e) => setChat({ ...chat, voice: e.target.checked })} />Show "Talk to me" in the chat (languages: Arabic, English, French, Turkish, Chinese)</label>
+          <label className="text-xs flex items-center gap-2"><input type="checkbox" checked={chat.record !== false} onChange={(e) => setChat({ ...chat, record: e.target.checked })} />Record calls (the customer is asked to agree first; recordings are private and played in Interactions)</label>
+          <div className="grid grid-cols-3 gap-2">
+            <label className="text-xs">Voice engine<select value={chat.provider || 'browser'} onChange={(e) => setChat({ ...chat, provider: e.target.value })} className="input-field w-full text-sm mt-0.5"><option value="browser">Browser speech (free, works now)</option><option value="gemini-live">Gemini Live (when connected)</option></select></label>
+            <label className="text-xs">Gemini Live model<input value={chat.liveModel || ''} onChange={(e) => setChat({ ...chat, liveModel: e.target.value })} placeholder="lowest-cost live model id" className="input-field w-full text-sm mt-0.5" /></label>
+            <label className="text-xs">Gemini voice name<input value={chat.liveVoice || ''} onChange={(e) => setChat({ ...chat, liveVoice: e.target.value })} placeholder="e.g. a female voice" className="input-field w-full text-sm mt-0.5" /></label>
+          </div>
+          <p className="text-[11px] text-brand-gray">Today calls use the browser's own speech (no cost): Lara's answers are the same rule-based answers as the chat. Gemini Live is not connected yet: these fields only store your choice, and the key is the one in "AI for hard questions" below. Copy the model id from Google AI Studio (pick the cheapest live model).</p>
+        </div>
         <button onClick={saveChat} disabled={!!busy} className="btn-primary rounded-xl px-3 py-1.5 text-xs font-bold disabled:opacity-50">{busy === 'chat' ? 'Saving…' : 'Save'}</button>
         <details className="text-xs"><summary className="font-bold cursor-pointer">Chat button for the company website</summary>
           <p className="text-brand-gray my-1">Paste before &lt;/body&gt; on the website. Visitors give their name and mobile first; a known number joins that lead's conversation.</p>

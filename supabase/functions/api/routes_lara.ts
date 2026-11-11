@@ -396,7 +396,7 @@ export async function activeKb(): Promise<KbEntry[]> {
   return (data || []) as KbEntry[];
 }
 /** "is there land in October around 3,000 m?" answered from the Land Bank list (no Q&A needed) */
-export async function availabilityAnswer(question: string): Promise<{ ar: string; en: string } | null> {
+export async function availabilityAnswer(question: string): Promise<{ ar: string; en: string; f?: any } | null> {
   const a = analyse(question);
   let parks = parksIn(question);
   // "Sokhna" alone could be either Sokhna park: answer for both (a customer rarely says "Industria")
@@ -409,12 +409,12 @@ export async function availabilityAnswer(question: string): Promise<{ ar: string
   const fit = nums.length ? avail.filter((p) => p.areaSqm >= nums[0] * 0.7 && p.areaSqm <= (nums[1] || nums[0]) * 1.3) : avail;
   const uniq = (a: string[]) => [...new Set(a)];
   const park = uniq(parks.map((p) => p.replace(/ - Plot \d+$/, ""))).join(" / "); const parkAr = uniq(parks.map((p) => PARK_AR[p] || p)).join(" و"); const f = (n: number) => Math.round(n).toLocaleString("en-US");
-  if (!avail.length) return { ar: `حالياً لا توجد قطع متاحة في ${parkAr} حسب آخر تحديث لبنك الأراضي.`, en: `There are no available plots in ${park} in the latest Land Bank list.` };
+  if (!avail.length) return { f: { k: "none", park }, ar: `حالياً لا توجد قطع متاحة في ${parkAr} حسب آخر تحديث لبنك الأراضي.`, en: `There are no available plots in ${park} in the latest Land Bank list.` };
   const list = fit.length ? fit : avail;
   const areas = list.map((p) => p.areaSqm).sort((x, y) => x - y);
   const span = areas[0] === areas[areas.length - 1] ? `${f(areas[0])}` : `${f(areas[0])} – ${f(areas[areas.length - 1])}`;
-  if (nums.length && !fit.length) return { ar: `مفيش قطعة متاحة بالمساحة دي بالظبط في ${parkAr}، لكن متاح ${plotsAr(avail.length)} بمساحات ${span} م².`, en: `No available plot of that size in ${park}, but ${avail.length} plots are available (${span} sqm).` };
-  return { ar: `متاح حالياً ${plotsAr(list.length)} في ${parkAr}${nums.length ? ' قريبة من المساحة المطلوبة' : ''} بمساحات ${span} م².`, en: `${list.length} plots are available now in ${park}${nums.length ? ' close to the size asked' : ''} (${span} sqm).` };
+  if (nums.length && !fit.length) return { f: { k: "nofit", n: avail.length, park, span }, ar: `مفيش قطعة متاحة بالمساحة دي بالظبط في ${parkAr}، لكن متاح ${plotsAr(avail.length)} بمساحات ${span} م².`, en: `No available plot of that size in ${park}, but ${avail.length} plots are available (${span} sqm).` };
+  return { f: { k: "fit", n: list.length, park, span, sized: nums.length > 0 }, ar: `متاح حالياً ${plotsAr(list.length)} في ${parkAr}${nums.length ? ' قريبة من المساحة المطلوبة' : ''} بمساحات ${span} م².`, en: `${list.length} plots are available now in ${park}${nums.length ? ' close to the size asked' : ''} (${span} sqm).` };
 }
 
 export async function laraAnswer(question: string, opts: { record: boolean; source: "test" | "customer"; leadId?: string; by?: string }) {

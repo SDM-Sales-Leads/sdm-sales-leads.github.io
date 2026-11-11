@@ -248,7 +248,7 @@ export const Conversation: React.FC<{ id: string; isAdmin: boolean; onBack?: () 
             </div>
             {chan === 'email' && <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject (the conversation code is added)" className="input-field w-full text-sm" />}
             <div className="flex gap-2 items-end">
-              <textarea value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void send(); }} dir="auto" rows={2} placeholder={chan === 'web' ? 'Write in the chat… (the customer sees it at once)' : 'Write your reply… (Ctrl/⌘ + Enter to send)'} className="input-field flex-1 text-sm" />
+              <textarea value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void send(); }} dir="auto" rows={Math.min(8, Math.max(2, Math.ceil(text.length / 60)))} placeholder={chan === 'web' ? 'Write in the chat… (the customer sees it at once)' : 'Write your reply… (Ctrl/⌘ + Enter to send)'} className="input-field flex-1 text-sm" />
               <button onClick={send} disabled={sending || !text.trim() || !chan} className="btn-primary rounded-xl px-3 py-2 text-xs font-bold flex items-center gap-1 disabled:opacity-50">{sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}Send</button>
             </div>
           </div>

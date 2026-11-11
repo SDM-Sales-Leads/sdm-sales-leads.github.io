@@ -19,6 +19,7 @@ import { triggerHit, condsOk, condOne, stopReason, validateWorkflow, hasEmail, h
 import { addNotifications } from "./notify.ts";
 import { teamIds } from "./routes_crm.ts";
 import { aiAnswer } from "./lara_ai.ts";
+import { parksIn } from "./lara_memory.ts";
 import { buildOffer, coverText, offerCandidates, OfferInput } from "./lara_offer.ts";
 import { lbRoute } from "./integration.ts";
 import { sendOfferTestCopy } from "./lara_mail.ts";
@@ -397,7 +398,7 @@ export async function activeKb(): Promise<KbEntry[]> {
 /** "is there land in October around 3,000 m?" answered from the Land Bank list (no Q&A needed) */
 export async function availabilityAnswer(question: string): Promise<{ ar: string; en: string } | null> {
   const a = analyse(question);
-  let parks = canonicalParks(question);
+  let parks = parksIn(question);
   // "Sokhna" alone could be either Sokhna park: answer for both (a customer rarely says "Industria")
   if (parks.length === 1 && parks[0] === "Industria Sokhna" && !/industria|اندستريا|إندستريا/i.test(question)) parks = ["Industria Sokhna", "Sokhna 360"];
   if (!parks.length || !(a.concepts.has("availability") || a.concepts.has("size") || /ارض|اراضي|قطع|مصنع|مخزن|land|plot/i.test(normText(question)))) return null;
@@ -406,11 +407,12 @@ export async function availabilityAnswer(question: string): Promise<{ ar: string
   const all: any[] = Array.isArray(data?.data) ? data!.data : [];
   const avail = all.filter((p) => p.status === "available" && parks.includes(p.park) && Number(p.areaSqm) > 0);
   const fit = nums.length ? avail.filter((p) => p.areaSqm >= nums[0] * 0.7 && p.areaSqm <= (nums[1] || nums[0]) * 1.3) : avail;
-  const park = parks.join(" / "); const parkAr = parks.map((p) => PARK_AR[p] || p).join(" و"); const f = (n: number) => Math.round(n).toLocaleString("en-US");
+  const uniq = (a: string[]) => [...new Set(a)];
+  const park = uniq(parks.map((p) => p.replace(/ - Plot \d+$/, ""))).join(" / "); const parkAr = uniq(parks.map((p) => PARK_AR[p] || p)).join(" و"); const f = (n: number) => Math.round(n).toLocaleString("en-US");
   if (!avail.length) return { ar: `حالياً لا توجد قطع متاحة في ${parkAr} حسب آخر تحديث لبنك الأراضي.`, en: `There are no available plots in ${park} in the latest Land Bank list.` };
   const list = fit.length ? fit : avail;
   const areas = list.map((p) => p.areaSqm).sort((x, y) => x - y);
-  const span = areas.length === 1 ? `${f(areas[0])}` : `${f(areas[0])} – ${f(areas[areas.length - 1])}`;
+  const span = areas[0] === areas[areas.length - 1] ? `${f(areas[0])}` : `${f(areas[0])} – ${f(areas[areas.length - 1])}`;
   if (nums.length && !fit.length) return { ar: `مفيش قطعة متاحة بالمساحة دي بالظبط في ${parkAr}، لكن متاح ${plotsAr(avail.length)} بمساحات ${span} م².`, en: `No available plot of that size in ${park}, but ${avail.length} plots are available (${span} sqm).` };
   return { ar: `متاح حالياً ${plotsAr(list.length)} في ${parkAr}${nums.length ? ' قريبة من المساحة المطلوبة' : ''} بمساحات ${span} م².`, en: `${list.length} plots are available now in ${park}${nums.length ? ' close to the size asked' : ''} (${span} sqm).` };
 }

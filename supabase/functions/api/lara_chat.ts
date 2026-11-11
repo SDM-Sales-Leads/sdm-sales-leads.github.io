@@ -10,7 +10,7 @@ import { firstNameOf } from "../../../src/lib/personName.ts";
 import { activeKb, availabilityAnswer, canSeeOwner, laraAnswer, laraConfig, laraOwners, laraWho, log, ownsLead, who } from "./routes_lara.ts";
 import { appendTimeline, contactButtons, ensureChatKey, ensureThread, HANDOVER_RE, isOptedOut, ownerOf, sendDraft, STOP_RE } from "./lara_mail.ts";
 import { addNotifications } from "./notify.ts";
-import { learn, remember, welcomeBack } from "./lara_memory.ts";
+import { learn, parksIn, remember, welcomeBack } from "./lara_memory.ts";
 import { graphOf, nextOf } from "../../../src/components/lara/flow/graph.ts";
 import { aiAnswer, aiCfg, saveAi } from "./lara_ai.ts";
 import { intl, waCfg, waReady } from "./lara_wa.ts";
@@ -88,7 +88,7 @@ export async function chatTurn(t: any, text: string): Promise<{ messages: any[];
   const mem0 = learn(t.memory || {}, text, "web");
   let reply = ""; let by = "rule"; let suggest: string[] = [];
   // a salesperson answered in this chat within the last 2 hours: Lara keeps quiet and lets the person talk
-  const { data: lastStaff } = await admin.from("lara_messages").select("at").eq("thread_id", t.id).eq("kind", "staff").order("at", { ascending: false }).limit(1).maybeSingle();
+  const { data: lastStaff } = await admin.from("lara_messages").select("at").eq("thread_id", t.id).eq("kind", "staff").eq("channel", "web").order("at", { ascending: false }).limit(1).maybeSingle();   // only a salesperson IN the chat pauses her
   const backAt = Date.parse(t.memory?.backAt || "") || 0;
   if (lastStaff && Date.now() - Date.parse(lastStaff.at) < 2 * 3600e3 && Date.parse(lastStaff.at) > backAt) {
     // the salesperson is in the chat: one bell per 10 minutes, not one per message
@@ -120,8 +120,8 @@ export async function chatTurn(t: any, text: string): Promise<{ messages: any[];
   } else {
     // Land Bank data first (a park in the question, or the lead's own park), then the approved Q&A
     let q = text;
-    if (!canonicalParks(text).length && lead?.project && /ارض|اراضي|أرض|أراضي|قطع|متاح|مساح|land|plot|available|size/i.test(text)) q = `${text} ${canonicalParks(lead.project)[0] || ""}`;
-    const overview = PLOTS_RE.test(text) && !canonicalParks(text).length ? await parksOverview(ar) : null;
+    if (!parksIn(text).length && lead?.project && /ارض|اراضي|أرض|أراضي|قطع|متاح|مساح|land|plot|available|size/i.test(text)) q = `${text} ${canonicalParks(lead.project)[0] || ""}`;
+    const overview = PLOTS_RE.test(text) && !parksIn(text).length ? await parksOverview(ar) : null;
     if (overview) { reply = overview; by = "landbank"; }
     else {
       const data = await availabilityAnswer(q).catch(() => null);

@@ -11,6 +11,11 @@ export interface Memory {
   parks?: string[]; size?: number; asked?: string; askedAt?: string; answer?: string;
   offer?: { ref?: string; at: string }; handover?: string; channel?: string; visits?: number; lastIn?: string;
 }
+/** parks named in a customer's words. The CRM's matcher reads "Arady / اراضي" as a land-project name (3 Nov 2026 rule for lead data);
+ *  in a customer's sentence "اراضي" just means "land", so Lara reads it as "ارض" first. */
+export function parksIn(text: string): string[] {
+  return canonicalParks(String(text || "").replace(/[اأإ]راضي/g, "ارض").replace(/\b(arady|aradi)\b/gi, "land"));
+}
 const num = (t: string) => {
   const n = (t.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x660)).match(/\d[\d,]{2,}/g) || []).map((x) => Number(x.replace(/,/g, ""))).filter((x) => x >= 300 && x <= 2_000_000);
   return n[0];
@@ -20,7 +25,7 @@ const QUESTION = /[?؟]|\b(how|what|when|where|which|can|is there|price|cost)\b|
 /** what this message teaches about the customer (merged into the conversation's memory) */
 export function learn(mem: Memory, text: string, channel: string): Memory {
   const m: Memory = { ...(mem || {}) };
-  const parks = canonicalParks(text);
+  const parks = parksIn(text);
   if (parks.length) m.parks = parks.slice(0, 3);
   const size = num(text); if (size) m.size = size;
   const t = text.replace(/\s+/g, " ").trim();

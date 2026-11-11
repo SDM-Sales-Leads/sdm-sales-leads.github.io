@@ -58,7 +58,7 @@ export function boxSummary(type: NodeType, d: any): string {
     case 'wait_reply': return `up to ${d?.days || '—'} day${Number(d?.days) === 1 ? '' : 's'}`;
     case 'condition': return condText(d);
     case 'message': {
-      const ch = d?.channel === 'email' ? 'E-mail only' : d?.channel === 'whatsapp' ? 'WhatsApp only' : 'WhatsApp if connected, else e-mail';
+      const ch = d?.channel === 'email' ? 'E-mail only' : d?.channel === 'whatsapp' ? 'WhatsApp only' : 'Best channel (WhatsApp when connected, else e-mail; while Lara cannot send: a WhatsApp draft for the salesperson)';
       return `${ch} · ${(SITUATION_LABEL as any)[d?.situation] || 'Lara picks the message'}`;
     }
     default: return BOX[type]?.hint || '';

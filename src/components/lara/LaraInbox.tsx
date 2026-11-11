@@ -54,6 +54,7 @@ export const LaraInbox: React.FC<{ leads: Lead[]; isAdmin: boolean; reload: () =
   useEffect(() => { const f = (e: Event) => { const id = (e as CustomEvent).detail; if (id) setOpenId(String(id)); }; window.addEventListener('lara-open-thread', f); return () => window.removeEventListener('lara-open-thread', f); }, []);
   const [more, setMore] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);   // phones: salesperson and dates fold away
   const owners = useMemo(() => {
     const m = new Map<string, string>();
     for (const l of leads) { const id = l.assignedSalespersonId, n = l.assignedSalespersonName; if (id && n) m.set(String(id), String(n)); }
@@ -72,7 +73,7 @@ export const LaraInbox: React.FC<{ leads: Lead[]; isAdmin: boolean; reload: () =
   const count: Record<string, number | undefined> = { '': k.all, unread: k.unread, waiting: k.waiting, handover: k.handover, visitors: k.visitors };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 pb-20 lg:pb-0">
       <div className="bento-card bg-white border border-brand-gray/20 rounded-2xl p-3 shadow-sm space-y-2">
         <div className="flex flex-wrap items-center gap-1.5">
           <h3 className="font-extrabold text-sm flex items-center gap-2 mr-2"><InboxIcon size={16} className="text-brand-red" />Interactions</h3>
@@ -90,9 +91,12 @@ export const LaraInbox: React.FC<{ leads: Lead[]; isAdmin: boolean; reload: () =
           <div className="flex rounded-xl border border-brand-gray/20 overflow-hidden text-xs font-bold">
             {[['', 'All'], ['email', 'E-mail'], ['whatsapp', 'WhatsApp'], ['web', 'Chat']].map(([v, l]) => <button key={v} onClick={() => setCh(v)} className={`px-2.5 py-1.5 ${ch === v ? 'bg-brand-black text-white' : ''}`}>{l}</button>)}
           </div>
-          {isAdmin && <select value={owner} onChange={(e) => setOwner(e.target.value)} className="input-field text-xs py-1.5 max-w-[170px]"><option value="">Every salesperson</option>{owners.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</select>}
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input-field text-xs py-1" title="From" />
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input-field text-xs py-1" title="To" />
+          <button onClick={() => setShowFilters((v) => !v)} className={`sm:hidden text-xs font-bold rounded-xl px-2.5 py-1.5 border ${owner || from || to ? 'border-brand-red text-brand-red' : 'border-brand-gray/20'}`}>Filters{owner || from || to ? ' •' : ''}</button>
+          <div className={`${showFilters ? 'grid' : 'hidden'} sm:flex grid-cols-2 gap-2 w-full sm:w-auto items-center`}>
+            {isAdmin && <select value={owner} onChange={(e) => setOwner(e.target.value)} className="input-field text-xs py-1.5 col-span-2 sm:max-w-[170px]"><option value="">Every salesperson</option>{owners.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</select>}
+            <label className="text-[10px] text-brand-gray sm:flex sm:items-center sm:gap-1">From<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input-field text-xs py-1 w-full sm:w-auto" /></label>
+            <label className="text-[10px] text-brand-gray sm:flex sm:items-center sm:gap-1">To<input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input-field text-xs py-1 w-full sm:w-auto" /></label>
+          </div>
         </div>
       </div>
       {more && extra}
@@ -183,7 +187,7 @@ export const Conversation: React.FC<{ id: string; isAdmin: boolean; onBack?: () 
   const chans = [t.hasChat || t.visitor ? 'web' : '', t.visitor ? '' : 'email', t.visitor ? '' : 'whatsapp'].filter(Boolean);
   return (
     <>
-      <section className={`bento-card bg-white border border-brand-gray/20 rounded-2xl shadow-sm flex flex-col ${compact ? 'min-h-[320px] max-h-[70vh]' : 'min-h-[60vh] max-h-[calc(100vh-180px)]'}`}>
+      <section className={`bento-card bg-white border border-brand-gray/20 rounded-2xl shadow-sm flex flex-col ${compact ? 'min-h-[320px] max-h-[70vh]' : 'min-h-[60vh] max-h-[calc(100dvh-170px)]'}`}>
         <header className="p-3 border-b border-brand-gray/10 flex flex-wrap items-center gap-2">
           {onBack && !compact && <button onClick={onBack} className="lg:hidden text-brand-gray"><ArrowLeft size={18} /></button>}
           <div className="min-w-0">

@@ -13,7 +13,7 @@ import { addNotifications } from "./notify.ts";
 import { learn, remember, welcomeBack } from "./lara_memory.ts";
 import { graphOf, nextOf } from "../../../src/components/lara/flow/graph.ts";
 import { aiAnswer, aiCfg, saveAi } from "./lara_ai.ts";
-import { intl, waCfg } from "./lara_wa.ts";
+import { intl, waCfg, waReady } from "./lara_wa.ts";
 import { canonicalParks } from "../../../src/lib/parkAliases.ts";
 import { PARK_AR } from "../../../src/components/crm/smartWriter.ts";
 
@@ -317,6 +317,7 @@ route("POST", "/lara/inbox/:id/reply", async ({ req, c, params }) => {
   const to_phone = ch === "whatsapp" ? (t.wa_phone || intl(lead?.phoneNumber)) : null;
   if (ch === "email" && !to_addr) throw bad("The lead has no e-mail address");
   if (ch === "whatsapp" && !to_phone) throw bad("The lead has no usable mobile number");
+  if (ch === "whatsapp" && !(await waReady())) throw new HttpError(409, "WhatsApp is not connected yet (Lara › Settings & channels). Use the lead's WhatsApp button to send it from your phone.");
   const subj = ch === "email" ? str(b.subject, 200) || "Elsewedy Industrial Development" : "";
   const ins = await admin.from("lara_drafts").insert({
     lead_id: t.lead_id, rule: "staff_reply", kind: "reply", situation: "reply_answer", channel: ch, lang: isAr(text) ? "ar" : "en", subject: subj, body: text, to_addr, to_phone,
@@ -431,6 +432,8 @@ route("POST", "/lara/start", async ({ req, c }) => {
   await admin.from("lara_threads").update({ status: "open", started_by: who(c), wa_phone: t.wa_phone || phone || null, note: null, updated_at: nowIso() }).eq("id", t.id);
   const o = await ownerOf(leadId);
   if (mode === "workflow") {
+    // Lara's workflows work on behalf of the lead's salesperson (the daily run only takes leads with an owner)
+    if (!lead.assigned_to) throw new HttpError(409, "Assign a salesperson first: workflows run only for leads with an owner (\"Lara writes now\" works without one)");
     const { data: wf } = await admin.from("lara_workflows").select("*").eq("id", str(b.workflowId, 60)).eq("status", "active").maybeSingle();
     if (!wf) throw bad("Choose a workflow");
     const g = graphOf(wf); const trig = g.nodes.find((n: any) => n.type === "trigger");
@@ -447,6 +450,7 @@ route("POST", "/lara/start", async ({ req, c }) => {
   if (!text) throw bad("Write the first message");
   if (ch === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw bad("The lead has no e-mail address");
   if (ch === "whatsapp" && !phone) throw bad("The lead has no usable mobile number");
+  if (ch === "whatsapp" && !(await waReady())) throw new HttpError(409, "WhatsApp is not connected yet (Lara › Settings & channels). Choose E-mail, or send it from the lead's WhatsApp button.");
   const subject = ch === "email" ? (str(b.subject, 200) || "Elsewedy Industrial Development") : "";
   const d = await admin.from("lara_drafts").insert({
     lead_id: leadId, rule: "started_by_staff", kind: "followup", situation: str(b.situation, 40) || "any", channel: ch, lang: isAr(text) ? "ar" : "en", subject, body: text,

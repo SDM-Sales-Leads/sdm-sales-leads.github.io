@@ -230,7 +230,7 @@ const BoxSettings: React.FC<{ n: Node<BoxData>; set: (p: any) => void; onDelete:
       {k === 'condition' && <CondEditor c={d} fields={IF_FIELDS} onChange={(c) => set(c)} />}
       {k === 'message' && (
         <div className="space-y-2">
-          <label className="text-xs font-bold block">Channel<select value={d.channel || 'auto'} onChange={(e) => set({ channel: e.target.value })} className="input-field w-full text-sm mt-0.5"><option value="auto">WhatsApp if connected, else e-mail</option><option value="email">E-mail only</option><option value="whatsapp">WhatsApp only</option></select></label>
+          <label className="text-xs font-bold block">Channel<select value={d.channel || 'auto'} onChange={(e) => set({ channel: e.target.value })} className="input-field w-full text-sm mt-0.5"><option value="auto">Best channel: WhatsApp when connected, else e-mail (while Lara cannot send: a WhatsApp draft for the salesperson)</option><option value="email">E-mail only</option><option value="whatsapp">WhatsApp only</option></select></label>
           <label className="text-xs font-bold block">Message<select value={d.situation || 'auto'} onChange={(e) => set({ situation: e.target.value })} className="input-field w-full text-sm mt-0.5">{SIT_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
           <p className="text-[11px] text-brand-gray">Lara writes it from the lead's data and the Land Bank (Arabic or English, as the customer). It waits in Drafts for approval unless the workflow is on Autopilot.</p>
         </div>

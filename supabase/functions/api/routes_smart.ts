@@ -7,6 +7,7 @@ import { admin, bad, body, can, HttpError, needCrm, rateLimit, str } from "./lib
 import { route } from "./router.ts";
 import { pg } from "./db.ts";
 import { matchQuestion, THRESHOLD } from "./lara_match.ts";
+import { availabilityAnswer } from "./routes_lara.ts";
 
 const cairoDay = (d = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
@@ -54,6 +55,9 @@ route("POST", "/smart/ask", async ({ req, c }) => {
   const b = await body(req, 2000);
   const q = str(b.question, 400);
   if (q.length < 3) throw bad("Write a question");
+  // plots first, straight from the Land Bank list (the same answer the customer chat gives), then the approved answers
+  const plots = await availabilityAnswer(q).catch(() => null);
+  if (plots) return { success: true, answered: true, matches: [{ topic: "Land Bank", q: "Available plots (live Land Bank list)", a_ar: plots.ar, a_en: plots.en, score: 1 }] };
   const { data } = await admin.from("lara_kb").select("id,topic,q_ar,q_en,phrasings,a_ar,a_en,status").eq("status", "active").limit(3000);
   const m = matchQuestion(q, (data || []) as any, 3);
   return { success: true, answered: !!m[0] && m[0].score >= THRESHOLD, matches: m.map((x) => ({ topic: x.entry.topic, q: x.entry.q_ar || x.entry.q_en, a_ar: x.entry.a_ar, a_en: x.entry.a_en, score: x.score })) };

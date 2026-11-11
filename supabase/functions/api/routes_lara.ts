@@ -527,6 +527,31 @@ route("PUT", "/lara/config", async ({ req, c }) => {
 });
 
 route("POST", "/lara/run", async ({ c }) => { needAdmin(c); return { success: true, ...(await runShadow(who(c))) }; });
+/** admin test tool: move ONE lead's workflow now (optionally skipping the wait), whatever the daily schedule or mode. Its messages are drafts
+ *  and go through the same approval / test-lock rules as always; no other lead is touched. */
+route("POST", "/lara/run-lead", async ({ req, c }) => {
+  needAdmin(c);
+  const b = await body(req, 500);
+  const leadId = str(b.leadId, 40).toUpperCase();
+  const { data: e } = await admin.from("lara_enrollments").select("*").eq("lead_id", leadId).eq("status", "active").maybeSingle();
+  if (!e) throw bad("This lead is not in a running workflow");
+  const wf = (await loadWorkflows(false)).find((w) => w.id === e.workflow_id);
+  if (!wf) throw bad("The workflow is archived");
+  const g = graphOf(wf);
+  const cfg = await laraConfig();
+  const x = await runContext(false);
+  const l = x.byId.get(leadId);
+  if (!l) throw bad("The lead is closed or not visible to Lara");
+  const at = enrollNode(g, e);
+  if (!at) { await admin.from("lara_enrollments").update({ status: "done", node: null, updated_at: nowIso() }).eq("id", e.id); return { success: true, finished: true }; }
+  if (Date.parse(e.next_at) > Date.now() && b.skipWait !== true) return { success: true, waiting: true, at, nextAt: e.next_at };
+  // "skip wait" (test): also skips the 3-day spacing between Lara's mails; drafts still need approval and the test lock still applies
+  const w = await advance(b.skipWait === true ? { ...cfg, minDaysBetween: 0 } : cfg, x, wf, g, at, b.skipWait === true ? { ...e, next_at: nowIso() } : e, l, e.why, `T${Date.now().toString(36)}`, { left: 5 });
+  await flushNotes(x as any);
+  if (w.moved) await admin.from("lara_enrollments").update({ node: w.node, step: (Number(e.step) || 0) + w.did.length, status: w.node ? "active" : "done", next_at: new Date(w.nextAt).toISOString(), wait_since: w.waitSince, path: w.path, updated_at: nowIso() }).eq("id", e.id);
+  await log("run", who(c), `Test run for ${leadId} in "${wf.name}": ${w.did.join(", ") || "nothing to do"}`);
+  return { success: true, workflow: wf.name, from: at, to: w.node, did: w.did, nextAt: new Date(w.nextAt).toISOString(), path: w.path.slice(-6) };
+});
 
 route("GET", "/lara/drafts", async ({ c, query }) => {
   const w = laraWho(c);

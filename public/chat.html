@@ -122,6 +122,9 @@ button.go:disabled{opacity:.5}
   }
   function openChat() {
     req("/chat/s/" + key).then(function (r) {
+      // the customer's own language: their last message, else the browser's
+      var mine = r.messages.filter(function (m) { return m.dir === "in"; }).pop();
+      if (mine) ar = isAr(mine.body);
       header(r);
       if (!r.open) { note(ar ? "المحادثة غير متاحة حالياً. تقدر تتصل بنا أو ترد على الإيميل." : "Chat is not available yet. Please call us or reply to our e-mail."); return; }
       $("f").hidden = false;

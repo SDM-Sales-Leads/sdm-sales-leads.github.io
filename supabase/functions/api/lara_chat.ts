@@ -151,7 +151,7 @@ export async function chatTurn(t: any, text: string, opts: { lang?: string; mode
     await admin.from("lara_threads").update({ status: "handover", note: "Customer asked for a call (chat)", updated_at: now }).eq("id", t.id);
     await notify(`${o.customer} wants a call — from the chat`, `Their words: "${text.slice(0, 300)}"`, "escalation");
     mem0.handover = now;
-    const gaveTime = /\b(today|tomorrow|morning|evening|afternoon|\d{1,2}(:\d{2})?\s*(am|pm)|at \d{1,2})\b|بكره|بكرة|النهارده|الصبح|بالليل|العصر|المغرب|الساعة|الساعه/i.test(text);
+    const gaveTime = /\b(today|tomorrow|morning|evening|afternoon|\d{1,2}(:\d{2})?\s*(am|pm)|at \d{1,2})\b|بكره|بكرة|النهارده|الصبح|بالليل|العصر|المغرب|الساعة|الساعه|demain|aujourd|matin|soir|\d{1,2}\s?h\b|yarın|bugün|sabah|akşam|saat \d|明天|今天|上午|下午|\d点/i.test(text);
     cat = gaveTime ? "calltime" : "call";
     if (gaveTime) {
       reply = hiBack + (ar ? `تمام، بلّغت ${ownerFirst ? `أ. ${ownerFirst}` : "مسؤول المبيعات"} بالميعاد اللي حضرتك قلته وهيتصل بيك فيه إن شاء الله.` : `Noted — I've passed the time you gave to ${ownerFirst || "your account manager"}, who will call you then.`);
@@ -159,7 +159,7 @@ export async function chatTurn(t: any, text: string, opts: { lang?: string; mode
   } else {
     // Land Bank data first (a park in the question, or the lead's own park), then the approved Q&A
     let q = text;
-    if (!parksIn(text).length && lead?.project && /ارض|اراضي|أرض|أراضي|قطع|متاح|مساح|land|plot|available|size/i.test(text)) q = `${text} ${canonicalParks(lead.project)[0] || ""}`;
+    if (!parksIn(text).length && lead?.project && /ارض|اراضي|أرض|أراضي|قطع|متاح|مساح|land|plot|available|size|terrain|parcelle|disponible|arsa|arazi|mevcut|地块|土地|可售/i.test(text)) q = `${text} ${canonicalParks(lead.project)[0] || ""}`;
     const overview = PLOTS_RE.test(text) && !parksIn(text).length ? await parksOverview(ar) : null;
     if (overview) { reply = overview; by = "landbank"; cat = "overview"; }
     else {

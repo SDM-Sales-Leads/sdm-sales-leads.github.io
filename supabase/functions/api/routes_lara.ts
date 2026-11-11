@@ -401,7 +401,7 @@ export async function availabilityAnswer(question: string): Promise<{ ar: string
   let parks = parksIn(question);
   // "Sokhna" alone could be either Sokhna park: answer for both (a customer rarely says "Industria")
   if (parks.length === 1 && parks[0] === "Industria Sokhna" && !/industria|اندستريا|إندستريا/i.test(question)) parks = ["Industria Sokhna", "Sokhna 360"];
-  if (!parks.length || !(a.concepts.has("availability") || a.concepts.has("size") || /ارض|اراضي|قطع|مصنع|مخزن|land|plot/i.test(normText(question)))) return null;
+  if (!parks.length || !(a.concepts.has("availability") || a.concepts.has("size") || /ارض|اراضي|قطع|مصنع|مخزن|land|plot|terrain|parcelle|arsa|arazi|地块|土地|厂房|m2|m²|sqm/i.test(normText(question) + " " + question))) return null;
   const nums = (question.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x660)).match(/\d[\d,]{2,}/g) || []).map((x) => Number(x.replace(/,/g, ""))).filter((x) => x >= 100);
   const { data } = await admin.from("plots_snapshot").select("data,updated_at").eq("id", 1).maybeSingle();
   const all: any[] = Array.isArray(data?.data) ? data!.data : [];

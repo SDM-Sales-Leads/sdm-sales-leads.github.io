@@ -319,8 +319,11 @@ export function newPart(text: string): string {
     const t = l.trim();
     if (/^>/.test(t)) break;
     if (/^(on .{4,120} wrote:|from:\s|-----\s*original message|sent from my|في .{2,80} كتب|من:\s|________________)/i.test(t)) break;
+    // phone signatures ("Get Outlook for iOS" may be split over two lines)
+    if (/^(get )?outlook for (ios|android)|^sent from (my )?(iphone|ipad|android|samsung|mobile|outlook)|^تم الإرسال من|^مرسل من|^أرسلت من/i.test(t)) break;
     out.push(l);
   }
+  while (out.length && /^\s*(get|--)?\s*$/i.test(out[out.length - 1])) out.pop();
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, 2000);
 }
 

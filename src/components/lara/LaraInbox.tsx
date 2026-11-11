@@ -143,6 +143,7 @@ export const Conversation: React.FC<{ id: string; isAdmin: boolean; onBack?: () 
   const [text, setText] = useState(''); const [subject, setSubject] = useState('');
   const [chan, setChan] = useState<string>('');
   const [sending, setSending] = useState(false);
+  const [useDraft, setUseDraft] = useState<string | null>(null);   // the Lara draft being sent as this person's reply
   const end = useRef<HTMLDivElement>(null);
   const load = useCallback(async () => {
     try { const r = await api(`/lara/inbox/${id}`); setD(r); setChan((c) => c || (r.thread.hasChat && r.thread.last_channel === 'web' ? 'web' : r.thread.last_channel === 'whatsapp' ? 'whatsapp' : r.thread.visitor ? 'web' : 'email')); }
@@ -175,8 +176,8 @@ export const Conversation: React.FC<{ id: string; isAdmin: boolean; onBack?: () 
   const send = async () => {
     if (!text.trim()) return; setSending(true);
     try {
-      const r = await post(`/lara/inbox/${id}/reply`, { channel: chan, text, subject });
-      if (r.sent) { toast.success(chan === 'web' ? 'Sent in the chat' : 'Sent'); setText(''); } else toast.error(`Not sent: ${r.note}`);
+      const r = await post(`/lara/inbox/${id}/reply`, { channel: chan, text, subject, ...(useDraft ? { draftId: useDraft } : {}) });
+      if (r.sent) { toast.success(chan === 'web' ? 'Sent in the chat' : 'Sent'); setText(''); setUseDraft(null); } else toast.error(`Not sent: ${r.note}`);
       void load(); onChanged();
     } catch (e: any) { toast.error(e.message); } finally { setSending(false); }
   };
@@ -228,7 +229,16 @@ export const Conversation: React.FC<{ id: string; isAdmin: boolean; onBack?: () 
           })}
           <div ref={end} />
         </div>
-        {d.pending.length > 0 && <p className="mx-3 mt-2 text-xs text-amber-900 bg-amber-50 rounded-lg px-2 py-1">{d.pending.length} Lara draft(s) for this customer wait in Drafts.</p>}
+        {d.pending.length > 0 && (
+          <div className="mx-3 mt-2 space-y-1">
+            {d.pending.filter((p: any) => p.status === 'shadow').map((p: any) => (
+              <div key={p.id} className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 flex items-center gap-2">
+                <Bot size={12} className="shrink-0" /><span className="flex-1 truncate" dir="auto">Lara's {p.kind === 'reply' ? 'reply' : p.kind} ({CH[p.channel]?.label || p.channel}) is ready: {String(p.body || '').replace(/\s+/g, ' ').slice(0, 90)}…</span>
+                <button onClick={() => { setText(p.body || ''); if (p.subject) setSubject(String(p.subject).replace(/\s*\[SDM-[^\]]+\]/, '')); if (chans.includes(p.channel)) setChan(p.channel); setUseDraft(p.id); }} className="font-bold underline shrink-0">Use Lara's draft</button>
+              </div>
+            ))}
+          </div>
+        )}
         {t.status === 'stopped' ? <p className="m-3 text-xs text-rose-800 bg-rose-50 rounded-lg px-3 py-2 flex items-center gap-1"><ShieldCheck size={13} />The customer asked to stop. No more messages on any channel.</p> : (
           <div className="p-3 border-t border-brand-gray/10 space-y-2">
             <div className="flex flex-wrap items-center gap-1.5">

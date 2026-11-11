@@ -308,6 +308,7 @@ route("POST", "/lara/inbox/:id/reply", async ({ req, c, params }) => {
     if (!(await chatOpen(t))) throw new HttpError(403, "Test lock: chat replies go only to staff test conversations until the owner lifts the lock");
     const m = await admin.from("lara_messages").insert({ thread_id: t.id, lead_id: t.lead_id, direction: "out", kind: "staff", channel: "web", author: who(c), body: text, from_addr: who(c), to_addr: "web chat", at: nowIso() }).select("*").single();
     if (t.status === "open") await admin.from("lara_threads").update({ status: "handover", note: `${who(c)} took over the chat`, updated_at: nowIso() }).eq("id", t.id);   // Lara pauses until "Give back to Lara"
+    if (typeof b.draftId === "string") await admin.from("lara_drafts").update({ status: "expired", feedback: `Sent by ${who(c)} in the chat`, updated_at: nowIso() }).eq("id", b.draftId).eq("lead_id", t.lead_id).eq("status", "shadow");
     await log("mail", who(c), `Answered ${t.code} in the web chat`);
     return { success: true, sent: true, message: m.data };
   }
@@ -319,6 +320,8 @@ route("POST", "/lara/inbox/:id/reply", async ({ req, c, params }) => {
   if (ch === "whatsapp" && !to_phone) throw bad("The lead has no usable mobile number");
   if (ch === "whatsapp" && !(await waReady())) throw new HttpError(409, "WhatsApp is not connected yet (Lara › Settings & channels). Use the lead's WhatsApp button to send it from your phone.");
   const subj = ch === "email" ? str(b.subject, 200) || "Elsewedy Industrial Development" : "";
+  // "Use Lara's draft": the person sends Lara's prepared answer as their own reply; her draft is closed so it is never sent twice
+  const usedDraft = typeof b.draftId === "string" && /^[0-9a-f-]{36}$/i.test(b.draftId) ? b.draftId : null;
   const ins = await admin.from("lara_drafts").insert({
     lead_id: t.lead_id, rule: "staff_reply", kind: "reply", situation: "reply_answer", channel: ch, lang: isAr(text) ? "ar" : "en", subject: subj, body: text, to_addr, to_phone,
     reason: `Written by ${who(c)} in the Interactions inbox`, customer: str(o.customer, 120), owner_id: o.id, owner_name: str(o.name, 80), thread_id: t.id,
@@ -326,6 +329,7 @@ route("POST", "/lara/inbox/:id/reply", async ({ req, c, params }) => {
   }).select("id").single();
   if (ins.error || !ins.data) throw new HttpError(500, "Could not queue the reply");
   const r = await sendDraft(ins.data.id, { sendEnabled: true, mode: "approve", maxSendPerDay: 10000, minDaysBetween: 0, maxUnanswered: 1000, sendStart: 0, sendEnd: 24 }, who(c));
+  if (r.sent && usedDraft) await admin.from("lara_drafts").update({ status: "expired", feedback: `Sent by ${who(c)} from Interactions`, decided_by: who(c), decided_at: nowIso(), updated_at: nowIso() }).eq("id", usedDraft).eq("lead_id", t.lead_id).eq("status", "shadow");
   return { success: true, sent: r.sent, note: r.sent ? "Sent" : r.reason };
 });
 

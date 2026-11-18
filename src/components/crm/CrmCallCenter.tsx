@@ -43,7 +43,7 @@ export const CrmCallCenter: React.FC<{ leads: Lead[]; onOpen: (l: Lead) => void 
             <button key={l.id} type="button" onClick={() => onOpen(l)} className="bg-white rounded-xl border border-brand-gray/15 hover:border-brand-red/50 px-3 py-2.5 text-left flex items-center gap-3">
               <PhoneCall size={16} className="text-brand-red" />
               <span className="min-w-0 flex-1">
-                <span className="block font-bold text-[13px] text-brand-black truncate">{l.customerName || l.id}</span>
+                <span className="block font-bold text-[13px] text-brand-black truncate">{s.recontact && <span className="mr-1 text-[10px] font-extrabold rounded px-1 py-0.5 bg-orange-500 text-white align-middle" title={`Known customer (${(l.channels || []).join(' → ') || 'earlier lead'}) phoned the call center again`}>🔥 CAME BACK</span>}{l.customerName || l.id}</span>
                 <span className="block text-[11px] text-brand-gray font-mono truncate">{phoneIntl(l.phoneNumber) || l.phoneNumber || '—'} · {l.assignedSalespersonName || 'not assigned yet'}</span>
               </span>
               <span className={`shrink-0 text-[11px] font-extrabold rounded-full px-2.5 py-1 ${s.overdue ? 'bg-brand-red text-white' : s.leftMs < 6 * 3600_000 ? 'bg-brand-red/80 text-white' : 'bg-brand-red/10 text-brand-red'}`}>{s.overdue ? `Late ${ccLeft(s.leftMs)}` : `${ccLeft(s.leftMs)} left`}</span>

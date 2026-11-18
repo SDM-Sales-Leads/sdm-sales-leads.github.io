@@ -542,8 +542,22 @@ export function funnelRows(a: Agg) {
 // and the alert always agree.
 // ---------------------------------------------------------------------------------------------
 export const CC_HOURS = 24;
-export interface CcState { leftMs: number; overdue: boolean; start: number }
+export interface CcState { leftMs: number; overdue: boolean; start: number; recontact?: boolean }
+/** 18 Nov 2026: a known customer who phoned the call center again (re-contact, recontact.ts) is a call center lead again: a fresh
+ *  24-hour clock from the re-contact, until the owner logs a call / WhatsApp / meeting / comment after it. */
+function ccRecontact(l: Lead, nowMs: number): CcState | null {
+  const at = Date.parse(l.lastRecontactAt || '');
+  if (!at || !/call center/i.test(l.lastChannel || '') || !isOpen(l) || isMerged(l)) return null;
+  const tl = l.timeline || [];
+  for (let i = 0; i < tl.length; i++) if (REAL_EVENTS.includes(tl[i].type) && (Date.parse(tl[i].timestamp) || 0) >= at) return null;
+  if (Date.parse(l.lastContactDate || '') > at) return null;
+  const start = Math.max(at, Date.parse(l.assignedDate || '') || 0);
+  const leftMs = start + CC_HOURS * 3600_000 - nowMs;
+  return { leftMs, overdue: leftMs < 0, start, recontact: true };
+}
 export function ccState(l: Lead, nowMs: number): CcState | null {
+  const rc = ccRecontact(l, nowMs);
+  if (rc) return rc;
   if (channelOf(l) !== 'Call Center' || !isOpen(l) || isMerged(l) || isEngaged(l) || l.importedHistory || l.oldLead) return null;
   const start = Math.max(Date.parse(l.date) || 0, Date.parse(l.assignedDate || '') || 0);
   if (!start) return null;

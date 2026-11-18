@@ -81,10 +81,22 @@ const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").re
 const isAr = (t: string) => /[؀-ۿ]/.test(t || "");
 // the customer's ways to reach us, as buttons under every Lara e-mail (owner, 11 Nov 2026): chat with Lara (web page), call, WhatsApp
 export const CHAT_SITE = "https://sdm-sales-leads.github.io/chat.html";
+// chat links expire (owner, 18 Nov 2026): 90 days with no message, or 365 days after the link was made; the next Lara e-mail carries a fresh one
+export const CHAT_IDLE_DAYS = 90, CHAT_MAX_DAYS = 365;
+export function chatKeyExpired(t: any, now = Date.now()): boolean {
+  if (!t?.chat_key) return true;
+  const made = Date.parse(t.chat_key_at || t.created_at || "") || 0;
+  const last = Math.max(made, Date.parse(t.last_at || "") || 0);
+  if (!made) return false;   // no date at all (should not happen after migration 0028): keep the link rather than break it
+  return now - made > CHAT_MAX_DAYS * 864e5 || now - last > CHAT_IDLE_DAYS * 864e5;
+}
 export async function ensureChatKey(t: any): Promise<string> {
-  if (t?.chat_key) return t.chat_key;
+  const { data: cur } = await admin.from("lara_threads").select("chat_key,chat_key_at,last_at,created_at").eq("id", t.id).maybeSingle();
+  if (cur?.chat_key && !chatKeyExpired(cur)) return cur.chat_key;
   const key = Array.from(crypto.getRandomValues(new Uint8Array(24))).map((b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
-  await admin.from("lara_threads").update({ chat_key: key }).eq("id", t.id).is("chat_key", null);
+  let u: any = admin.from("lara_threads").update({ chat_key: key, chat_key_at: new Date().toISOString() }).eq("id", t.id);
+  u = cur?.chat_key ? u.eq("chat_key", cur.chat_key) : u.is("chat_key", null);   // only one caller replaces the old link
+  await u;
   const { data } = await admin.from("lara_threads").select("chat_key").eq("id", t.id).maybeSingle();
   return data?.chat_key || key;
 }

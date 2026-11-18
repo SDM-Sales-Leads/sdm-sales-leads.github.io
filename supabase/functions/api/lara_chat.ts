@@ -8,7 +8,7 @@ import { route } from "./router.ts";
 import { pg } from "./db.ts";
 import { firstNameOf } from "../../../src/lib/personName.ts";
 import { activeKb, availabilityAnswer, canSeeOwner, laraAnswer, laraConfig, laraOwners, laraWho, log, ownsLead, who } from "./routes_lara.ts";
-import { appendTimeline, contactButtons, ensureChatKey, ensureThread, HANDOVER_RE, isOptedOut, isStopRequest, ownerOf, sendDraft } from "./lara_mail.ts";
+import { appendTimeline, contactButtons, chatKeyExpired, ensureChatKey, ensureThread, HANDOVER_RE, isOptedOut, isStopRequest, ownerOf, sendDraft } from "./lara_mail.ts";
 import { addNotifications } from "./notify.ts";
 import { learn, parksIn, remember, welcomeBack } from "./lara_memory.ts";
 import { graphOf, nextOf } from "../../../src/components/lara/flow/graph.ts";
@@ -214,6 +214,7 @@ async function threadByKey(key: string) {
   if (!/^[a-z0-9]{20,40}$/.test(key)) throw new HttpError(404, "This chat link is not valid");
   const { data } = await admin.from("lara_threads").select("*").eq("chat_key", key).maybeSingle();
   if (!data) throw new HttpError(404, "This chat link is not valid");
+  if (chatKeyExpired(data)) throw new HttpError(410, "This chat link has expired. Open the latest e-mail from Lara, or start a new chat on our website.");
   return data;
 }
 

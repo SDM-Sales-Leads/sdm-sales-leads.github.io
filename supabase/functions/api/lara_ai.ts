@@ -5,6 +5,7 @@
 // goes to Missed questions, so the admin approves an answer and the same question never costs AI again.
 import { admin, getConfig, getSecret, hasSecret, nowIso, setConfig, setSecret, str } from "./lib.ts";
 import { KbEntry, matchQuestion } from "./lara_match.ts";
+import { pg } from "./db.ts";
 
 export interface AiCfg { enabled: boolean; model: string; dailyCap: number }
 export async function aiCfg(): Promise<AiCfg & { hasKey: boolean; usedToday: number }> {
@@ -15,6 +16,10 @@ export async function aiCfg(): Promise<AiCfg & { hasKey: boolean; usedToday: num
     dailyCap: Math.min(500, Math.max(0, Number(c.dailyCap ?? 20))), hasKey: await hasSecret("lara_ai_key"),
     usedToday: u.day === day() ? Number(u.n) || 0 : 0,
   };
+}
+async function aiTake(d: string, cap: number): Promise<boolean> {
+  return await pg(async (q) => (await q`select lara_ai_take(${d}, ${cap}) as v`)[0]?.v === true,
+    async () => (await admin.rpc("lara_ai_take", { p_day: d, p_cap: cap })).data === true).catch(() => false);   // any doubt: no AI call
 }
 const day = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo" }).format(new Date());
 export async function saveAi(b: any, by: string) {
@@ -34,7 +39,8 @@ export async function aiAnswer(question: string, kb: KbEntry[], extraFacts: stri
   const near = matchQuestion(question, kb, 6).filter((m) => m.score > 0.12);
   const facts = [...near.map((m) => `Q: ${m.entry.q_en || m.entry.q_ar}\nA: ${customer.lang === "ar" ? m.entry.a_ar || m.entry.a_en : m.entry.a_en || m.entry.a_ar}`), ...extraFacts].filter(Boolean).slice(0, 10);
   if (!facts.length) return null;                                          // nothing to ground on: no AI call, no cost
-  await setConfig("lara_ai_usage", { day: day(), n: c.usedToday + 1 });    // count before the call (a failed call still counts: the cap is a hard ceiling)
+  // count before the call, in one database step (migration 0028): two questions at once can never pass the last free slot; a failed call still counts
+  if (!(await aiTake(day(), c.dailyCap))) return null;
   const sys = `You are Lara, the digital sales assistant of Elsewedy Industrial Development (SDM), industrial land in Egyptian industrial parks.
 Answer the customer's question using ONLY the FACTS below. If the facts do not answer it, reply exactly NO_ANSWER.
 Never invent prices, dates, areas, discounts or promises. Never say you are human. Be short (max 4 sentences), polite and professional.

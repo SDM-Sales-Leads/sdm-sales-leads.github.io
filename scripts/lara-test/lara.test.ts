@@ -1,6 +1,6 @@
 // Lara (AI agent) offline test suite: real server code, fake database. Run with build.mjs + node.
 import { matchQuestion, THRESHOLD, normText, isArabic, type KbEntry } from "../../supabase/functions/api/lara_match.ts";
-import { newPart, STOP_RE, HANDOVER_RE, AUTO_RE, AUTO_SENDER, isStopRequest } from "../../supabase/functions/api/lara_mail.ts";
+import { newPart, STOP_RE, HANDOVER_RE, AUTO_RE, AUTO_SENDER, isStopRequest, chatKeyExpired } from "../../supabase/functions/api/lara_mail.ts";
 import { learn, welcomeBack, parksIn } from "../../supabase/functions/api/lara_memory.ts";
 import { triggerHit, condsOk, condOne, stopReason, validateWorkflow, stepsToGraph } from "../../supabase/functions/api/lara_flow.ts";
 import { intl, waSignatureOk, inWindow } from "../../supabase/functions/api/lara_wa.ts";
@@ -173,6 +173,17 @@ ok("STOP French", isStopRequest("Arrêtez svp") && isStopRequest("pas intéress�
 ok("STOP Turkish", isStopRequest("ilgilenmiyorum") && isStopRequest("lütfen durdurun"));
 ok("STOP Chinese", isStopRequest("停止") && isStopRequest("不感兴趣"));
 ok("Turkish 'durum' (status) is not stop", !isStopRequest("durum nedir"));
+
+S("8. Chat link expiry");
+{ const D = 864e5, now = Date.parse("2026-11-18T12:00:00Z"), iso = (d: number) => new Date(now - d * D).toISOString();
+  ok("fresh link works", !chatKeyExpired({ chat_key: "k", chat_key_at: iso(1), last_at: iso(0) }, now));
+  ok("no key = expired", chatKeyExpired({ chat_key: null }, now));
+  ok("89 days quiet still works", !chatKeyExpired({ chat_key: "k", chat_key_at: iso(200), last_at: iso(89) }, now));
+  ok("91 days quiet expires", chatKeyExpired({ chat_key: "k", chat_key_at: iso(200), last_at: iso(91) }, now));
+  ok("made 366 days ago expires even if busy", chatKeyExpired({ chat_key: "k", chat_key_at: iso(366), last_at: iso(0) }, now));
+  ok("never messaged: counts from when made", chatKeyExpired({ chat_key: "k", chat_key_at: iso(95) }, now) && !chatKeyExpired({ chat_key: "k", chat_key_at: iso(10) }, now));
+  ok("old row without chat_key_at uses created_at", chatKeyExpired({ chat_key: "k", created_at: iso(400), last_at: iso(1) }, now));
+}
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 if (fail) { console.log("FAILED:\n - " + fails.join("\n - ")); process.exitCode = 1; }

@@ -344,7 +344,9 @@ export async function runShadow(by: string): Promise<any> {
 
 /** test run: who a workflow would act on right now, with sample messages. Nothing is written. */
 export async function testWorkflow(w: Workflow) {
-  const cfg = await laraConfig();
+  // 18 Nov 2026: the preview shows what Lara would send once switched on (approve first), not the "off" shadow channel
+  const cfg0 = await laraConfig();
+  const cfg = cfg0.mode === "off" ? { ...cfg0, mode: "approve" as const } : cfg0;
   const x = await runContext(w.trigger.type === "old_lead");
   const { data: active } = await admin.from("lara_enrollments").select("lead_id").eq("status", "active").limit(20000);
   const busy = new Set((active || []).map((r: any) => r.lead_id));
@@ -621,11 +623,21 @@ route("POST", "/lara/drafts/:id/send", async ({ c, params }) => {
   return { success: true, sent: r.sent, sendNote: r.sent ? "E-mail sent" : r.reason };
 });
 
+/** one page of a Lara list (owner, 11 Nov 2026: pages of 10/25/50/100 on the server, never a whole list) */
+function pageOf(query: URLSearchParams, def = 25) {
+  const size = [10, 25, 50, 100].includes(Number(query.get("size"))) ? Number(query.get("size")) : def;
+  const page = Math.max(1, Math.min(5000, Number(query.get("page")) || 1));
+  const qs = str(query.get("q") || "", 80).replace(/[^\p{L}\p{N}\s@.-]/gu, " ").replace(/\s+/g, " ").trim();
+  return { size, page, from: (page - 1) * size, to: page * size - 1, qs };
+}
 route("GET", "/lara/kb", async ({ c, query }) => {
   needAdmin(c);
   const st = query.get("status") === "archived" ? "archived" : "active";
-  const { data } = await admin.from("lara_kb").select("*").eq("status", st).order("topic").order("updated_at", { ascending: false }).limit(3000);
-  return { success: true, rows: data || [] };
+  const pg0 = pageOf(query);
+  let kq: any = admin.from("lara_kb").select("*", { count: "exact" }).eq("status", st);
+  if (pg0.qs) kq = kq.or(`topic.ilike.%${pg0.qs}%,q_ar.ilike.%${pg0.qs}%,q_en.ilike.%${pg0.qs}%,a_ar.ilike.%${pg0.qs}%,a_en.ilike.%${pg0.qs}%,phrasings.ilike.%${pg0.qs}%`);
+  const { data, count } = await kq.order("topic").order("updated_at", { ascending: false }).range(pg0.from, pg0.to);
+  return { success: true, rows: data || [], total: count || 0, page: pg0.page, size: pg0.size };
 });
 route("POST", "/lara/kb", async ({ req, c }) => {
   needAdmin(c);
@@ -662,8 +674,11 @@ route("POST", "/lara/ask", async ({ req, c }) => {
 route("GET", "/lara/missed", async ({ c, query }) => {
   needAdmin(c);
   const st = ["open", "answered", "dismissed"].includes(query.get("status") || "") ? query.get("status")! : "open";
-  const { data } = await admin.from("lara_missed").select("*").eq("status", st).order("asked", { ascending: false }).order("created_at", { ascending: true }).limit(500);
-  return { success: true, rows: data || [] };
+  const pg0 = pageOf(query);
+  let mq: any = admin.from("lara_missed").select("*", { count: "exact" }).eq("status", st);
+  if (pg0.qs) mq = mq.ilike("question", `%${pg0.qs}%`);
+  const { data, count } = await mq.order("asked", { ascending: false }).order("created_at", { ascending: true }).range(pg0.from, pg0.to);
+  return { success: true, rows: data || [], total: count || 0, page: pg0.page, size: pg0.size };
 });
 route("POST", "/lara/missed/:id/answer", async ({ req, c, params }) => {
   needAdmin(c);
@@ -760,6 +775,7 @@ route("POST", "/lara/mailbox", async ({ req, c }) => {
 route("POST", "/lara/mailbox/check", async ({ c }) => { needAdmin(c); return { success: true, ...(await laraMailTick()) }; });
 
 route("GET", "/lara/threads", async ({ c, query }) => {
+  needAdmin(c);   // 18 Nov 2026: the screens use the paged, scoped /lara/inbox; this old list read 300 rows before the scope
   const w = laraWho(c);
   const st = ["open", "handover", "stopped", "closed"].includes(query.get("status") || "") ? query.get("status")! : "";
   let q: any = admin.from("lara_threads").select("*").order("updated_at", { ascending: false }).limit(300);
@@ -794,10 +810,11 @@ route("POST", "/lara/threads/:id/status", async ({ req, c, params }) => {
   await log("mail", who(c), `Conversation set to ${status}`);
   return { success: true };
 });
-route("GET", "/lara/unmatched", async ({ c }) => {
+route("GET", "/lara/unmatched", async ({ c, query }) => {
   needAdmin(c);
-  const { data } = await admin.from("lara_messages").select("id,subject,body,from_addr,at").eq("kind", "unmatched").order("at", { ascending: false }).limit(200);
-  return { success: true, rows: data || [] };
+  const pg0 = pageOf(query, 10);
+  const { data, count } = await admin.from("lara_messages").select("id,subject,body,from_addr,at", { count: "exact" }).eq("kind", "unmatched").order("at", { ascending: false }).range(pg0.from, pg0.to);
+  return { success: true, rows: data || [], total: count || 0, page: pg0.page, size: pg0.size };
 });
 route("POST", "/lara/unmatched/:id", async ({ req, c, params }) => {
   needAdmin(c);
@@ -816,10 +833,13 @@ route("POST", "/lara/unmatched/:id", async ({ req, c, params }) => {
   await log("mail", who(c), `Mail from ${m.from_addr} linked to ${leadId}`);
   return { success: true };
 });
-route("GET", "/lara/optout", async ({ c }) => {
+route("GET", "/lara/optout", async ({ c, query }) => {
   needAdmin(c);
-  const { data } = await admin.from("lara_optout").select("*").is("removed_at", null).order("at", { ascending: false }).limit(500);
-  return { success: true, rows: data || [] };
+  const pg0 = pageOf(query, 10);
+  let oq: any = admin.from("lara_optout").select("contact,lead_id,at,reason", { count: "exact" }).is("removed_at", null);
+  if (pg0.qs) oq = oq.or(`contact.ilike.%${pg0.qs}%,lead_id.ilike.%${pg0.qs}%`);
+  const { data, count } = await oq.order("at", { ascending: false }).range(pg0.from, pg0.to);
+  return { success: true, rows: data || [], total: count || 0, page: pg0.page, size: pg0.size };
 });
 /** the customer asked to hear from us again: off the list (kept with who/when; nothing deleted) */
 route("POST", "/lara/optout/remove", async ({ req, c }) => {
@@ -991,12 +1011,14 @@ route("POST", "/lara/offers/:id/update", async ({ req, c, params }) => {
   await log("offer", who(c), `Offer ${offer.ref} changed: ${offer.mode}, discount ${offer.discountPct}%`);
   return { success: true, offer: offerView(offer) };
 });
-route("GET", "/lara/offers", async ({ c }) => {
+route("GET", "/lara/offers", async ({ c, query }) => {
   const w = laraWho(c);
-  let oq: any = admin.from("lara_drafts").select("id,lead_id,customer,owner_name,owner_id,status,send_status,send_error,sent_at,created_at,decided_by,offer,reason").eq("kind", "offer");
+  const pg0 = pageOf(query, 10);
+  let oq: any = admin.from("lara_drafts").select("id,lead_id,customer,owner_name,owner_id,status,send_status,send_error,sent_at,created_at,decided_by,offer,reason", { count: "exact" }).eq("kind", "offer");
   if (!w.admin) oq = oq.in("owner_id", (await laraOwners(c)) || []);
-  const { data } = await oq.order("created_at", { ascending: false }).limit(150);
-  return { success: true, rows: (data || []).map((r: any) => ({ ...r, offer: r.offer?.listSqm ? offerView(r.offer) : r.offer })) };
+  if (pg0.qs) oq = oq.or(`customer.ilike.%${pg0.qs}%,owner_name.ilike.%${pg0.qs}%,lead_id.ilike.%${pg0.qs}%`);
+  const { data, count } = await oq.order("created_at", { ascending: false }).range(pg0.from, pg0.to);
+  return { success: true, total: count || 0, page: pg0.page, size: pg0.size, rows: (data || []).map((r: any) => ({ ...r, offer: r.offer?.listSqm ? offerView(r.offer) : r.offer })) };
 });
 /** the PDF of an offer draft = the Initial financial offer the Land Bank built for it (the same file is attached when sent) */
 route("GET", "/lara/offers/:id/pdf", async ({ c, params }) => {

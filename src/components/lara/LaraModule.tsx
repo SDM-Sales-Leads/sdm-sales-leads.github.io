@@ -256,13 +256,22 @@ const Knowledge: React.FC<{ reload: () => void }> = ({ reload }) => {
   const [arch, setArch] = useState(false);
   const [edit, setEdit] = useState<any | null>(null);
   const [q, setQ] = useState('');
-  const load = useCallback(async () => { setRows(null); try { setRows((await api(`/lara/kb?status=${arch ? 'archived' : 'active'}`)).rows); } catch (e: any) { toast.error(e.message); setRows([]); } }, [arch]);
+  const qd = useDebounced(q);
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(25);
+  const [total, setTotal] = useState(0);
+  const load = useCallback(async () => {
+    setRows(null);
+    const p = new URLSearchParams({ status: arch ? 'archived' : 'active', page: String(page), size: String(size) }); if (qd.trim()) p.set('q', qd.trim());
+    try { const r = await api(`/lara/kb?${p}`); setRows(r.rows); setTotal(r.total || 0); } catch (e: any) { toast.error(e.message); setRows([]); }
+  }, [arch, page, size, qd]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setPage(1); }, [arch, size, qd]);
   const save = async () => {
     try { await post('/lara/kb', edit); toast.success('Saved'); setEdit(null); void load(); reload(); } catch (e: any) { toast.error(e.message); }
   };
   const setStatus = async (id: string, status: string) => { try { await post(`/lara/kb/${id}/status`, { status }); void load(); reload(); } catch (e: any) { toast.error(e.message); } };
-  const shown = (rows || []).filter((r) => !q || `${r.topic} ${r.q_ar} ${r.q_en} ${r.a_ar} ${r.a_en}`.toLowerCase().includes(q.toLowerCase()));
+  const shown = rows || [];
   return (
     <div className="grid lg:grid-cols-3 gap-5">
       <Card title={<><BookOpen size={16} className="text-brand-red" />Approved answers</>} className="lg:col-span-2" right={
@@ -272,7 +281,7 @@ const Knowledge: React.FC<{ reload: () => void }> = ({ reload }) => {
         </div>}>
         <div className="relative"><Search size={14} className="absolute left-3 top-2.5 text-brand-gray" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search questions and answers…" className="input-field w-full pl-8 text-sm" /></div>
         {edit && <KbForm v={edit} set={setEdit} onSave={save} onCancel={() => setEdit(null)} />}
-        {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : shown.length === 0 ? <p className="text-sm text-brand-gray py-4 text-center">{arch ? 'No archived answers.' : 'No answers yet. Start with Missed questions: 25 common customer questions are waiting for SDM\'s real answers.'}</p> : (
+        {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : shown.length === 0 ? <p className="text-sm text-brand-gray py-4 text-center">{qd.trim() ? 'No answer matches this search.' : arch ? 'No archived answers.' : 'No answers yet. Start with Missed questions: 25 common customer questions are waiting for SDM\'s real answers.'}</p> : (
           <ul className="divide-y divide-brand-gray/10">
             {shown.map((r) => (
               <li key={r.id} className="py-3 space-y-1">
@@ -290,6 +299,7 @@ const Knowledge: React.FC<{ reload: () => void }> = ({ reload }) => {
             ))}
           </ul>
         )}
+        {rows !== null && <Pager page={page} size={size} total={total} onPage={setPage} onSize={setSize} />}
       </Card>
       <AskBox reload={reload} />
     </div>
@@ -362,14 +372,25 @@ const Missed: React.FC<{ reload: () => void }> = ({ reload }) => {
   const [st, setSt] = useState<'open' | 'answered' | 'dismissed'>('open');
   const [open, setOpen] = useState<string | null>(null);
   const [v, setV] = useState<any>({ ...EMPTY });
-  const load = useCallback(async () => { setRows(null); try { setRows((await api(`/lara/missed?status=${st}`)).rows); } catch (e: any) { toast.error(e.message); setRows([]); } }, [st]);
+  const [q, setQ] = useState('');
+  const qd = useDebounced(q);
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(25);
+  const [total, setTotal] = useState(0);
+  const load = useCallback(async () => {
+    setRows(null);
+    const p = new URLSearchParams({ status: st, page: String(page), size: String(size) }); if (qd.trim()) p.set('q', qd.trim());
+    try { const r = await api(`/lara/missed?${p}`); setRows(r.rows); setTotal(r.total || 0); } catch (e: any) { toast.error(e.message); setRows([]); }
+  }, [st, page, size, qd]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setPage(1); }, [st, size, qd]);
   const answer = async (id: string) => { try { await post(`/lara/missed/${id}/answer`, v); toast.success('Answer saved. Lara will use it from now on.'); setOpen(null); void load(); reload(); } catch (e: any) { toast.error(e.message); } };
   const dismiss = async (id: string) => { try { await post(`/lara/missed/${id}/dismiss`, {}); void load(); reload(); } catch (e: any) { toast.error(e.message); } };
   return (
     <Card title={<><HelpCircle size={16} className="text-brand-red" />Missed questions</>} right={
       <div className="flex rounded-xl border border-brand-gray/20 overflow-hidden text-xs font-bold">{(['open', 'answered', 'dismissed'] as const).map((s) => <button key={s} onClick={() => setSt(s)} className={`px-3 py-1.5 ${st === s ? 'bg-brand-red text-white' : ''}`}>{s[0].toUpperCase() + s.slice(1)}</button>)}</div>}>
       <p className="text-xs text-brand-gray">Questions Lara could not answer from the approved Q&A. Answer each once with SDM's real facts: it becomes an approved answer and Lara uses it from then on. The first 25 are the questions customers ask most (prepared by the Sales Director role); they have no answers on purpose.</p>
+      <div className="relative"><Search size={14} className="absolute left-3 top-2.5 text-brand-gray" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search questions…" className="input-field w-full pl-8 text-sm" /></div>
       {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : rows.length === 0 ? <p className="text-sm text-brand-gray py-4 text-center">Nothing here.</p> : (
         <ul className="divide-y divide-brand-gray/10">
           {rows.map((m) => (
@@ -386,6 +407,7 @@ const Missed: React.FC<{ reload: () => void }> = ({ reload }) => {
           ))}
         </ul>
       )}
+      {rows !== null && <Pager page={page} size={size} total={total} onPage={setPage} onSize={setSize} />}
     </Card>
   );
 };
@@ -495,10 +517,20 @@ const Mailbox: React.FC<{ ov: any; reload: () => void }> = ({ ov, reload }) => {
 const MailLists: React.FC = () => {
   const [um, setUm] = useState<any[] | null>(null);
   const [opt, setOpt] = useState<any[]>([]);
-  const load = useCallback(async () => {
-    try { const [b, c] = await Promise.all([api('/lara/unmatched'), api('/lara/optout')]); setUm(b.rows); setOpt(c.rows); } catch (e: any) { toast.error(e.message); setUm([]); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+  const [uPage, setUPage] = useState(1); const [uTotal, setUTotal] = useState(0);
+  const [oPage, setOPage] = useState(1); const [oTotal, setOTotal] = useState(0);
+  const [oq, setOq] = useState(''); const oqd = useDebounced(oq);
+  const loadUm = useCallback(async () => {
+    try { const b = await api(`/lara/unmatched?page=${uPage}&size=10`); setUm(b.rows); setUTotal(b.total || 0); } catch (e: any) { toast.error(e.message); setUm([]); }
+  }, [uPage]);
+  const loadOpt = useCallback(async () => {
+    const p = new URLSearchParams({ page: String(oPage), size: '10' }); if (oqd.trim()) p.set('q', oqd.trim());
+    try { const c = await api(`/lara/optout?${p}`); setOpt(c.rows); setOTotal(c.total || 0); } catch (e: any) { toast.error(e.message); setOpt([]); }
+  }, [oPage, oqd]);
+  const load = useCallback(() => { void loadUm(); void loadOpt(); }, [loadUm, loadOpt]);
+  useEffect(() => { void loadUm(); }, [loadUm]);
+  useEffect(() => { void loadOpt(); }, [loadOpt]);
+  useEffect(() => { setOPage(1); }, [oqd]);
   const link = async (id: string) => {
     const leadId = window.prompt('Lead number to link this mail to (e.g. LD-10182):');
     if (!leadId) return;
@@ -513,10 +545,13 @@ const MailLists: React.FC = () => {
           <li key={m.id} className="py-2 text-xs space-y-1"><p className="font-bold">{m.from_addr} · {when(m.at)}</p><p className="text-brand-gray">{m.subject}</p><p dir={isAr(m.body) ? 'rtl' : 'ltr'} className="line-clamp-3">{m.body}</p>
             <div className="flex gap-3 font-bold"><button onClick={() => link(m.id)} className="text-brand-red">Link to a lead</button><button onClick={() => ignore(m.id)} className="text-brand-gray">Ignore</button></div></li>
         ))}</ul>}
+        {um !== null && uTotal > 10 && <Pager page={uPage} size={10} total={uTotal} onPage={setUPage} />}
       </Card>
       <Card title={<><ShieldCheck size={16} className="text-rose-600" />Do-not-contact list</>} className="lg:col-span-2">
         <p className="text-xs text-brand-gray">Customers who replied "stop" / "مش مهتم". Lara never writes to them again.</p>
-        {opt.length === 0 ? <p className="text-sm text-brand-gray">Empty.</p> : <ul className="text-xs divide-y divide-brand-gray/10 max-h-80 overflow-y-auto">{opt.map((o) => <li key={o.contact} className="py-1.5 flex items-center gap-2"><span className="flex-1"><b>{o.contact}</b> · {o.lead_id || '—'} · {when(o.at)}{o.reason ? <span className="text-brand-gray" dir="auto"> · "{String(o.reason).slice(0, 60)}"</span> : null}</span><button onClick={async () => { if (!window.confirm(`Take ${o.contact} off the do-not-contact list? Only do this when the customer asked to hear from us again.`)) return; try { await post('/lara/optout/remove', { contact: o.contact }); toast.success('Taken off the list'); void load(); } catch (e: any) { toast.error(e.message); } }} className="text-[11px] font-bold text-brand-red underline shrink-0">Remove</button></li>)}</ul>}
+        <div className="relative"><Search size={14} className="absolute left-3 top-2.5 text-brand-gray" /><input value={oq} onChange={(e) => setOq(e.target.value)} placeholder="Search e-mail, phone or lead…" className="input-field w-full pl-8 text-xs" /></div>
+        {opt.length === 0 ? <p className="text-sm text-brand-gray">{oqd.trim() ? 'No match.' : 'Empty.'}</p> : <ul className="text-xs divide-y divide-brand-gray/10 max-h-80 overflow-y-auto">{opt.map((o) => <li key={o.contact} className="py-1.5 flex items-center gap-2"><span className="flex-1"><b>{o.contact}</b> · {o.lead_id || '—'} · {when(o.at)}{o.reason ? <span className="text-brand-gray" dir="auto"> · "{String(o.reason).slice(0, 60)}"</span> : null}</span><button onClick={async () => { if (!window.confirm(`Take ${o.contact} off the do-not-contact list? Only do this when the customer asked to hear from us again.`)) return; try { await post('/lara/optout/remove', { contact: o.contact }); toast.success('Taken off the list'); void load(); } catch (e: any) { toast.error(e.message); } }} className="text-[11px] font-bold text-brand-red underline shrink-0">Remove</button></li>)}</ul>}
+        {oTotal > 10 && <Pager page={oPage} size={10} total={oTotal} onPage={setOPage} />}
       </Card>
     </div>
   );

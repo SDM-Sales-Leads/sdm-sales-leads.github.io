@@ -1,6 +1,7 @@
 // Lara — the Land Bank's INITIAL FINANCIAL OFFER (the Land Bank page builds the PDF; Lara attaches it). No AI.
 // Prices: the customer sees the real price + 20% (list price); a discount % can be given and is printed as its own line, never below
 // the real price. The REAL price is shown here (inside the system) and never in the PDF or the e-mail.
+import { Pager } from './Pager';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { FileText, Loader2, Search, Download, CheckSquare, Square, Send, Lock, Percent } from 'lucide-react';
@@ -79,8 +80,12 @@ export const LaraOffers: React.FC<{ leads: Lead[]; reload: () => void; go: (t: s
   const [preview, setPreview] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<any[] | null>(null);
-  const loadRows = useCallback(async () => { try { setRows((await api('/lara/offers')).rows); } catch (e: any) { toast.error(e.message); setRows([]); } }, []);
+  const [oPage, setOPage] = useState(1);
+  const [oSize, setOSize] = useState(10);
+  const [oTotal, setOTotal] = useState(0);
+  const loadRows = useCallback(async () => { try { const r = await api(`/lara/offers?page=${oPage}&size=${oSize}`); setRows(r.rows); setOTotal(r.total || 0); } catch (e: any) { toast.error(e.message); setRows([]); } }, [oPage, oSize]);
   useEffect(() => { void loadRows(); }, [loadRows]);
+  useEffect(() => { setOPage(1); }, [oSize]);
 
   const matches = useMemo(() => {
     const t = q.trim().toLowerCase(); if (t.length < 2) return [];
@@ -155,6 +160,7 @@ export const LaraOffers: React.FC<{ leads: Lead[]; reload: () => void; go: (t: s
         {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : rows.length === 0 ? <p className="text-sm text-brand-gray py-4 text-center">No offers yet.</p> : (
           <ul className="divide-y divide-brand-gray/10">{rows.map((r) => <OfferRow key={r.id} r={r} onChanged={loadRows} />)}</ul>
         )}
+        {rows !== null && <Pager page={oPage} size={oSize} total={oTotal} onPage={setOPage} onSize={setOSize} />}
       </section>
     </div>
   );

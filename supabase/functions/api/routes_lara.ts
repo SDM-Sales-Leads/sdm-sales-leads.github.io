@@ -373,7 +373,7 @@ export async function testWorkflow(w: Workflow) {
       if (n.type === "condition") { const ok = condOne({ field: n.data?.field, op: n.data?.op || "in", value: n.data?.value }, l, x.now, false); steps.push({ id: n.id, type: n.type, text: `${label}: ${ok ? "yes" : "no"}` }); cur = nextOf(g, n.id, ok ? "yes" : "no"); continue; }
       if (n.type === "message") {
         const d = draftFor(cfg, x, w, { channel: n.data?.channel, situation: n.data?.situation }, label, l, "", "TEST");
-        steps.push({ id: n.id, type: n.type, text: d ? `Day ${day}: ${d.channel === "email" ? "e-mail" : "WhatsApp"} draft` : `Day ${day}: skipped (no e-mail / phone for this channel)` });
+        steps.push({ id: n.id, type: n.type, text: d ? `Day ${day}: ${d.channel === "email" ? "e-mail" : "WhatsApp"} draft${d.channel === "whatsapp" && !x.waLive ? " (no e-mail; waits until WhatsApp is connected)" : ""}` : `Day ${day}: skipped (no e-mail / phone for this channel)` });
         if (d && !msg) msg = { customer: d.customer, channel: d.channel, subject: d.subject, body: d.body };
       } else steps.push({ id: n.id, type: n.type, text: `Day ${day}: ${label}` });
       cur = nextOf(g, n.id);

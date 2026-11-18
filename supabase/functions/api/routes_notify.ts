@@ -9,6 +9,7 @@ import { fillPool } from "./pool.ts";
 import { usageGuard } from "./usage.ts";
 import { laraMailTick, runShadow } from "./routes_lara.ts";
 import { appBase, escalateCallCenter, notifyOnHold, resetHoldCache, runReminders, sendAssignDigest } from "./notify.ts";
+import { escalateRecontacts } from "./recontact.ts";
 
 // ---------------------------------------------------------------------------------------------
 // the bell
@@ -159,6 +160,8 @@ route("POST", "/cron/reminders", async ({ req }) => {
   if (hourNow >= 22) return { ...r, late: "22:00-23:00: reminders only", ms: T };
   // the 24-hour call-center limits do not need a look every 5 minutes: every half hour is plenty (it reads the last 3 days of call-center leads)
   let cc: any = {}; if (new Date().getMinutes() % 30 < 5) { try { cc = await lap("callcenter", () => escalateCallCenter()); } catch (e: any) { cc = { ccError: String(e?.message || e).slice(0, 120) }; } } else cc = { ccSkipped: "every 30 min" };
+  // 18 Nov 2026: a customer who contacted us again and was not called back within 24 hours (recontact.ts)
+  if (new Date().getMinutes() % 30 < 5) { try { cc = { ...cc, ...(await lap("recontact", () => escalateRecontacts())) }; } catch (e: any) { cc = { ...cc, rcError: String(e?.message || e).slice(0, 120) }; } }
   let pool: any = {}; try { pool = await lap("pool", () => fillPool(300)); } catch (e: any) { pool = { poolError: String(e?.message || e).slice(0, 120) }; }
   let dg: any = {}; try { dg = await lap("digest", () => sendAssignDigest()); } catch (e: any) { dg = { digestError: String(e?.message || e).slice(0, 120) }; }
   let ug: any = {}; try { if (+new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", hourCycle: "h23" }).format(new Date()) >= 8) ug = await lap("usage", () => usageGuard()); } catch { /* ignore */ }

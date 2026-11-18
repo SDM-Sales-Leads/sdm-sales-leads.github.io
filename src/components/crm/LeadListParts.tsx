@@ -9,6 +9,23 @@ import { fmtSize, formatLeadDateTime, getSlaStatus } from './leadView';
 import { priorityClass, prioKey, statusClass } from './leadRules';
 import { LeadScoreChip } from './LeadScoreChip';
 
+/** "came back" badge: the customer contacted us again (re-contact) or a closed customer returned as a new lead */
+export const RecontactBadge = React.memo(function RecontactBadge({ l }: { l: Lead }) {
+  const n = Number(l.recontactCount) || 0;
+  if (!n && !l.returningOf) return null;
+  const at = l.lastRecontactAt ? Date.parse(l.lastRecontactAt) : 0;
+  const hot = n > 0 && at > 0 && Date.now() - at < 7 * 86400_000;   // came back during the last 7 days
+  const path = (l.channels && l.channels.length ? l.channels : [l.firstChannel, l.lastChannel].filter(Boolean)).join(' → ');
+  const title = l.returningOf
+    ? `Returning customer: earlier lead ${l.returningOf}${l.returningPrevStatus ? ` was ${l.returningPrevStatus}` : ''}`
+    : `Contacted us ${n + 1}× · ${path || 'channel not recorded'}${l.lastRecontactAt ? ` · last ${new Date(l.lastRecontactAt).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}`;
+  return (
+    <span title={title} className={`inline-block w-max mt-0.5 text-[10px] font-extrabold rounded px-1 py-0.5 whitespace-nowrap ${hot ? 'bg-orange-500 text-white' : 'bg-orange-100 text-orange-800 border border-orange-200'}`}>
+      {l.returningOf ? '↩ RETURNING' : `${hot ? '🔥 ' : ''}CAME BACK ×${n}`}
+    </span>
+  );
+});
+
 export const PAGE_SIZES = [25, 50, 100, 0] as const; // 0 = All
 export type PageSize = (typeof PAGE_SIZES)[number];
 
@@ -50,6 +67,7 @@ export const LeadRow = React.memo(({ lead: l, selected, cols, canAssign, winRate
         <td className="py-3.5 pl-2 pr-2">
           <div>
             <p className="font-bold text-brand-black break-words">{l.customerName}</p>
+            <RecontactBadge l={l} />
             <p className="text-[10px] text-brand-gray/80 font-mono mt-0.5">{phoneIntl(l.phoneNumber) || l.phoneNumber}</p>
           </div>
         </td>
@@ -136,6 +154,7 @@ export const KanbanCard = React.memo(({ lead: l, tone, winRate, canRoute, onOpen
       </div>
       <div>
         <h5 className="font-bold text-brand-black text-xs leading-snug">{l.customerName}</h5>
+        <RecontactBadge l={l} />
         {l.assignedSalespersonName ? (
           <p className="text-[10px] text-indigo-600 font-bold flex items-center gap-1 mt-0.5"><UserCheck size={10} /><span>{l.assignedSalespersonName}</span></p>
         ) : (

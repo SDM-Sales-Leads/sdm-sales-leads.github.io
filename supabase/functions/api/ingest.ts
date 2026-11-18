@@ -9,6 +9,7 @@ import { repairName } from "./namecheck.ts";
 import { later, notifyAssigned } from "./notify.ts";
 import { effectiveSqm, pickBySize, sqmOf, Load } from "./routing_pick.ts";
 import { getBodies, getBody, htmlToText, listFolder, loadEws, MailHead } from "./ews.ts";
+import { handleKnownCustomer, logOutcome } from "./recontact.ts";
 
 export const DEFAULT_QUEUE = {
   assignmentMethod: "Round Robin",
@@ -454,7 +455,8 @@ export function channelFromHistory(idx: Map<string, { date: string; channel: str
   return "";
 }
 
-export async function createLeadFromParsed(parsed: Parsed, head: MailHead, text: string, byUser?: string) {
+/** opts (re-contact rules, recontact.ts): agent = give it to this person instead of routing; extra = fields added to the lead; note = timeline line */
+export async function createLeadFromParsed(parsed: Parsed, head: MailHead, text: string, byUser?: string, opts: { agent?: { id: string; name: string }; extra?: Record<string, any>; note?: string } = {}) {
   const q = await loadQueue();
   const id = await nextId("lead");
   const now = nowIso();
@@ -491,13 +493,15 @@ export async function createLeadFromParsed(parsed: Parsed, head: MailHead, text:
     }],
     lastUpdated: now,
   };
-  const agent = await chooseAgent(lead, q);
+  for (const [k, v] of Object.entries(opts.extra || {})) if (v !== undefined) lead[k] = v;
+  if (opts.note) lead.timeline.push({ id: rid(), timestamp: at, type: "Re-contact", user: "System", title: "Returning customer", description: opts.note });
+  const agent = opts.agent || await chooseAgent(lead, q);
   if (agent) {
     lead.assignedSalespersonId = agent.id;
     lead.assignedSalespersonName = agent.name;
     lead.assignedDate = now;
     // the team's vocabulary has no "Assigned" status: an owned lead stays "New" until it is worked
-        lead.timeline.push({ id: rid(), timestamp: now, type: "Assignment", user: "System", title: "Auto Assigned", description: `Lead assigned to ${agent.name} (${q.assignmentMethod}).` });
+        lead.timeline.push({ id: rid(), timestamp: now, type: "Assignment", user: "System", title: opts.agent ? "Assigned to previous owner" : "Auto Assigned", description: opts.agent ? `Returning customer given back to ${agent.name}, who handled the earlier lead.` : `Lead assigned to ${agent.name} (${q.assignmentMethod}).` });
   }
   const { error } = await admin.from("crm_leads").insert({ id, data: lead, ...leadColumns(lead) });
   if (error) throw new HttpError(500, "Could not save the lead");
@@ -558,7 +562,7 @@ export async function ingestInbox(max = 25, byUser?: string) {
     }
     const todo = heads.filter((h) => !seen.has(h.id));
 
-    let created = 0, processed = 0, dups = 0, failed = 0;
+    let created = 0, processed = 0, dups = 0, failed = 0, recontacts = 0;
     const leads: { id: string; name: string }[] = [];
     const batch = todo.slice(0, max);
     const bodies = await getBodies(cfg, batch.map((h) => h.id));   // 8 mails per mail-server request instead of one each
@@ -589,11 +593,21 @@ export async function ingestInbox(max = 25, byUser?: string) {
         }
         const ph = normPhone(parsed.phoneNumber), em = normEmail(parsed.email);
         const sameBatch = (ph && batchPhones.get(ph)) || (em && batchEmails.get(em)) || "";   // two mails of the same person in one run
-        const dupId = r.dup ? r.dup.id : sameBatch;
-        if (dupId) {
-          await logMail(base, "Duplicate", { ...base, parsedLeadId: dupId, error: r.dup?.deleted ? "Skipped: matches a lead that was deleted on purpose" : `Duplicate of ${dupId}` });
+        if (sameBatch) {   // two mails of the same person in one run: the same enquiry twice
+          await logMail(base, "Duplicate", { ...base, parsedLeadId: sameBatch, error: `Duplicate of ${sameBatch} (same run)` });
           dups++;
           continue;
+        }
+        if (r.dup) {
+          // 18 Nov 2026: a known customer is never dropped silently any more (re-contact / returning / won rules in recontact.ts)
+          const o = await handleKnownCustomer(parsed, head, text, { byUser, channel: channelFromMail(head) });
+          if (o) {
+            await logOutcome(base, o);
+            if (o.kind === "returning") { created++; leads.push({ id: o.leadId, name: parsed.customerName || parsed.phoneNumber || "" }); if (ph) batchPhones.set(ph, o.leadId); if (em) batchEmails.set(em, o.leadId); }
+            else if (o.kind === "duplicate") dups++;
+            else recontacts++;
+            continue;
+          }
         }
         const lead = await createLeadFromParsed(parsed, head, text, byUser);
         if (ph) batchPhones.set(ph, lead.id);
@@ -609,7 +623,7 @@ export async function ingestInbox(max = 25, byUser?: string) {
       }
     }
     if (todo.length <= batch.length) await moveCursor();   // everything up to the newest mail is handled: next time start there
-    return { newLeadsCount: created, processed, duplicates: dups, failed, leads, remaining: Math.max(0, todo.length - processed) };
+    return { newLeadsCount: created, processed, duplicates: dups, recontacts, failed, leads, remaining: Math.max(0, todo.length - processed) };
   } finally {
     await unlock("ingest");
   }

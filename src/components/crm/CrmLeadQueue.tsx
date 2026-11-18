@@ -180,20 +180,20 @@ export const CrmLeadQueue: React.FC<CrmLeadQueueProps> = ({ logs, leads, onLogsU
     setSheetBusy(true); setSimulationResult(null); setSyncNotification(null);
     setSyncStatus('Reading the Facebook leads Google Sheet…');
     try {
-      let created = 0, dups = 0, failed = 0, left = 0; const leads: { id: string; name: string }[] = [];
+      let created = 0, dups = 0, failed = 0, left = 0, rcs = 0; const leads: { id: string; name: string }[] = [];
       for (let round = 0; round < 10; round++) {
         const res = await fetch('/api/crm/fb-sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
         const part = await res.json();
         if (!res.ok || part.success === false) throw new Error(part.error || 'Could not read the sheet');
         if (part.fbSkipped) { setSyncStatus('Another sheet sync is already running. Try again in a moment.'); return; }
         if (part.fbError) throw new Error(part.fbError);
-        created += part.fbNew || 0; dups += part.fbDuplicates || 0; failed += part.fbFailed || 0; left = part.fbRemaining || 0;
+        created += part.fbNew || 0; dups += part.fbDuplicates || 0; rcs += part.fbRecontacts || 0; failed += part.fbFailed || 0; left = part.fbRemaining || 0;
         leads.push(...(part.fbLeads || []));
         setSyncStatus(`Reading the Google Sheet… ${created} new lead(s) so far`);
         if (!left) break;
       }
       if (created > 0) { setSyncStatus(''); setSyncNotification({ count: created, leads }); setTimeout(() => setSyncNotification(null), 15000); }
-      else setSyncStatus(`Google Sheet synced. No new leads (${dups} duplicate, ${failed} could not be read).`);
+      else setSyncStatus(`Google Sheet synced. No new leads (${rcs} known customer(s) came back and were added to their lead, ${dups} duplicate, ${failed} could not be read).`);
       if (left > 0) setSyncStatus((x) => `${x || ''} ${left} more are waiting. Press the button again.`.trim());
       loadSheetInfo(); await crmService.reloadEmailLogs(); await crmService.refreshDelta({ force: true, kinds: ['leads'] }); onLogsUpdated();
     } catch (e: any) { setSyncStatus(`Sheet sync failed: ${e?.message || 'unknown error'}`); }
@@ -206,6 +206,7 @@ export const CrmLeadQueue: React.FC<CrmLeadQueueProps> = ({ logs, leads, onLogsU
     if (lead) return { ok: true, text: `Synced: lead ${lead.id} was created from this e-mail.`, leadId: lead.id };
     const log: any = logs.find((l: any) => l.id === email.id);
     if (log?.status === 'Success' && log.parsedLeadId) return { ok: true, text: `Synced: lead ${log.parsedLeadId} was created from this e-mail.`, leadId: log.parsedLeadId };
+    if (log?.status === 'Re-contact') return { ok: true, text: `Known customer: ${log.note || `recorded on lead ${log.parsedLeadId}`}. The owner was alerted.`, leadId: log.parsedLeadId };
     if (log?.status === 'Duplicate') return { ok: false, kind: 'warn', text: `Not created: ${log.error || 'duplicate of an existing lead'}`, leadId: log.parsedLeadId };
     if (log) return { ok: false, text: `Not created: ${log.error || log.status}` };
     const subj = String(email.subject || '').toLowerCase();
@@ -239,7 +240,7 @@ export const CrmLeadQueue: React.FC<CrmLeadQueueProps> = ({ logs, leads, onLogsU
     setSyncNotification(null);
     try {
       // one click reads the whole mailbox: the server takes 25 e-mails per call, so keep asking until none are left
-      const data: any = { success: true, newLeadsCount: 0, processed: 0, duplicates: 0, failed: 0, leads: [], remaining: 0 };
+      const data: any = { success: true, newLeadsCount: 0, processed: 0, duplicates: 0, recontacts: 0, failed: 0, leads: [], remaining: 0 };
       const t0 = Date.now(); let rounds = 0;
       for (let round = 0; round < 12; round++) {
         const res = await fetch('/api/crm/trigger-auto-sync', { method: 'POST' });
@@ -247,7 +248,7 @@ export const CrmLeadQueue: React.FC<CrmLeadQueueProps> = ({ logs, leads, onLogsU
         if (!part.success) { if (round === 0) throw new Error(part.error || 'Failed to sync'); break; }
         if (part.skipped) { data.skipped = round === 0; break; }
         data.newLeadsCount += part.newLeadsCount || 0; data.processed += part.processed || 0;
-        data.duplicates += part.duplicates || 0; data.failed += part.failed || 0;
+        data.duplicates += part.duplicates || 0; data.recontacts += part.recontacts || 0; data.failed += part.failed || 0;
         data.leads.push(...(part.leads || [])); data.remaining = part.remaining || 0;
         rounds++;
         const total = data.processed + (part.remaining || 0);
@@ -279,7 +280,7 @@ export const CrmLeadQueue: React.FC<CrmLeadQueueProps> = ({ logs, leads, onLogsU
       } else if (checked === 0) {
         setSyncStatus('Sync complete. No new lead e-mails in the inbox.');
       } else {
-        setSyncStatus(`Sync complete. Checked ${checked} new e-mail(s): no new leads (${data.duplicates || 0} duplicate, ${data.failed || 0} could not be read).`);
+        setSyncStatus(`Sync complete. Checked ${checked} new e-mail(s): no new leads (${data.recontacts || 0} known customer(s) came back and were added to their lead, ${data.duplicates || 0} duplicate, ${data.failed || 0} could not be read).`);
       }
       if (data.remaining > 0) setSyncStatus((s) => `${s || ''} ${data.remaining} more e-mails are waiting. Press Sync again.`.trim());
       await crmService.reloadEmailLogs(); await crmService.refreshDelta({ force: true, kinds: ['leads'] });
@@ -559,6 +560,7 @@ export const CrmLeadQueue: React.FC<CrmLeadQueueProps> = ({ logs, leads, onLogsU
                 }
                 return uniqueLogs.map(log => {
                   const isSuccess = log.status === 'Success';
+                  const isRecontact = log.status === 'Re-contact';
                   const isDeleted = log.status === 'Deleted';
                   return (
                     <div 
@@ -576,10 +578,10 @@ export const CrmLeadQueue: React.FC<CrmLeadQueueProps> = ({ logs, leads, onLogsU
                       <h5 className="font-bold text-brand-black text-xs truncate mt-1">{log.subject}</h5>
                       {(log as any).syncedAt && <p className="text-[10px] text-brand-gray mt-0.5">Synced {new Date((log as any).syncedAt).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>}
                       <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-brand-gray/10 text-[10.5px] font-bold">
-                        <span className={isSuccess ? 'text-emerald-700' : isDeleted ? 'text-amber-600' : 'text-rose-600'}>
-                          {isSuccess ? 'CREATED' : isDeleted ? 'DELETED' : log.status === 'Duplicate' ? 'DUPLICATE · NOT CREATED' : 'NOT CREATED'}
+                        <span className={isSuccess ? 'text-emerald-700' : isRecontact ? 'text-orange-600' : isDeleted ? 'text-amber-600' : 'text-rose-600'}>
+                          {isSuccess ? ((log as any).returningOf ? 'CREATED · RETURNING' : 'CREATED') : isRecontact ? 'RE-CONTACT · ADDED TO LEAD' : isDeleted ? 'DELETED' : log.status === 'Duplicate' ? 'DUPLICATE · NOT CREATED' : 'NOT CREATED'}
                         </span>
-                        {isSuccess ? (
+                        {isSuccess || isRecontact ? (
                           <button 
                             onClick={(e) => {
                               e.stopPropagation();

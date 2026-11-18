@@ -2651,7 +2651,29 @@ ${user.name || ''}`);
                 <div>
                   <span className="text-brand-gray text-[10px] font-bold uppercase tracking-wider block mb-0.5">Channel</span>
                   <span className="text-brand-black text-xs font-semibold">{channelOf(selectedLead) === NO_CHANNEL ? '—' : channelOf(selectedLead)}</span>
+                  {selectedLead.lastChannel && selectedLead.lastChannel !== (selectedLead.firstChannel || selectedLead.channel) && (
+                    <span className="block text-[10px] text-orange-700 font-bold mt-0.5" title="First contact → latest contact">Latest: {selectedLead.lastChannel}</span>
+                  )}
                 </div>
+                {(!!selectedLead.recontactCount || !!selectedLead.returningOf || !!selectedLead.returnedAs?.length) && (
+                  <div className="col-span-full rounded-xl border border-orange-200 bg-orange-50/60 p-3">
+                    <span className="text-orange-800 text-[10px] font-bold uppercase tracking-wider block mb-1">Customer contacted us again</span>
+                    {selectedLead.returningOf && (
+                      <p className="text-xs text-brand-black">Returning customer: earlier lead <button className="font-mono font-bold text-brand-red hover:underline" onClick={() => { const o = leads.find((x) => x.id === selectedLead.returningOf); if (o) setSelectedLead(o); }}>{selectedLead.returningOf}</button>{selectedLead.returningPrevStatus ? ` was closed as "${selectedLead.returningPrevStatus}".` : '.'}</p>
+                    )}
+                    {!!selectedLead.returnedAs?.length && (
+                      <p className="text-xs text-brand-black">The customer came back after this lead was closed: new lead{selectedLead.returnedAs.length > 1 ? 's' : ''} {selectedLead.returnedAs.map((id, i) => <React.Fragment key={id}>{i ? ', ' : ''}<button className="font-mono font-bold text-brand-red hover:underline" onClick={() => { const o = leads.find((x) => x.id === id); if (o) setSelectedLead(o); }}>{id}</button></React.Fragment>)}.</p>
+                    )}
+                    {!!selectedLead.channels?.length && <p className="text-xs text-brand-black mt-0.5">Channels: <b>{selectedLead.channels.join(' → ')}</b></p>}
+                    {!!selectedLead.recontacts?.length && (
+                      <ul className="mt-1 space-y-0.5">
+                        {[...selectedLead.recontacts].reverse().slice(0, 10).map((r, i) => (
+                          <li key={(r.mailId || '') + i} className="text-[11px] text-brand-gray"><span className="font-mono">{new Date(r.at).toLocaleString([], { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span> · <b className="text-brand-black">{r.channel || '—'}</b>{r.note ? <> · “{r.note.slice(0, 140)}”</> : null}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
                 <div>
                   <span className="text-brand-gray text-[10px] font-bold uppercase tracking-wider block mb-0.5">Customer ID</span>
                   {(() => { const c = contactOf(selectedLead); return c ? (

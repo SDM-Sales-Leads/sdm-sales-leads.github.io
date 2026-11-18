@@ -140,6 +140,16 @@ export interface Lead {
   srcOriginal?: string;
   srcReq?: { from: string; to: string; by: string; byName: string; at: string; note?: string };
   contract?: ContractRecord;       // contract lifecycle after Won
+  // ---- re-contact (18 Nov 2026): the same customer contacted us again, set by the server (recontact.ts) ----
+  firstChannel?: string;           // channel of the first contact (kept when later contacts come through other channels)
+  lastChannel?: string;            // channel of the latest contact
+  channels?: string[];             // every channel this customer used, in order
+  recontacts?: { at: string; channel: string; source?: string; mailId?: string; note?: string }[];
+  recontactCount?: number;
+  lastRecontactAt?: string;        // ISO
+  returningOf?: string;            // this lead was opened because the customer of a closed lead came back
+  returningPrevStatus?: string;
+  returnedAs?: string[];           // on the closed lead: the new lead(s) opened when the customer came back
 
   timeline: TimelineEvent[];
   slaDeadline?: string; // ISO string
@@ -196,7 +206,7 @@ export interface EmailImportLog {
   receivedTime: string;
   sender: string;
   subject: string;
-  status: 'Success' | 'Error' | 'Failed' | 'Duplicate' | 'Deleted';
+  status: 'Success' | 'Error' | 'Failed' | 'Duplicate' | 'Deleted' | 'Re-contact';   // Re-contact: a known customer came back, recorded on the existing lead (recontact.ts)
   error?: string;
   parsedLeadId?: string;
   bodyPreview: string;

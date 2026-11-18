@@ -5,6 +5,7 @@
 import { admin, getConfig, normPhone, nowIso, setConfig, str, tryLock, unlock } from "./lib.ts";
 import { canonicalPark } from "./parks.ts";
 import { createLeadFromParsed, findDuplicate, logMail, type Parsed } from "./ingest.ts";
+import { handleKnownCustomer, logOutcome } from "./recontact.ts";
 
 export const FB_SHEET_ID = "1-QGJdEchcJbfkUL8Utk0Kjca7gRkzn1AosAtE2THnmw";
 const BASE = "https://docs.google.com/spreadsheets/d/";
@@ -146,19 +147,30 @@ export async function syncFacebook(opts: { since?: string; byUser?: string } = {
     for (let i = 0; i < rows.length; i += 100) {
       const ids = rows.slice(i, i + 100).map((r) => r.fbId);
       // only a lead that was really created counts as known: rows logged as Duplicate or Failed are looked at again (the rules may have changed)
-      ((await admin.from("crm_email_logs").select("id").in("id", ids).eq("data->>status", "Success")).data || []).forEach((r: any) => known.add(r.id));
+      ((await admin.from("crm_email_logs").select("id").in("id", ids).in("data->>status", ["Success", "Re-contact"])).data || []).forEach((r: any) => known.add(r.id));
       ((await admin.from("crm_leads").select("email_id").in("email_id", ids)).data || []).forEach((r: any) => known.add(r.email_id));
     }
     const todo = rows.filter((r) => !known.has(r.fbId));
-    let created = 0, dups = 0, failed = 0;
+    let created = 0, dups = 0, failed = 0, recontacts = 0;
     const leads: { id: string; name: string }[] = [];
     for (const r of todo.slice(0, MAX_PER_RUN)) {
       const base = { id: r.fbId, receivedTime: new Date(r.time).toISOString(), sender: "Facebook Leads (Google Sheet)", subject: `${r.parsed.customerName || r.parsed.phoneNumber} · ${r.parsed.project || "no project"}` };
       try {
         if (!r.parsed.customerName && !r.parsed.phoneNumber) { await logMail(base, "Failed", { ...base, bodyPreview: r.text, error: "No name or phone number" }); failed++; continue; }
+        const head: any = { ...base, channel: "Facebook Leads", origin: "the Facebook leads sheet", leadDate: cairoDate(r.time) };
         const dup = await findDuplicate(r.parsed, { phoneFirst: true });
-        if (dup) { await logMail(base, "Duplicate", { ...base, bodyPreview: r.text, parsedLeadId: dup.id, error: dup.deleted ? "Skipped: matches a lead that was deleted on purpose" : `Duplicate of ${dup.id}` }); dups++; continue; }
-        const lead = await createLeadFromParsed(r.parsed, { ...base, channel: "Facebook Leads", origin: "the Facebook leads sheet", leadDate: cairoDate(r.time) } as any, r.text, opts.byUser || "System");
+        if (dup) {
+          // 18 Nov 2026: a known customer is never dropped silently (re-contact / returning / won rules in recontact.ts)
+          const o = await handleKnownCustomer(r.parsed, head, r.text, { phoneFirst: true, byUser: opts.byUser || "System", channel: "Facebook Leads" });
+          if (o) {
+            await logOutcome(base, o, { bodyPreview: r.text });
+            if (o.kind === "returning") { created++; leads.push({ id: o.leadId, name: r.parsed.customerName || r.parsed.phoneNumber }); }
+            else if (o.kind === "duplicate") dups++;
+            else recontacts++;
+            continue;
+          }
+        }
+        const lead = await createLeadFromParsed(r.parsed, head, r.text, opts.byUser || "System");
         await logMail(base, "Success", { ...base, bodyPreview: r.text, parsedLeadId: lead.id });
         created++; leads.push({ id: lead.id, name: r.parsed.customerName || r.parsed.phoneNumber });
       } catch (_e) {
@@ -168,6 +180,6 @@ export async function syncFacebook(opts: { since?: string; byUser?: string } = {
     }
     const newestRow = rows.reduce((m, r) => Math.max(m, Date.parse(r.time)), 0);
     await setConfig("fb_sheet", { ...(await getConfig<any>("fb_sheet", {})), lastTab: tabs[tabs.length - 1], lastRun: nowIso(), ...(todo.length <= MAX_PER_RUN && newestRow ? { cursor: new Date(newestRow).toISOString() } : {}) });
-    return { fbNew: created, fbDuplicates: dups, fbFailed: failed, fbRemaining: Math.max(0, todo.length - MAX_PER_RUN), fbLeads: leads, fbTab: tabs[tabs.length - 1] };
+    return { fbNew: created, fbDuplicates: dups, fbRecontacts: recontacts, fbFailed: failed, fbRemaining: Math.max(0, todo.length - MAX_PER_RUN), fbLeads: leads, fbTab: tabs[tabs.length - 1] };
   } finally { await unlock("fbsync"); }
 }

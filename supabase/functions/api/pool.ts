@@ -10,10 +10,10 @@ import { addNotifications } from "./notify.ts";
 
 const SYSTEM_TEXT = /^(\[merged\]\s*)*(imported from excel|imported via smart paste|auto-assigned|requested area|sole owner set|transferred to|project changed|merged |assigned to |status changed)/i;
 const NOT_A_TOUCH = new Set(["Assignment", "Import", "Creation"]);
-const isCC = (d: any) => /call center/i.test(String(d?.channel || ""));
+const isCC = (d: any) => /call center/i.test(String(d?.channel || "")) || (!!d?.lastRecontactAt && /call center/i.test(String(d?.lastChannel || "")));   // re-contacts via the call center first too
 // the lead fields fillPool needs: isTouched (leadrules.ts), the pool filter/sort and chooseAgent (requiredSize, channel)
 const LIGHT_FIELDS = ["mergedInto", "assignedSalespersonId", "touched", "status", "firstContactAt", "lastContactDate", "meetingDate", "offerSent", "qualNotes",
-  "comments", "timeline", "channel", "date", "requiredSize", "importedHistory", "oldLead"];
+  "comments", "timeline", "channel", "date", "requiredSize", "importedHistory", "oldLead", "lastChannel", "lastRecontactAt"];
 const LIGHT_SEL = LIGHT_FIELDS.map((f) => `j_${f}:data->${f}`).join(",");
 /** rebuilds a partial `data` from the light select (missing keys stay missing, as in the full record); never written back */
 const lightData = (r: any) => { const d: any = {}; for (const f of LIGHT_FIELDS) { const v = r[`j_${f}`]; if (v !== null && v !== undefined) d[f] = v; } return d; };

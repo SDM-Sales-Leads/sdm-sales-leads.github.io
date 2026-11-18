@@ -271,6 +271,9 @@ const ROUTE_STATS = new Map<string, RStats>();
 let USERS_CACHE: { at: number; rows: any[] } | null = null;
 export function resetRouteStats() { ROUTE_STATS.clear(); USERS_CACHE = null; }
 /** onlyIds: a person chosen by hand (any role, also on leave); ignoreLimits: the caps (open, untouched, daily, sqm) do not apply; restrictTo: pick only among these (after the counts are read) */
+/** first channel Call Center, or the customer's latest contact (re-contact, recontact.ts) came through the call center */
+export const isCallCenterLead = (d: any): boolean => /call center/i.test(String(d?.channel || "")) || (!!d?.lastRecontactAt && /call center/i.test(String(d?.lastChannel || "")));
+
 export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?: any[]; ignoreDaily?: boolean; noBackup?: boolean; onlyIds?: string[]; users?: any[]; ignoreLimits?: boolean; restrictTo?: string[] }): Promise<{ id: string; name: string } | null> {
   if (q.assignmentMethod === "Manual Assignment Only") return null;
 
@@ -317,9 +320,10 @@ export async function chooseAgent(lead: any, q: any, opts?: { sim?: any; trace?:
   if (opts?.sim && opts.sim.st !== st) { st = { ...st, open: { ...st.open }, total: { ...st.total }, today: { ...st.today }, sqm: { ...st.sqm }, openT: { ...st.openT }, openU: { ...st.openU }, cc: { ...st.cc }, ccSqm: { ...st.ccSqm } }; opts.sim.st = st; }
   const { open, total, today, sqm, openT, openU, cc, ccSqm } = st;
   const leadSize = effectiveSqm(lead?.requiredSize, q);
-  const maxSqm = opts?.ignoreLimits || /call center/i.test(String(lead?.channel || "")) ? 0 : Number(q.maxSqmPerSalesperson) || 0;
-  // call center leads are the most urgent: they ignore every limit (open leads, daily, sqm)
-  const isCC = /call center/i.test(String(lead?.channel || ""));
+  // call center leads are the most urgent: they ignore every limit (open leads, daily, sqm).
+  // 18 Nov 2026: a known customer who came back through the call center (re-contact) counts as a call center lead too
+  const isCC = isCallCenterLead(lead);
+  const maxSqm = opts?.ignoreLimits || isCC ? 0 : Number(q.maxSqmPerSalesperson) || 0;
   // two pools per person: untouched (new, nobody worked on it) and touched. A pool lead is always untouched, so it needs a free untouched
   // place, and the total (touched + untouched) must stay inside the sum of the two limits.
   const maxU = isCC || opts?.ignoreLimits ? 0 : Number(q.maxUntouchedPerSalesperson) || 0;

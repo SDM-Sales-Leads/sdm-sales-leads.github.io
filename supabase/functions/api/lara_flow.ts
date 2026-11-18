@@ -98,7 +98,7 @@ export function condsOk(wf: Workflow, l: any, now: number): boolean {
       case "hasEmail": ok = hasEmail(l) === (c.value === true || c.value === "true"); break;
       case "hasPhone": ok = hasPhone(l) === (c.value === true || c.value === "true"); break;
       case "leadAgeDays": { const age = (now - (Date.parse(l.date || "") || now)) / 864e5; ok = c.op === "lte" ? age <= Number(c.value) : age >= Number(c.value); break; }
-      case "dealValue": ok = (Number(l.dealValue) || 0) >= Number(c.value); break;
+      case "dealValue": { const v = Number(l.dealValue) || 0; ok = c.op === "lte" ? v <= Number(c.value) : v >= Number(c.value); break; }
       default: ok = true;
     }
     if (c.op === "notin" && ["source", "channel", "status", "priority", "owner", "park"].includes(c.field)) ok = !ok;

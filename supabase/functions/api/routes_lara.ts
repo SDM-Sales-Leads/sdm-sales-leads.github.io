@@ -172,11 +172,12 @@ async function doStep(cfg: LaraConfig, x: Ctx, wf: Workflow, n: GNode, l: any, w
   const step = { action: n.type, channel: n.data?.channel, situation: n.data?.situation };
   const label = n.data?.label || NODE_LABEL[n.type] || n.type;
   if (step.action === "offer") {
+    if (x.pending.has(l.id)) return "";                                           // a draft (offer or message) for this lead is still waiting
     if (budget.left <= 0) return "";
     if (!hasEmail(l)) return "skipped (no e-mail for an offer)";
     const r = await createOfferDraft(cfg, l.id, { plotKeys: null, mode: "cash", discountPct: 0 }, `${wf.name} · ${label}: ${why}`, `wf:${wf.id}`, runId).catch(() => null);
     if (!r) return "skipped (no available plot fits)";
-    budget.left--;
+    x.pending.add(l.id); budget.left--;
     return "draft";
   }
   if (step.action === "message") {
@@ -256,6 +257,7 @@ async function advance(cfg: LaraConfig, x: Ctx, wf: Workflow, g: Graph, start: s
 }
 
 /** the daily run: move due enrollments one step (or stop them), then enroll new leads by workflow priority */
+const MAX_STEPS = 50;
 export async function runShadow(by: string): Promise<any> {
   const cfg = await laraConfig();
   if (cfg.mode === "off") return { skipped: true, reason: "Lara is off" };
@@ -283,6 +285,8 @@ export async function runShadow(by: string): Promise<any> {
       const g = wf ? graphOf(wf) : null;
       const wfStop = wf && g && usesReply(g) ? { ...wf, stop: { ...wf.stop, onReply: false } } : wf;   // the drawing handles replies itself
       const stop = !wf ? "Workflow switched off" : x.dnc.has(e.lead_id) ? "Rejected: do not contact" : stopReason(wfStop!, l, Date.parse(e.started_at), x.today, Date.parse(t?.last_in_at || "") || 0, t?.status || "", !!(l && x.optedOut(l)));
+      const capped = !stop && (Number(e.step) || 0) >= MAX_STEPS ? `Safety limit: ${MAX_STEPS} steps in one workflow` : "";
+      if (capped) { await admin.from("lara_enrollments").update({ status: "stopped", stop_reason: capped, updated_at: nowIso() }).eq("id", e.id); res.stopped++; continue; }
       if (stop) { await admin.from("lara_enrollments").update({ status: "stopped", stop_reason: stop, updated_at: nowIso() }).eq("id", e.id); res.stopped++; continue; }
       if (!wf || !g) continue;
       const at = enrollNode(g, e);
@@ -511,7 +515,7 @@ route("PUT", "/lara/config", async ({ req, c }) => {
   const cur = await laraConfig();
   const num = (v: any, lo: number, hi: number, d: number) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : d; };
   const next: LaraConfig = {
-    mode: b.mode === "off" ? "off" : b.mode === "approve" ? "approve" : b.mode === "auto" ? "auto" : "shadow",
+    mode: ["off", "shadow", "approve", "auto"].includes(b.mode) ? b.mode : cur.mode,
     firstContactHours: num(b.firstContactHours, 1, 240, cur.firstContactHours),
     overdueDays: num(b.overdueDays, 1, 60, cur.overdueDays),
     offerSilentDays: num(b.offerSilentDays, 1, 60, cur.offerSilentDays),
@@ -535,6 +539,10 @@ route("POST", "/lara/run-lead", async ({ req, c }) => {
   needAdmin(c);
   const b = await body(req, 500);
   const leadId = str(b.leadId, 40).toUpperCase();
+  if (!(await tryLock("lara-run", 300))) throw new HttpError(409, "Lara's run is busy: try again in a minute");
+  try { return await runLeadLocked(c, b, leadId); } finally { await unlock("lara-run"); }
+});
+async function runLeadLocked(c: Caller, b: any, leadId: string) {
   const { data: e } = await admin.from("lara_enrollments").select("*").eq("lead_id", leadId).eq("status", "active").maybeSingle();
   if (!e) throw bad("This lead is not in a running workflow");
   const wf = (await loadWorkflows(false)).find((w) => w.id === e.workflow_id);
@@ -553,7 +561,7 @@ route("POST", "/lara/run-lead", async ({ req, c }) => {
   if (w.moved) await admin.from("lara_enrollments").update({ node: w.node, step: (Number(e.step) || 0) + w.did.length, status: w.node ? "active" : "done", next_at: new Date(w.nextAt).toISOString(), wait_since: w.waitSince, path: w.path, updated_at: nowIso() }).eq("id", e.id);
   await log("run", who(c), `Test run for ${leadId} in "${wf.name}": ${w.did.join(", ") || "nothing to do"}`);
   return { success: true, workflow: wf.name, from: at, to: w.node, did: w.did, nextAt: new Date(w.nextAt).toISOString(), path: w.path.slice(-6) };
-});
+}
 
 route("GET", "/lara/drafts", async ({ c, query }) => {
   const w = laraWho(c);
@@ -561,7 +569,7 @@ route("GET", "/lara/drafts", async ({ c, query }) => {
   const status = ["shadow", "approved", "rejected", "expired"].includes(query.get("status") || "") ? query.get("status")! : "shadow";
   const size = [10, 25, 50, 100].includes(Number(query.get("size"))) ? Number(query.get("size")) : 10;
   const page = Math.max(1, Math.min(5000, Number(query.get("page")) || 1));
-  const qs = str(query.get("q") || "", 80).replace(/[%_\\,()]/g, " ").trim();
+  const qs = str(query.get("q") || "", 80).replace(/[^\p{L}\p{N}\s@.-]/gu, " ").replace(/\s+/g, " ").trim();
   const ch = ["email", "whatsapp"].includes(query.get("channel") || "") ? query.get("channel")! : "";
   const sit = /^[a-z_]{2,40}$/.test(query.get("situation") || "") ? query.get("situation")! : "";
   const kind = ["followup", "reply", "offer"].includes(query.get("kind") || "") ? query.get("kind")! : "";
@@ -590,7 +598,9 @@ route("POST", "/lara/drafts/:id/decide", async ({ req, c, params }) => {
   const upd = { status: decision, feedback: str(b.feedback, 200) || null, body: newBody, subject: typeof b.subject === "string" ? str(b.subject, 200) : d.subject, edited: newBody !== d.body, decided_by: who(c), decided_at: nowIso(), updated_at: nowIso() };
   const md = (await laraConfig()).mode;
   const willSend = decision === "approved" && (md === "approve" || md === "auto");
-  await admin.from("lara_drafts").update({ ...upd, send_status: willSend ? "queued" : "none" }).eq("id", d.id);
+  // only the first decision counts (two people / two clicks at the same moment)
+  const { data: won } = await admin.from("lara_drafts").update({ ...upd, send_status: willSend ? "queued" : "none" }).eq("id", d.id).eq("status", "shadow").select("id");
+  if (!won?.length) throw new HttpError(409, "This draft was already decided");
   await log("decision", who(c), `${decision === "approved" ? "Approved" : "Rejected"} draft for ${d.customer} (${d.situation})${upd.feedback ? `: ${upd.feedback}` : ""}${upd.edited ? " — edited" : ""}`);
   if (willSend) { const r = await sendDraft(d.id, rules(await laraConfig()), who(c)); return { success: true, sent: r.sent, sendNote: r.sent ? (d.channel === "whatsapp" ? "WhatsApp sent" : "E-mail sent") : r.reason }; }
   return { success: true, sent: false };
@@ -675,7 +685,7 @@ route("GET", "/lara/log", async ({ c, query }) => {
   const size = [10, 25, 50, 100].includes(Number(query.get("size"))) ? Number(query.get("size")) : 25;
   const page = Math.max(1, Math.min(5000, Number(query.get("page")) || 1));
   const kind = /^[a-z]{2,20}$/.test(query.get("kind") || "") ? query.get("kind")! : "";
-  const qs = str(query.get("q") || "", 80).replace(/[%_\\,()]/g, " ").trim();
+  const qs = str(query.get("q") || "", 80).replace(/[^\p{L}\p{N}\s@.-]/gu, " ").replace(/\s+/g, " ").trim();
   let lq: any = admin.from("lara_log").select("id,at,kind,actor,text", { count: "exact" });
   if (kind) lq = lq.eq("kind", kind);
   if (qs) lq = lq.ilike("text", `%${qs}%`);
@@ -819,6 +829,10 @@ route("POST", "/lara/optout/remove", async ({ req, c }) => {
 // ---------------------------------------------------------------------------------------------
 /** the drawing as sent by the screen, cleaned box by box; the Start box's settings become the workflow's trigger and filters */
 const NODE_TYPES = ["trigger", "wait", "condition", "wait_reply", "message", "offer", "notify_owner", "notify_director", "handover", "end"];
+// filters: only fields and comparisons the engine knows (an unknown field would always count as "true"); "replied" only in an If box
+const FILTER_FIELDS = ["park", "source", "channel", "priority", "status", "owner", "hasEmail", "hasPhone", "leadAgeDays", "dealValue"];
+const FILTER_OPS = ["in", "notin", "is", "gte", "lte"];
+const cleanOp = (op: any) => (FILTER_OPS.includes(op) ? op : "in");
 const cleanVal = (v: any) => typeof v === "boolean" ? v : Array.isArray(v) ? v.map((x: any) => str(x, 80)).slice(0, 30) : typeof v === "number" ? v : str(v, 400);
 function cleanGraph(g: any): Graph | null {
   if (!g || !Array.isArray(g.nodes) || !g.nodes.length) return null;
@@ -827,7 +841,7 @@ function cleanGraph(g: any): Graph | null {
     if (d.label) data.label = str(d.label, 60);
     if (n.type === "trigger") { data.trigger = d.trigger; data.conditions = d.conditions; }
     if (n.type === "wait" || n.type === "wait_reply") data.days = Math.max(1, Math.min(n.type === "wait" ? 60 : 30, Math.round(Number(d.days) || 1)));
-    if (n.type === "condition") { data.field = str(d.field, 30); data.op = str(d.op, 10) || "in"; data.value = cleanVal(d.value); }
+    if (n.type === "condition") { data.field = [...FILTER_FIELDS, "replied"].includes(d.field) ? d.field : ""; data.op = cleanOp(d.op); data.value = cleanVal(d.value); }
     if (n.type === "message") { data.channel = ["auto", "email", "whatsapp"].includes(d.channel) ? d.channel : "auto"; data.situation = str(d.situation, 30) || "auto"; }
     return { id: str(n.id, 40), type: n.type, x: Math.round(Number(n.x) || 0), y: Math.round(Number(n.y) || 0), data };
   });
@@ -847,7 +861,7 @@ const cleanWf = (b0: any) => {
 const cleanWf0 = (b: any) => ({
   name: str(b.name, 80), description: str(b.description, 400), enabled: b.enabled === true, priority: Math.max(1, Math.min(999, Math.round(Number(b.priority) || 100))),
   trigger: { type: String(b.trigger?.type || ""), value: Math.max(0, Math.min(3650, Number(b.trigger?.value) || 0)), statuses: Array.isArray(b.trigger?.statuses) ? b.trigger.statuses.map((x: any) => str(x, 60)).slice(0, 20) : undefined },
-  conditions: (Array.isArray(b.conditions) ? b.conditions : []).slice(0, 10).map((c: any) => ({ field: str(c.field, 30), op: str(c.op, 10) || "in", value: typeof c.value === "boolean" ? c.value : Array.isArray(c.value) ? c.value.map((v: any) => str(v, 80)).slice(0, 30) : str(c.value, 400) })),
+  conditions: (Array.isArray(b.conditions) ? b.conditions : []).filter((c: any) => FILTER_FIELDS.includes(c?.field)).slice(0, 10).map((c: any) => ({ field: c.field, op: cleanOp(c.op), value: typeof c.value === "boolean" ? c.value : Array.isArray(c.value) ? c.value.map((v: any) => str(v, 80)).slice(0, 30) : str(c.value, 400) })),
   steps: (Array.isArray(b.steps) ? b.steps : []).slice(0, 8).map((s: any) => ({ waitDays: Math.max(0, Math.min(60, Math.round(Number(s.waitDays) || 0))), action: str(s.action, 20), channel: ["auto", "email", "whatsapp"].includes(s.channel) ? s.channel : "auto", situation: str(s.situation, 30) || "auto" })),
   stop: { onActivity: b.stop?.onActivity !== false, onReply: b.stop?.onReply !== false, onMeeting: b.stop?.onMeeting !== false },
   autopilot: b.autopilot === true,
@@ -995,6 +1009,8 @@ lbRoute("GET", "/integration/lara-offer/:id", async ({ c, params }) => {
   if (d.status !== "shadow") throw new HttpError(409, "This offer is no longer waiting (it was approved, rejected or expired)");
   const { data: lead } = await admin.from("crm_leads").select("data->customerName,data->companyName,data->industry").eq("id", d.lead_id).maybeSingle();
   const o = d.offer;
+  // the Land Bank builds THIS version: any change afterwards replaces the offer (and this mark), so a PDF of an older version is refused below
+  await admin.from("lara_drafts").update({ offer: { ...o, lbReadAt: nowIso() } }).eq("id", d.id).eq("status", "shadow");
   return { success: true, id: d.id, ref: o.ref, leadId: d.lead_id, plotKeys: (o.plots || []).map((p: any) => p.key),
     plan: o.plan || null, discountPct: o.discountPct || 0, customer: (lead as any)?.customerName || "", company: (lead as any)?.companyName || "", activity: (lead as any)?.industry || "", owner: d.owner_name || "",
     expect: { realTotal: o.realTotal, listTotal: o.listTotal, netTotal: o.netTotal, due: o.due } };
@@ -1008,6 +1024,7 @@ lbRoute("POST", "/integration/lara-offer/:id/pdf", async ({ req, c, params }) =>
   if (!d?.offer) throw new HttpError(404, "Offer not found");
   if (!(await lbAllowed(c, d.owner_id))) throw new HttpError(403, "Only Admin, Sales Operation or the lead's salesperson build Lara's offers");
   if (d.status !== "shadow") throw new HttpError(409, "This offer is no longer waiting");
+  if (!d.offer.lbReadAt) throw new HttpError(409, "The offer was changed in Sales Leads while it was being built: press \"Build in Land Bank\" again");
   const name = str(b.fileName, 140) || `${d.offer.ref}.pdf`;
   const size = Math.round(pdf.length * 3 / 4);
   await admin.from("lara_offer_files").upsert({ draft_id: d.id, file_name: name, pdf_b64: pdf, size_bytes: size, built_by: c.name || c.email, built_at: nowIso() });

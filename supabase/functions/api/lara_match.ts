@@ -11,6 +11,7 @@ export function normText(t: string): string {
     .replace(/[ً-ٰٟـ]/g, "")                 // diacritics, tatweel
     .replace(/[أإآٱ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/ؤ/g, "و").replace(/ئ/g, "ي")
     .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x660))
+    .replace(/[،؛؟٪-٭۔]/g, " ")              // Arabic punctuation (؟ ، ؛ ٪ ۔) is in the Arabic letter block: cut it off the word
     .replace(/[^a-z0-9؀-ۿ]+/g, " ").trim();
 }
 
@@ -31,7 +32,7 @@ const CONCEPTS: Record<string, string[]> = {
   documents: ["اوراق", "الاوراق", "مستندات", "ورق", "documents", "papers", "requirements"],
   reservation: ["حجزت", "حاجز", "حجز", "الحجز", "احجز", "reserve", "reservation", "booking", "book"],
   refund: ["لغيت", "لغي", "رجع", "ترجع", "بترجع", "فلوس", "فلوسي", "يترد", "استرداد", "ترجع", "الغي", "الغاء", "refund", "cancel", "refundable"],
-  size: ["مساحه", "المساحه", "مساحات", "اقل", "اصغر", "اكبر", "size", "area", "minimum", "smallest", "sqm"],
+  size: ["مساحه", "المساحه", "مساحات", "اقل", "اصغر", "اكبر", "size", "area", "minimum", "smallest"],
   merge: ["اجمع", "دمج", "جنب", "قطعتين", "merge", "combine", "adjacent"],
   building: ["بناء", "البناء", "ارتفاع", "الارتفاع", "نسبه", "ادوار", "building", "height", "ratio", "floors", "coverage"],
   license: ["ترخيص", "تراخيص", "رخصه", "الرخصه", "التراخيص", "هيئه", "التنميه", "license", "licence", "licenses", "permit", "permits", "ida"],

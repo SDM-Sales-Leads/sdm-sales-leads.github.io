@@ -238,6 +238,12 @@ async function blocker(d: any, r: SendRules): Promise<string> {
 }
 
 export async function sendDraft(draftId: string, r: SendRules, by: string): Promise<{ sent: boolean; reason?: string }> {
+  // one sender per draft (two Approve clicks, Approve + Send, or a click while the queue job runs must never send the same mail twice)
+  const lock = `lara-send-${draftId}`;
+  if (!(await tryLock(lock, 180))) return { sent: false, reason: "This message is already being sent" };
+  try { return await sendDraftLocked(draftId, r, by); } finally { await unlock(lock); }
+}
+async function sendDraftLocked(draftId: string, r: SendRules, by: string): Promise<{ sent: boolean; reason?: string }> {
   const { data: d } = await admin.from("lara_drafts").select("*").eq("id", draftId).maybeSingle();
   if (!d || d.status !== "approved" || d.send_status === "sent") return { sent: false, reason: "Not an approved draft" };
   const why = await blocker(d, r);
@@ -308,7 +314,12 @@ export async function sendQueued(r: SendRules) {
 // ---------------------------------------------------------------------------------------------
 export const AUTO_RE = /(auto(matic)?[\s-]?reply|out of (the )?office|undeliverable|delivery (status|has failed)|mail delivery|returned mail|رد تلقائي|خارج المكتب|غير متواجد|لم يتم التسليم)/i;
 export const AUTO_SENDER = /(mailer-daemon|postmaster|no-?reply|noreply|do-not-reply|bounce)/i;
-export const STOP_RE = /(^|\s)(stop|unsubscribe|remove me|not interested)(\s|$|[.!])|ايقاف|إيقاف|الغاء الاشتراك|إلغاء الاشتراك|متبعتليش|ما تبعتليش|مش مهتم|غير مهتم|لا شكرا|لا شكراً/i;
+export const STOP_RE = /(^|\s)(stop|unsubscribe|remove me|not interested)(\s|$|[.!,;:،؛])|ايقاف|إيقاف|الغاء الاشتراك|إلغاء الاشتراك|متبعتليش|ما تبعتليش|مش مهتم|غير مهتم|لا شكرا|لا شكراً/i;
+/** the customer still wants something (a question, a request, another project, "don't stop"): a stop word in such a message is NOT an opt-out
+ *  (18 Nov 2026 test: "not interested in October, interested in Asher, send prices" put a hot lead on the do-not-contact list) */
+export const KEEP_RE = /[?؟]|\b(interested in|send|price|prices|offer|details|brochure|plan|plans|how|what|when|where|which|but)\b|(don'?t|do not|never) stop|لكن|عايز|عاوز|محتاج|ابعت|ابعتلي|ابعتولي|سعر|اسعار|أسعار|عرض|تفاصيل|متوقفش|ماتوقفش|كام|فين|امتى|إمتى|ازاي|إزاي/i;
+/** a short message that only asks Lara to stop */
+export const isStopRequest = (text: string) => { const t = String(text || "").trim(); return t.length < 250 && STOP_RE.test(t) && !KEEP_RE.test(t); };
 export const HANDOVER_RE = /(call me|phone me|give me a call|meeting|site visit|visit the site|اتصل|اتصلوا|كلمني|كلموني|كلمنى|رقمي|موبايلي|تليفوني|اجتماع|ميعاد|معاينه|معاينة|زياره|زيارة)/i;
 
 /** the customer's own new text (quoted history and signatures cut off) */
@@ -381,6 +392,10 @@ export async function handleReply(thread: any, base: any, matchedBy: string, tex
   const o = await ownerOf(thread.lead_id);
   await admin.from("lara_threads").update({ unanswered: 0, last_in_at: now, updated_at: now }).eq("id", thread.id);
   const ch = base.channel === "whatsapp" ? "whatsapp" : "email";
+  // a mail that carries the conversation code but comes from ANOTHER address (forward, CC, or someone who guessed the code): it is read and the
+  // owner is told, but it can never stop the conversation, is never auto-sent, and Lara's answer goes to the customer's own address only
+  const custMail = String(thread.customer_email || "").toLowerCase();
+  const foreign = ch === "email" && !!custMail && String(base.from_addr || "").toLowerCase() !== custMail;
   // WhatsApp: the customer wrote, so the 24-hour window is open and consent is clear
   if (ch === "whatsapp") await admin.from("lara_threads").update({ wa_phone: base.from_addr, wa_last_in: base.at || now, wa_consent: "replied" }).eq("id", thread.id);
   await appendTimeline(thread.lead_id, { type: ch === "whatsapp" ? "WhatsApp" : "Email", title: `Customer replied to Lara (${ch === "whatsapp" ? "WhatsApp" : "e-mail"})`, description: text.slice(0, 600) });
@@ -391,7 +406,7 @@ export async function handleReply(thread: any, base: any, matchedBy: string, tex
   if (!to.length) { const { data: m } = await admin.from("app_users").select("id").in("role", ["Admin", "Sales Operation"]).neq("active", false).limit(20); to = (m || []).map((r: any) => r.id); }
   const notify = async (title: string, body: string, type = "changed") => { if (to.length) await addNotifications(to.map((userId) => ({ userId, type, leadId: thread.lead_id, title: o.id ? title : `${title} (no owner)`, body }))).catch(() => {}); };
 
-  if (STOP_RE.test(text) && text.length < 250) {   // a short "stop / not interested"; a long mail that only mentions the word is read normally
+  if (isStopRequest(text) && !foreign) {   // a short "stop / not interested" with no request in it, from the customer; anything else is read normally
     await admin.from("lara_optout").upsert({ contact: String(base.from_addr || thread.customer_email).toLowerCase(), reason: text.slice(0, 200), removed_at: null, removed_by: null, lead_id: thread.lead_id, by_who: "Customer reply" });
     await admin.from("lara_threads").update({ status: "stopped", note: "Customer asked to stop", updated_at: now }).eq("id", thread.id);
     await notify(`${o.customer} asked Lara to stop`, `Lara will not write again. Their words: "${text.slice(0, 200)}"`);
@@ -403,7 +418,7 @@ export async function handleReply(thread: any, base: any, matchedBy: string, tex
     thread = { ...thread, status: "handover", memory: { ...(thread.memory || {}), handover: now } };
     await notify(`${o.customer} wants to talk — call them now`, `Lara handed this lead to you. Their words: "${text.slice(0, 300)}"`, "escalation");
   } else {
-    await notify(`${o.customer} replied to Lara`, text.slice(0, 300));
+    await notify(foreign ? `Someone else (${String(base.from_addr).slice(0, 80)}) wrote about ${o.customer}'s conversation` : `${o.customer} replied to Lara`, text.slice(0, 300));
   }
   // a reply draft (approve first): the approved answer when there is one, else a polite holding reply + Missed question
   const ans = await hooks.answer(text, thread.lead_id);
@@ -416,10 +431,10 @@ export async function handleReply(thread: any, base: any, matchedBy: string, tex
   const w = await hooks.writeReply(thread.lead_id, ar, answerText, back);
   await admin.from("lara_drafts").insert({
     lead_id: thread.lead_id, rule: "customer_reply", kind: "reply", situation: answerText ? "reply_answer" : "reply_holding", channel: ch, lang: ar ? "ar" : "en", to_phone: ch === "whatsapp" ? base.from_addr : null,
-    subject: ch === "email" ? `Re: ${String(base.subject || "").replace(LARA_CODE_RE, "").replace(/^(re:\s*)+/i, "").trim()}` : "", body: w.body, to_addr: ch === "email" ? base.from_addr || thread.customer_email : null,
+    subject: ch === "email" ? `Re: ${String(base.subject || "").replace(LARA_CODE_RE, "").replace(/^(re:\s*)+/i, "").trim()}` : "", body: w.body, to_addr: ch === "email" ? (foreign ? custMail : base.from_addr || thread.customer_email) : null,
     reason: answerText ? (ans.source === "landbank" ? "Customer replied; answered from the Land Bank plot list" : ans.source === "ai" ? "Customer replied; AI answer built only from the approved answers (check it before approving)" : "Customer replied; answer found in the approved Q&A") : "Customer replied; no approved answer (question sent to Missed questions)",
     customer: str(o.customer, 120), owner_id: o.id, owner_name: str(o.name, 80), thread_id: thread.id, reply_to: msg.data?.id || null,
     // Autopilot (phase 7): replies go out without a person when the owner switched Lara to Autopilot with auto-replies on
-    ...(ans.source !== "ai" && (await hooks.autoApprove?.().catch(() => false)) ? { status: "approved", decided_by: "Autopilot", decided_at: now, send_status: "queued" } : {}),
+    ...(ans.source !== "ai" && !foreign && (await hooks.autoApprove?.().catch(() => false)) ? { status: "approved", decided_by: "Autopilot", decided_at: now, send_status: "queued" } : {}),
   });
 }

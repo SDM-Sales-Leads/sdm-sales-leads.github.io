@@ -8,7 +8,7 @@ import { route } from "./router.ts";
 import { pg } from "./db.ts";
 import { firstNameOf } from "../../../src/lib/personName.ts";
 import { activeKb, availabilityAnswer, canSeeOwner, laraAnswer, laraConfig, laraOwners, laraWho, log, ownsLead, who } from "./routes_lara.ts";
-import { appendTimeline, contactButtons, ensureChatKey, ensureThread, HANDOVER_RE, isOptedOut, ownerOf, sendDraft, STOP_RE } from "./lara_mail.ts";
+import { appendTimeline, contactButtons, ensureChatKey, ensureThread, HANDOVER_RE, isOptedOut, isStopRequest, ownerOf, sendDraft } from "./lara_mail.ts";
 import { addNotifications } from "./notify.ts";
 import { learn, parksIn, remember, welcomeBack } from "./lara_memory.ts";
 import { graphOf, nextOf } from "../../../src/components/lara/flow/graph.ts";
@@ -17,8 +17,16 @@ import { intl, waCfg, waReady } from "./lara_wa.ts";
 import { canonicalParks } from "../../../src/lib/parkAliases.ts";
 import { PARK_AR } from "../../../src/components/crm/smartWriter.ts";
 
+/** a person sends from Interactions: no working hours / spacing / daily cap, but the owner's switches still hold (mode off or sending off = nothing
+ *  leaves), and so do the test lock, the do-not-contact list and the WhatsApp rules inside sendDraft */
+async function staffSendRules() {
+  const cfg = await laraConfig();
+  return { sendEnabled: cfg.sendEnabled, mode: cfg.mode === "off" ? "off" : "approve", maxSendPerDay: 10000, minDaysBetween: 0, maxUnanswered: 1000, sendStart: 0, sendEnd: 24 };
+}
 const isAr = (t: string) => /[؀-ۿ]/.test(t || "");
-const ipOf = (req: Request) => (req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "").split(",")[0].trim().slice(0, 60) || "unknown";
+const ipOf = (req: Request) => (req.headers.get("cf-connecting-ip") || req.headers.get("x-real-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim().slice(0, 60) || "unknown";
+/** a chat key has a fixed shape: anything else is refused before it can touch the rate-limit table or the database */
+const keyShape = (key: string) => { if (!/^[a-z0-9]{20,40}$/.test(String(key || ""))) throw new HttpError(404, "This chat link is not valid"); };
 const GREET_RE = /^\s*(bonjour|bonsoir|salut|merhaba|selam|你好|您好|hi|hello|hey|good (morning|evening|afternoon)|السلام عليكم|سلام|اهلا|أهلا|مرحبا|هاي|صباح الخير|مساء الخير|ازيك|إزيك)[\s!.,؟?]*$/i;
 const THANKS_RE = /^\s*(merci( beaucoup)?|teşekkürler|teşekkür ederim|sağ ol|谢谢|多谢|thanks?|thank you|thx|ok(ay)?|شكرا|شكراً|متشكر|تمام|ماشي|اوك)[\s!.,؟?]*$/i;
 const PLOTS_RE = /^\s*(terrains disponibles|mevcut arsalar|可售地块|available plots|الأراضي المتاحة|الاراضي المتاحة)\s*$/i;
@@ -132,7 +140,7 @@ export async function chatTurn(t: any, text: string, opts: { lang?: string; mode
     await remember(t.id, mem0, { visits: (Number(t.memory?.visits) || 0) + (fresh ? 1 : 0) });
     return { messages: [ins.data], suggest: [] };
   }
-  if (STOP_RE.test(text) && text.length < 250) {
+  if (isStopRequest(text)) {
     const contact = String(t.customer_email || t.wa_phone || "").toLowerCase();
     if (contact) await admin.from("lara_optout").upsert({ contact, reason: text.slice(0, 200), lead_id: t.lead_id, by_who: "Web chat", removed_at: null, removed_by: null });
     await admin.from("lara_threads").update({ status: "stopped", note: "Customer asked to stop (chat)", updated_at: now }).eq("id", t.id);
@@ -242,6 +250,7 @@ route("GET", "/chat/s/:key/after", async ({ req, params, query }) => {
 
 route("POST", "/chat/s/:key", async ({ req, params }) => {
   const ip = ipOf(req);
+  keyShape(params.key);
   await rateLimit(`chatsend:${ip}`, 3600, 120);
   await rateLimit(`chatkey:${params.key}`, 3600, 60);
   const t = await threadByKey(params.key);
@@ -258,6 +267,7 @@ route("POST", "/chat/s/:key", async ({ req, params }) => {
 route("POST", "/chat/start", async ({ req }) => {
   const ip = ipOf(req);
   await rateLimit(`chatstart:${ip}`, 3600, 5);
+  await rateLimit("chatstart:all", 3600, 60);   // all website visitors together: a flood can never fill the inbox, the bell or the AI budget
   const cc = await chatCfg();
   if (!cc.enabled || (await getConfig<any>("lara_test_lock", true)) !== false) throw new HttpError(403, "Chat is not open yet");
   const b = await body(req, 4000);
@@ -269,7 +279,7 @@ route("POST", "/chat/start", async ({ req }) => {
   // for staff, who link it in Interactions after checking (owner, 11 Nov 2026: "don't mix history of any customer")
   const local = normPhone(phone);
   let { data: lead } = await admin.from("crm_leads").select("id").eq("phone_norm", local).is("deleted_at", null).order("updated_at", { ascending: false }).limit(1).maybeSingle();
-  if (!lead && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) ({ data: lead } = await admin.from("crm_leads").select("id").ilike("data->>email", email).is("deleted_at", null).limit(1).maybeSingle());
+  if (!lead && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) ({ data: lead } = await admin.from("crm_leads").select("id").ilike("data->>email", email.replace(/[%_\\]/g, "\\$&")).is("deleted_at", null).limit(1).maybeSingle());
   const vid = `VISIT-${crypto.randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
   const t: any = (await admin.from("lara_threads").insert({ lead_id: vid, code: `SDM-${vid}`, customer_email: email, wa_phone: phone, match_lead_id: lead?.id || null, visitor: { name, phone, email, page: str(b.page, 200), at: nowIso() } }).select("*").single()).data;
   const to = await staffTo(null);
@@ -379,7 +389,7 @@ route("POST", "/lara/inbox/:id/reply", async ({ req, c, params }) => {
     status: "approved", decided_by: who(c), decided_at: nowIso(), send_status: "queued",
   }).select("id").single();
   if (ins.error || !ins.data) throw new HttpError(500, "Could not queue the reply");
-  const r = await sendDraft(ins.data.id, { sendEnabled: true, mode: "approve", maxSendPerDay: 10000, minDaysBetween: 0, maxUnanswered: 1000, sendStart: 0, sendEnd: 24 }, who(c));
+  const r = await sendDraft(ins.data.id, await staffSendRules(), who(c));
   if (r.sent && usedDraft) await admin.from("lara_drafts").update({ status: "expired", feedback: `Sent by ${who(c)} from Interactions`, decided_by: who(c), decided_at: nowIso(), updated_at: nowIso() }).eq("id", usedDraft).eq("lead_id", t.lead_id).eq("status", "shadow");
   return { success: true, sent: r.sent, note: r.sent ? "Sent" : r.reason };
 });
@@ -456,7 +466,7 @@ route("GET", "/lara/lead-search", async ({ c, query }) => {
   const q0 = str(query.get("q") || "", 60).trim();
   if (q0.length < 2) return { success: true, rows: [] };
   const owners = await laraOwners(c);
-  const qs = q0.replace(/[%_\\,()]/g, " ").trim();
+  const qs = q0.replace(/[^\p{L}\p{N}\s@.-]/gu, " ").replace(/\s+/g, " ").trim();   // nothing that can change the PostgREST filter
   const digits = q0.replace(/\D/g, "");
   let lq: any = admin.from("crm_leads").select("id,status,assigned_to,phone_norm,data->customerName,data->email,data->phoneNumber,data->project,data->assignedSalespersonName").is("deleted_at", null);
   if (owners) lq = lq.in("assigned_to", owners);
@@ -514,7 +524,7 @@ route("POST", "/lara/start", async ({ req, c }) => {
     status: "approved", decided_by: who(c), decided_at: nowIso(), send_status: "queued",
   }).select("id").single();
   if (d.error || !d.data) throw new HttpError(409, /one_open/.test(d.error?.message || "") ? "A Lara draft for this lead already waits in Drafts: approve or reject it first" : "Could not start");
-  const r = await sendDraft(d.data.id, { sendEnabled: true, mode: "approve", maxSendPerDay: 10000, minDaysBetween: 0, maxUnanswered: 1000, sendStart: 0, sendEnd: 24 }, who(c));
+  const r = await sendDraft(d.data.id, await staffSendRules(), who(c));
   if (!r.sent) await appendTimeline(leadId, { type: "Comment", title: `Handed to Lara by ${who(c)} (${ch === "whatsapp" ? "WhatsApp" : "e-mail"})`, description: `Not sent yet: ${r.reason}` }).catch(() => {});
   await log("mail", who(c), `${o.customer} (${leadId}) handed to Lara by ${ch}: ${r.sent ? "sent" : r.reason}`);
   return { success: true, started: "message", sent: r.sent, note: r.sent ? "Sent. Lara now answers this customer." : r.reason, threadId: t.id };
@@ -534,7 +544,7 @@ route("POST", "/lara/inbox/:id/link-lead", async ({ req, c, params }) => {
   await admin.from("lara_messages").update({ thread_id: t.id, lead_id: leadId }).eq("thread_id", v.id);
   await pg(async (q) => {
     await q`update lara_threads t set last_at = s.last_at, last_dir = s.last_dir, last_channel = s.last_channel, last_preview = s.last_preview, msg_count = s.n, channels = s.chs,
-        chat_key = coalesce(t.chat_key, ${v.chat_key}), unread = t.unread + ${v.unread || 0}, wa_phone = coalesce(t.wa_phone, ${v.wa_phone}), last_in_at = greatest(t.last_in_at, ${v.last_in_at})
+        unread = t.unread + ${v.unread || 0}, wa_phone = coalesce(t.wa_phone, ${v.wa_phone}), last_in_at = greatest(t.last_in_at, ${v.last_in_at})
       from (select count(*)::int n, max(at) last_at, (array_agg(direction order by at desc))[1] last_dir, (array_agg(coalesce(channel,'email') order by at desc))[1] last_channel,
                    (array_agg(left(regexp_replace(coalesce(body,''), '\s+', ' ', 'g'), 160) order by at desc))[1] last_preview, array_agg(distinct coalesce(channel,'email')) chs
             from lara_messages where thread_id = ${t.id} and kind not in ('unmatched','ignored')) s where t.id = ${t.id}`;
@@ -549,7 +559,9 @@ route("POST", "/lara/inbox/:id/link-lead", async ({ req, c, params }) => {
 // ---------------------------------------------------------------------------------------------
 /** the call ended: one row per call; the customer's recording (they agreed before the call) goes to private storage */
 route("POST", "/chat/s/:key/call", async ({ req, params }) => {
+  keyShape(params.key);
   await rateLimit(`chatcall:${params.key}`, 3600, 12);
+  await rateLimit(`chatcallip:${ipOf(req)}`, 3600, 20);
   const t = await threadByKey(params.key);
   if (!(await chatOpen(t))) throw new HttpError(403, "Chat is not open yet");
   const b = await body(req, 6_500_000);
@@ -558,8 +570,13 @@ route("POST", "/chat/s/:key/call", async ({ req, params }) => {
   const cc = await chatCfg();
   let path: string | null = null; let bytes = 0;
   if (cc.record && b.consent === true && typeof b.audio === "string" && b.audio.length > 200 && b.audio.length < 6_000_000) {
-    const bin = Uint8Array.from(atob(b.audio), (ch) => ch.charCodeAt(0));
-    const ext = /mp4|aac/.test(String(b.mime)) ? "m4a" : "webm";
+    let bin: Uint8Array;
+    try { bin = Uint8Array.from(atob(b.audio), (ch) => ch.charCodeAt(0)); } catch { throw bad("The recording is not valid"); }
+    // only real audio files are stored: WebM/Matroska (1A 45 DF A3) or MP4/M4A ("ftyp" at byte 4)
+    const webm = bin[0] === 0x1a && bin[1] === 0x45 && bin[2] === 0xdf && bin[3] === 0xa3;
+    const mp4 = String.fromCharCode(bin[4], bin[5], bin[6], bin[7]) === "ftyp";
+    if (!webm && !mp4) throw bad("The recording is not an audio file");
+    const ext = mp4 ? "m4a" : "webm";
     path = `${t.id}/${Date.now()}.${ext}`; bytes = bin.length;
     const up = await admin.storage.from("lara-calls").upload(path, bin, { contentType: ext === "m4a" ? "audio/mp4" : "audio/webm", upsert: false });
     if (up.error) { path = null; bytes = 0; }
@@ -574,8 +591,10 @@ route("POST", "/chat/s/:key/call", async ({ req, params }) => {
 }, { public: true });
 
 route("POST", "/chat/s/:key/rate", async ({ req, params }) => {
+  keyShape(params.key);
   await rateLimit(`chatrate:${params.key}`, 3600, 10);
   const t = await threadByKey(params.key);
+  if (!(await chatOpen(t))) throw new HttpError(403, "Chat is not open yet");
   const b = await body(req, 2000);
   const stars = Math.round(Number(b.stars));
   if (!(stars >= 1 && stars <= 5)) throw bad("stars?");

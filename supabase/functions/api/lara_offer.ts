@@ -75,11 +75,13 @@ function fpPlan(area: number, price: number, c: PlanCfg) {
   for (let i = 1; i <= n; i++) { const yr = Math.ceil(i / pt.ppy); paid += inst * Math.pow(1 + esc, yr - 1) + extra(i); }
   return { adv, n, inst, paid: rem > 0 && n === 0 ? total : paid, label: pt.l, years: +c.years || 0 };
 }
+/** a number inside [lo, hi]; anything that is not a number (text, NaN, Infinity) takes the default instead of breaking every total */
+const clampN = (v: any, d: number, lo: number, hi: number) => { const n = Number(v ?? d); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
 const cleanPlan = (p: any): PlanCfg => ({
   type: FP_TYPES[p?.type] ? p.type : PLAN_DEFAULT.type,
-  adv: Math.max(0, Math.min(100, Number(p?.adv ?? PLAN_DEFAULT.adv))), years: Math.max(0, Math.min(10, Number(p?.years ?? PLAN_DEFAULT.years))),
-  rate: Math.max(0, Math.min(60, Number(p?.rate ?? PLAN_DEFAULT.rate))), esc: Math.max(0, Math.min(30, Number(p?.esc ?? 0))),
-  fixPct: Math.max(0, Math.min(50, Number(p?.fixPct ?? 0))), fixN: Math.max(0, Math.min(10, Number(p?.fixN ?? 5))),
+  adv: clampN(p?.adv, PLAN_DEFAULT.adv, 0, 100), years: clampN(p?.years, PLAN_DEFAULT.years, 0, 10),
+  rate: clampN(p?.rate, PLAN_DEFAULT.rate, 0, 60), esc: clampN(p?.esc, 0, 0, 30),
+  fixPct: clampN(p?.fixPct, 0, 0, 50), fixN: clampN(p?.fixN, 5, 0, 10),
 });
 /** "B2-14, B2-15" -> sector "B2", plots "14&15" (the Land Bank's soBlock) */
 function block(units: string[]) {

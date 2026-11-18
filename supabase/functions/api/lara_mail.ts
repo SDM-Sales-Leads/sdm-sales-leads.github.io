@@ -142,6 +142,14 @@ export async function isOptedOut(contacts: string[]): Promise<boolean> {
   return !!data?.length;
 }
 
+/** the customer of this lead asked to stop on ANY channel (the list holds the address or number they wrote from): every channel is blocked
+ *  (18 Nov 2026 test: "stop" in the chat was stored with the e-mail only, so a WhatsApp message would still have gone out) */
+export async function leadOptedOut(leadId: string): Promise<boolean> {
+  if (!leadId) return false;
+  const { data } = await admin.from("lara_optout").select("contact").eq("lead_id", leadId).is("removed_at", null).limit(1);
+  return !!data?.length;
+}
+
 // ---------------------------------------------------------------------------------------------
 // sending (approved drafts only)
 // ---------------------------------------------------------------------------------------------
@@ -162,7 +170,7 @@ async function waBlocker(d: any, r: SendRules): Promise<string> {
   const to = intl(d.to_phone);
   if (!to) return "The lead has no usable mobile number";
   if ((await getConfig<any>("lara_test_lock", true)) !== false && !c.testNumbers.includes(to)) return "Test lock: Lara may only message the test numbers until the owner lifts it";
-  if (await isOptedOut([to, normPhone(to)])) return "The customer asked not to be contacted";
+  if ((await isOptedOut([to, normPhone(to)])) || (await leadOptedOut(d.lead_id))) return "The customer asked not to be contacted";
   const { data: t } = await admin.from("lara_threads").select("status,unanswered,last_out_at,wa_last_in,wa_consent").eq("lead_id", d.lead_id).maybeSingle();
   if (t && t.status !== "open" && d.kind === "followup") return `Conversation is ${t.status}`;
   if (t && d.kind === "followup" && t.unanswered >= r.maxUnanswered) return `${t.unanswered} messages without a reply: Lara stops`;
@@ -217,7 +225,7 @@ async function blocker(d: any, r: SendRules): Promise<string> {
     if (!staff?.length) return "Test lock: Lara may only e-mail staff addresses until the owner lifts it";
   }
   if (!d.to_addr) return "The lead has no e-mail address";
-  if (await isOptedOut([d.to_addr])) return "The customer asked not to be contacted";
+  if ((await isOptedOut([d.to_addr])) || (await leadOptedOut(d.lead_id))) return "The customer asked not to be contacted";
   const { data: t } = await admin.from("lara_threads").select("status,unanswered,last_out_at").eq("lead_id", d.lead_id).maybeSingle();
   if (t && t.status !== "open" && d.kind === "followup") return `Conversation is ${t.status}`;
   if (t && d.kind === "followup" && t.unanswered >= r.maxUnanswered) return `${t.unanswered} mails without a reply: Lara stops`;
@@ -314,7 +322,7 @@ export async function sendQueued(r: SendRules) {
 // ---------------------------------------------------------------------------------------------
 export const AUTO_RE = /(auto(matic)?[\s-]?reply|out of (the )?office|undeliverable|delivery (status|has failed)|mail delivery|returned mail|رد تلقائي|خارج المكتب|غير متواجد|لم يتم التسليم)/i;
 export const AUTO_SENDER = /(mailer-daemon|postmaster|no-?reply|noreply|do-not-reply|bounce)/i;
-export const STOP_RE = /(^|\s)(stop|unsubscribe|remove me|not interested)(\s|$|[.!,;:،؛])|ايقاف|إيقاف|الغاء الاشتراك|إلغاء الاشتراك|متبعتليش|ما تبعتليش|مش مهتم|غير مهتم|لا شكرا|لا شكراً/i;
+export const STOP_RE = /(^|\s)(stop|unsubscribe|remove me|not interested)(\s|$|[.!,;:،؛])|ايقاف|إيقاف|الغاء الاشتراك|إلغاء الاشتراك|متبعتليش|ما تبعتليش|مش مهتم|غير مهتم|لا شكرا|لا شكراً|arr[êe]te[zr]?|d[ée]sabonner|d[ée]sinscri|pas int[ée]ress[ée]|durdur|ilgilenmiyorum|abonelikten [çc]ık|mesaj göndermeyin|停止|退订|取消订阅|不感兴趣|别再发/i;
 /** the customer still wants something (a question, a request, another project, "don't stop"): a stop word in such a message is NOT an opt-out
  *  (18 Nov 2026 test: "not interested in October, interested in Asher, send prices" put a hot lead on the do-not-contact list) */
 export const KEEP_RE = /[?؟]|\b(interested in|send|price|prices|offer|details|brochure|plan|plans|how|what|when|where|which|but)\b|(don'?t|do not|never) stop|لكن|عايز|عاوز|محتاج|ابعت|ابعتلي|ابعتولي|سعر|اسعار|أسعار|عرض|تفاصيل|متوقفش|ماتوقفش|كام|فين|امتى|إمتى|ازاي|إزاي/i;

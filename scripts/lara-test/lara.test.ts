@@ -6,6 +6,8 @@ import { triggerHit, condsOk, condOne, stopReason, validateWorkflow, stepsToGrap
 import { intl, waSignatureOk, inWindow } from "../../supabase/functions/api/lara_wa.ts";
 import { tplOf, offerFileName } from "../../supabase/functions/api/lara_offer.ts";
 import { LARA_CODE_RE } from "../../supabase/functions/api/ingest.ts";
+import { sizesIn, availabilityAnswer } from "../../supabase/functions/api/routes_lara.ts";
+import { GREET_RE, THANKS_RE, PLOTS_RE } from "../../supabase/functions/api/lara_chat.ts";
 import { createHmac } from "node:crypto";
 
 let pass = 0, fail = 0; const fails: string[] = [];
@@ -149,6 +151,28 @@ ok("Asher -> pip", tplOf("Industria Asher") === "pip");
 ok("unknown -> def", tplOf("") === "def");
 const fn = offerFileName({ project: 'A/B:C*"x', area: 2490.4, company: "Co<>|" } as any);
 ok("offer file name has no path / illegal characters", !/[\\/:*?"<>|]/.test(fn.replace(/\.pdf$/, "")) && fn.endsWith(".pdf") && fn.length <= 94, fn);
+
+// ---------------------------------------------------------------- 7. plot answers + chat rules (18 Nov 2026 second round)
+S("7. Plot answers and chat rules");
+ok("'Sokhna 360' is a name, not a size", sizesIn("available plots in Sokhna 360").length === 0, sizesIn("available plots in Sokhna 360"));
+ok("'سخنة 360' is a name, not a size", sizesIn("كام قطعة متاحة في سخنة 360؟").length === 0);
+ok("'Asher D75' is a name, not a size", sizesIn("plots in Asher D75 please").length === 0 && sizesIn("أشير د75").length === 0);
+ok("Sokhna 360 + real size keeps the size", JSON.stringify(sizesIn("Sokhna 360 around 5,000 sqm")) === "[5000]");
+ok("Arabic digits size", JSON.stringify(sizesIn("عايز ٥٠٠٠ متر")) === "[5000]");
+ok("range 3000 - 6000", JSON.stringify(sizesIn("from 3000 to 6000 m2")) === "[3000,6000]");
+ok("small numbers are not sizes", sizesIn("2 plots, 10th of Ramadan").length === 0);
+const av = async (q: string) => (await availabilityAnswer(q))?.f?.k ?? null;
+ok("'عايز ٥٠٠٠ متر في السخنة' is a plot question", (await av("عايز ٥٠٠٠ متر في السخنة")) !== null);
+ok("'available plots in October' is a plot question", (await av("available plots in October")) !== null);
+ok("'how are you' is not a plot question", (await av("how are you")) === null);
+ok("greeting AR", GREET_RE.test("السلام عليكم") && GREET_RE.test("hello!") && GREET_RE.test("你好"));
+ok("greeting is not a question", !GREET_RE.test("hello, what is the price?"));
+ok("thanks", THANKS_RE.test("شكراً") && THANKS_RE.test("merci beaucoup") && !THANKS_RE.test("thanks, send the offer"));
+ok("plots button text", PLOTS_RE.test("الأراضي المتاحة") && PLOTS_RE.test("Available plots"));
+ok("STOP French", isStopRequest("Arrêtez svp") && isStopRequest("pas intéressé"));
+ok("STOP Turkish", isStopRequest("ilgilenmiyorum") && isStopRequest("lütfen durdurun"));
+ok("STOP Chinese", isStopRequest("停止") && isStopRequest("不感兴趣"));
+ok("Turkish 'durum' (status) is not stop", !isStopRequest("durum nedir"));
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 if (fail) { console.log("FAILED:\n - " + fails.join("\n - ")); process.exitCode = 1; }

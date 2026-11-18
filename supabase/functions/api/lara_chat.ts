@@ -27,9 +27,9 @@ const isAr = (t: string) => /[؀-ۿ]/.test(t || "");
 const ipOf = (req: Request) => (req.headers.get("cf-connecting-ip") || req.headers.get("x-real-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim().slice(0, 60) || "unknown";
 /** a chat key has a fixed shape: anything else is refused before it can touch the rate-limit table or the database */
 const keyShape = (key: string) => { if (!/^[a-z0-9]{20,40}$/.test(String(key || ""))) throw new HttpError(404, "This chat link is not valid"); };
-const GREET_RE = /^\s*(bonjour|bonsoir|salut|merhaba|selam|你好|您好|hi|hello|hey|good (morning|evening|afternoon)|السلام عليكم|سلام|اهلا|أهلا|مرحبا|هاي|صباح الخير|مساء الخير|ازيك|إزيك)[\s!.,؟?]*$/i;
-const THANKS_RE = /^\s*(merci( beaucoup)?|teşekkürler|teşekkür ederim|sağ ol|谢谢|多谢|thanks?|thank you|thx|ok(ay)?|شكرا|شكراً|متشكر|تمام|ماشي|اوك)[\s!.,؟?]*$/i;
-const PLOTS_RE = /^\s*(terrains disponibles|mevcut arsalar|可售地块|available plots|الأراضي المتاحة|الاراضي المتاحة)\s*$/i;
+export const GREET_RE = /^\s*(bonjour|bonsoir|salut|merhaba|selam|你好|您好|hi|hello|hey|good (morning|evening|afternoon)|السلام عليكم|سلام|اهلا|أهلا|مرحبا|هاي|صباح الخير|مساء الخير|ازيك|إزيك)[\s!.,؟?]*$/i;
+export const THANKS_RE = /^\s*(merci( beaucoup)?|teşekkürler|teşekkür ederim|sağ ol|谢谢|多谢|thanks?|thank you|thx|ok(ay)?|شكرا|شكراً|متشكر|تمام|ماشي|اوك)[\s!.,؟?]*$/i;
+export const PLOTS_RE = /^\s*(terrains disponibles|mevcut arsalar|可售地块|available plots|الأراضي المتاحة|الاراضي المتاحة)\s*$/i;
 
 export interface ChatCfg { enabled: boolean; callNumber: string; welcomeAr: string; welcomeEn: string; voice: boolean; record: boolean; provider: string; liveModel: string; liveVoice: string }
 export async function chatCfg(): Promise<ChatCfg> {
@@ -257,6 +257,7 @@ route("POST", "/chat/s/:key", async ({ req, params }) => {
   if (!(await chatOpen(t))) throw new HttpError(403, "Chat is not open yet");
   if (t.status === "stopped" || (t.customer_email && (await isOptedOut([t.customer_email])))) throw new HttpError(403, "This conversation was stopped at your request");
   const b = await body(req, 4000);
+  if (typeof b.text !== "string") throw bad("Write a message");
   const text = str(b.text, 1500).trim();
   if (!text) throw bad("Write a message");
   const r = await chatTurn(t, text, { lang: str(b.lang, 5), mode: str(b.mode, 10) });
@@ -272,6 +273,7 @@ route("POST", "/chat/start", async ({ req }) => {
   if (!cc.enabled || (await getConfig<any>("lara_test_lock", true)) !== false) throw new HttpError(403, "Chat is not open yet");
   const b = await body(req, 4000);
   const name = str(b.name, 80).trim(); const phone = intl(b.phone); const email = str(b.email, 120).trim().toLowerCase();
+  if (typeof b.text !== "string" || typeof b.name !== "string") throw bad("Write your name and your question");
   const text = str(b.text, 1500).trim();
   if (name.length < 2 || !phone) throw bad("Write your name and mobile number");
   if (!text) throw bad("Write your question");
@@ -584,6 +586,9 @@ route("POST", "/chat/s/:key/call", async ({ req, params }) => {
   const ins = await admin.from("lara_calls").insert({ thread_id: t.id, lead_id: t.lead_id, started_at: started, seconds, lang: str(b.lang, 5) || "ar", turns: Math.min(500, Number(b.turns) || 0), audio_path: path, audio_bytes: bytes }).select("id").single();
   const o = t.visitor ? { id: null, customer: String(t.visitor?.name || "Website visitor") } : await ownerOf(t.lead_id);
   const mmss = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  // a call with no recording, under 10 s or with no spoken turn is kept as a row only: it never writes the lead's timeline or rings the bell
+  // (the length and turns come from the browser, so a forged "call" must not be able to spam staff)
+  if (!path && !(seconds >= 10 && (Number(b.turns) || 0) >= 1)) return { success: true, id: ins.data?.id || null, recorded: false };
   if (!t.visitor) await appendTimeline(t.lead_id, { type: "Call", title: `Customer had a voice call with Lara (${mmss})`, description: path ? "Recording and transcript are in Lara › Interactions" : "Transcript is in Lara › Interactions" }).catch(() => {});
   const to = await staffTo(o.id);
   if (to.length) await addNotifications(to.map((userId) => ({ userId, type: "changed", leadId: t.visitor ? undefined : t.lead_id, title: `${o.customer} spoke with Lara (${mmss})`, body: "Listen to the call and read the transcript in Lara › Interactions." }))).catch(() => {});

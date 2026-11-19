@@ -32,8 +32,8 @@ export function canonicalParks(text: string): string[] {
   if (has(/sadat|سادات/)) return ['Industria Sadat'];
   if (has(/october|اكتوبر/)) return ['Industria October'];
   if (has(/sokhna|sukhna|sokhnah|سخنه/)) return ['Industria Sokhna'];
-  if (has(/\bwest\b|غرب/)) return ['Industria West'];
-  if (has(/\beast\b|شرق/)) return ['Industria East'];
+  if (has(/\bwest\b|غرب|ويست/)) return ['Industria West'];   // 19 Nov 2026: "إندستريا إيست / ويست" were not recognised
+  if (has(/\beast\b|شرق|ايست/)) return ['Industria East'];
   if (has(/al\s*oula|aloula|\bola\b|اولي|اوله/)) return ['Al Oula'];
   return [];
 }

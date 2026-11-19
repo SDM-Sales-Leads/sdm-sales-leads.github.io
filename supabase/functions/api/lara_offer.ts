@@ -112,6 +112,16 @@ export async function markupPct(): Promise<number> {
   return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 20;
 }
 
+/** the initial offer of ONE plot for a customer question (chat / reply): the customer's list price (real + markup, never the real
+ *  price) cash, and the default instalment plan on it. null when the Land Bank has no price for the plot (never invented). */
+export async function quickOffer(p: any): Promise<{ sqm: number; total: number; adv: number; n: number; inst: number; years: number; advPct: number } | null> {
+  const area = Number(p?.areaSqm) || 0, real = Number(p?.listTotal) || 0;
+  if (!(area > 0) || !(real > 0)) return null;
+  const sqm = Math.round(Math.round(real / area) * (1 + (await markupPct()) / 100));
+  const pl = fpPlan(area, sqm, PLAN_DEFAULT);
+  return { sqm, total: Math.round(area * sqm), adv: Math.round(pl.adv), n: pl.n, inst: Math.round(pl.inst), years: pl.years, advPct: PLAN_DEFAULT.adv };
+}
+
 /** plots Lara would offer: plots chosen on the lead (still available), else the closest in size in its park */
 export async function offerCandidates(leadId: string) {
   const l = await leadFacts(leadId);

@@ -7,7 +7,7 @@ import { admin, bad, body, Caller, getConfig, HttpError, needAdmin, normPhone, n
 import { route } from "./router.ts";
 import { pg } from "./db.ts";
 import { firstNameOf } from "../../../src/lib/personName.ts";
-import { activeKb, availabilityAnswer, canSeeOwner, laraAnswer, laraConfig, laraOwners, laraWho, log, ownsLead, who } from "./routes_lara.ts";
+import { activeKb, availabilityAnswer, canSeeOwner, PARK_CITY, laraAnswer, laraConfig, laraOwners, laraWho, log, ownsLead, who } from "./routes_lara.ts";
 import { appendTimeline, contactButtons, chatKeyExpired, ensureChatKey, ensureThread, HANDOVER_RE, isOptedOut, isStopRequest, ownerOf, sendDraft } from "./lara_mail.ts";
 import { addNotifications } from "./notify.ts";
 import { learn, parksIn, remember, welcomeBack } from "./lara_memory.ts";
@@ -48,7 +48,7 @@ async function chatOpen(t: any): Promise<boolean> {
 }
 
 async function leadInfo(leadId: string) {
-  const { data } = await admin.from("crm_leads").select("id,status,assigned_to,phone_norm,data->customerName,data->assignedSalespersonName,data->project,data->email,data->phoneNumber,data->requiredSize,data->budget,data->source,data->lastContactDate,data->nextFollowUpDate,data->channel").eq("id", leadId).maybeSingle();
+  const { data } = await admin.from("crm_leads").select("id,status,assigned_to,phone_norm,data->customerName,data->assignedSalespersonName,data->project,data->email,data->phoneNumber,data->requiredSize,data->industry,data->budget,data->source,data->lastContactDate,data->nextFollowUpDate,data->channel").eq("id", leadId).maybeSingle();
   return data as any;
 }
 async function staffTo(ownerId: string | null): Promise<string[]> {
@@ -65,11 +65,13 @@ async function parksOverview(ar: boolean): Promise<string | null> {
   for (const p of all) if (p.status === "available" && Number(p.areaSqm) > 0) { const l = by.get(p.park) || []; l.push(Number(p.areaSqm)); by.set(p.park, l); }
   if (!by.size) return null;
   const f = (n: number) => Math.round(n).toLocaleString("en-US");
-  const lines = [...by.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 8).map(([park, a]) => {
-    a.sort((x, y) => x - y);
-    return ar ? `• ${PARK_AR[park] || park}: ${a.length} قطعة (${f(a[0])} – ${f(a[a.length - 1])} م²)` : `• ${park}: ${a.length} plots (${f(a[0])} – ${f(a[a.length - 1])} sqm)`;
-  });
-  return (ar ? "المتاح حالياً حسب آخر تحديث لبنك الأراضي:\n" : "Available now (latest Land Bank list):\n") + lines.join("\n") + (ar ? "\nأي منطقة ومساحة تناسبك؟" : "\nWhich park and size suit you?");
+  // the parks where we have land, with their city: no plot counts or stock figures to a customer (owner, 19 Nov 2026)
+  const seen = new Set<string>(); const lines: string[] = [];
+  for (const park of [...by.keys()].sort((a, b) => by.get(b)!.length - by.get(a)!.length)) {
+    const name = ar ? PARK_AR[park] || park : park.replace(/ - Plot \d+$/, ""); if (seen.has(name)) continue; seen.add(name);
+    const c = PARK_CITY[park]; lines.push(`• ${name}${c ? ` (${ar ? c.ar : c.en})` : ""}`);
+  }
+  return (ar ? "عندنا أراضي متاحة في:\n" : "We have land available in:\n") + lines.slice(0, 8).join("\n") + (ar ? "\nقولّي المنطقة والمساحة ونوع النشاط، وأبعتلك القطعة المناسبة والعرض المبدئي بتاعها." : "\nTell me the park, size and activity, and I'll send you the plot that fits with its initial offer.");
 }
 
 const SUGGEST: Record<string, string[]> = { ar: ["الأراضي المتاحة", "طرق السداد", "عايز حد يكلمني"], en: ["Available plots", "Payment plans", "Please call me"],
@@ -81,20 +83,26 @@ const TR: Record<string, Record<string, string>> = {
     back: "Ravie de vous revoir{n} 👋 Souhaitez-vous reprendre là où nous nous étions arrêtés ?", hi: "Ravie de vous revoir{n} 👋\n\n", thanks: "Avec plaisir ! Je reste à votre disposition.",
     stop: "C'est noté, nous ne vous enverrons plus de messages. Nous restons à votre disposition.", call: "C'est noté — j'ai prévenu {o}, qui vous appellera dès que possible pendant les heures de travail (dimanche–jeudi). Vous pouvez indiquer ici le meilleur moment pour l'appel.",
     calltime: "C'est noté — j'ai transmis l'horaire indiqué à {o}, qui vous appellera à ce moment-là.", holding: "Bonne question — pour vous donner une réponse exacte, je l'ai transmise à {o}, qui vous répondra ici ou par téléphone.",
-    more: "\n\nPuis-je vous aider pour autre chose ?", fit: "{n} terrain(s) disponible(s) actuellement à {park}{sized} ({span} m²).", sized: " proches de la surface demandée", none: "Aucun terrain disponible actuellement à {park} selon la dernière mise à jour.",
-    nofit: "Pas de terrain exactement de cette surface à {park}, mais {n} terrains sont disponibles ({span} m²).", oh: "Disponible actuellement (dernière mise à jour) :", ol: "• {park} : {n} terrains ({a} – {b} m²)", ot: "Quel parc et quelle surface vous conviennent ?" },
+    more: "\n\nPuis-je vous aider pour autre chose ?", fit: "Un terrain qui correspond à votre demande est disponible à {park} ({city}) : lot {unit}, {area} m².", none: "Aucun terrain n'est disponible à {park} en ce moment. Puis-je vous proposer un parc proche adapté à votre activité ?",
+    nofit: "Cette surface exacte n'est pas libre en ce moment ; le terrain le plus proche de votre demande est à {park} ({city}) : lot {unit}, {area} m².",
+    offer: "\n\nOffre initiale :\n• Prix au m² : {sqm} EGP\n• Total au comptant : {total} EGP\n• Ou par versements : acompte de {advPct}% ({adv} EGP), puis {n} versements trimestriels de {inst} EGP sur {years} ans.\nPrix indicatifs (dernière mise à jour), confirmés par votre conseiller dans l'offre officielle.",
+    noprice: "\n\nVotre conseiller vous enverra le prix du terrain dans l'offre officielle.", oh: "Nous avons des terrains disponibles à :", ol: "• {park}", ot: "Indiquez-moi le parc, la surface et l'activité, et je vous envoie le terrain adapté avec son offre initiale." },
   tr: { o: "satış temsilciniz", greet: "Merhaba{n}, ben Lara, Elsewedy Industrial Development'ın dijital satış asistanıyım. Mevcut arsalar ve ödeme planları konusunda yardımcı olabilirim ya da satış temsilcinizin sizi aramasını sağlayabilirim.",
     back: "Tekrar hoş geldiniz{n} 👋 Kaldığımız yerden devam edelim mi?", hi: "Tekrar hoş geldiniz{n} 👋\n\n", thanks: "Rica ederim! Başka sorunuz olursa buradayım.",
     stop: "Anlaşıldı, size bir daha mesaj göndermeyeceğiz. İhtiyacınız olursa buradayız.", call: "Tamam — {o} bilgilendirildi; çalışma saatlerinde (Pazar–Perşembe) en kısa sürede sizi arayacak. Size uygun saati buraya yazabilirsiniz.",
     calltime: "Not aldım — belirttiğiniz saati {o} ile paylaştım; o saatte sizi arayacak.", holding: "Güzel soru — size kesin bir yanıt verebilmek için sorunuzu {o} ile paylaştım; buradan ya da telefonla yanıt verecek.",
-    more: "\n\nBaşka bir konuda yardımcı olabilir miyim?", fit: "{park} bölgesinde şu anda {n} arsa mevcut{sized} ({span} m²).", sized: ", istediğiniz büyüklüğe yakın", none: "Son güncellemeye göre {park} bölgesinde şu anda uygun arsa yok.",
-    nofit: "{park} bölgesinde tam bu büyüklükte arsa yok, ancak {n} arsa mevcut ({span} m²).", oh: "Şu anda mevcut (son güncelleme):", ol: "• {park}: {n} arsa ({a} – {b} m²)", ot: "Hangi bölge ve büyüklük size uygun?" },
+    more: "\n\nBaşka bir konuda yardımcı olabilir miyim?", fit: "İsteğinize uygun bir arsa {park} ({city}) bölgesinde mevcut: {unit} numaralı parsel, {area} m².", none: "{park} bölgesinde şu anda uygun arsa yok. Faaliyetinize uygun yakın bir bölge önermemi ister misiniz?",
+    nofit: "Tam bu büyüklükte arsa şu anda boş değil; isteğinize en yakın arsa {park} ({city}) bölgesinde: {unit} numaralı parsel, {area} m².",
+    offer: "\n\nİlk teklif:\n• m² fiyatı: {sqm} EGP\n• Peşin toplam: {total} EGP\n• Ya da taksitle: %{advPct} peşinat ({adv} EGP), ardından {years} yılda {n} adet üç aylık {inst} EGP taksit.\nFiyatlar ön fiyattır (son güncelleme); satış temsilciniz resmi teklifte onaylar.",
+    noprice: "\n\nArsanın fiyatını satış temsilciniz resmi teklifte gönderecek.", oh: "Şu bölgelerde uygun arsalarımız var:", ol: "• {park}", ot: "Bölge, büyüklük ve faaliyetinizi yazın; size uygun arsayı ilk teklifiyle göndereyim." },
   zh: { o: "您的销售经理", greet: "您好{n}，我是Lara，Elsewedy Industrial Development的数字销售助理。我可以为您介绍可售地块和付款方式，或安排销售经理给您回电。",
     back: "欢迎回来{n} 👋 我们从上次的话题继续吗？", hi: "欢迎回来{n} 👋\n\n", thanks: "不客气！如有其他问题，随时告诉我。",
     stop: "好的，我们不会再给您发送消息。如有需要，随时联系我们。", call: "好的——我已通知{o}，将在工作时间（周日至周四）尽快给您回电。您可以在这里留下方便接听的时间。",
     calltime: "已记录——我已将您说的时间转告{o}，届时会给您回电。", holding: "这个问题很好——为了给您准确的答复，我已转给{o}，会在这里或通过电话回复您。",
-    more: "\n\n还有什么可以帮您的吗？", fit: "{park}目前有{n}块可售地块{sized}（{span}平方米）。", sized: "，接近您需要的面积", none: "根据最新数据，{park}目前没有可售地块。",
-    nofit: "{park}没有正好这个面积的地块，但有{n}块可售（{span}平方米）。", oh: "目前可售（最新数据）：", ol: "• {park}：{n}块（{a} – {b}平方米）", ot: "您需要哪个园区、多大面积？" },
+    more: "\n\n还有什么可以帮您的吗？", fit: "{park}（{city}）有一块符合您需求的地块：{unit}号地块，{area}平方米。", none: "{park}目前没有可售地块。需要我为您推荐适合您行业的附近园区吗？",
+    nofit: "目前没有正好这个面积的地块；最接近您需求的是{park}（{city}）的{unit}号地块，{area}平方米。",
+    offer: "\n\n初步报价：\n• 每平方米价格：{sqm}埃镑\n• 现金总价：{total}埃镑\n• 或分期付款：首付{advPct}%（{adv}埃镑），其余分{n}期按季度支付，每期{inst}埃镑，共{years}年。\n价格为初步报价（最新数据），由您的销售经理在正式报价中确认。",
+    noprice: "\n\n您的销售经理会在正式报价中发送该地块的价格。", oh: "我们在以下园区有可售土地：", ol: "• {park}", ot: "请告诉我园区、面积和行业，我会把合适的地块和初步报价发给您。" },
 };
 const fill = (s: string, v: Record<string, any>) => s.replace(/\{(\w+)\}/g, (_m, k) => String(v[k] ?? ""));
 async function overviewIn(L: string): Promise<string | null> {
@@ -102,8 +110,8 @@ async function overviewIn(L: string): Promise<string | null> {
   const by = new Map<string, number[]>();
   for (const p of (Array.isArray(data?.data) ? data!.data : []) as any[]) if (p.status === "available" && Number(p.areaSqm) > 0) { const l = by.get(p.park) || []; l.push(Number(p.areaSqm)); by.set(p.park, l); }
   if (!by.size) return null;
-  const f = (n: number) => Math.round(n).toLocaleString("en-US");
-  return [TR[L].oh, ...[...by.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 8).map(([park, a]) => { a.sort((x, y) => x - y); return fill(TR[L].ol, { park, n: a.length, a: f(a[0]), b: f(a[a.length - 1]) }); }), TR[L].ot].join("\n");
+  const names = [...new Set([...by.keys()].sort((a, b) => by.get(b)!.length - by.get(a)!.length).map((p) => { const c = PARK_CITY[p]; return `${p.replace(/ - Plot \d+$/, "")}${c ? ` (${c.en})` : ""}`; }))];
+  return [TR[L].oh, ...names.slice(0, 8).map((park) => fill(TR[L].ol, { park })), TR[L].ot].join("\n");
 }
 
 /** one customer message in the web chat -> Lara's instant answer. Returns the new messages. */
@@ -167,11 +175,13 @@ export async function chatTurn(t: any, text: string, opts: { lang?: string; mode
   } else {
     // Land Bank data first (a park in the question, or the lead's own park), then the approved Q&A
     let q = text;
-    if (!parksIn(text).length && lead?.project && /ارض|اراضي|أرض|أراضي|قطع|متاح|مساح|land|plot|available|size|terrain|parcelle|disponible|arsa|arazi|mevcut|地块|土地|可售/i.test(text)) q = `${text} ${canonicalParks(lead.project)[0] || ""}`;
-    const overview = PLOTS_RE.test(text) && !parksIn(text).length ? await parksOverview(ar) : null;
+    if (!parksIn(text).length && lead?.project && /ارض|اراضي|أرض|أراضي|قطع|متاح|مساح|سعر|اسعار|أسعار|بكام|المتر|price|prix|fiyat|价格|land|plot|available|size|terrain|parcelle|disponible|arsa|arazi|mevcut|地块|土地|可售/i.test(text)) q = `${text} ${canonicalParks(lead.project)[0] || ""}`;
+    // "available plots" with no park: the lead's own park gets the one matching plot; otherwise the parks we have (no counts)
+    if (PLOTS_RE.test(text) && !parksIn(text).length && lead?.project && canonicalParks(lead.project)[0]) q = `${text} ${canonicalParks(lead.project)[0]}`;
+    const overview = PLOTS_RE.test(text) && !parksIn(q).length ? await parksOverview(ar) : null;
     if (overview) { reply = overview; by = "landbank"; cat = "overview"; }
     else {
-      const data = await availabilityAnswer(q).catch(() => null);
+      const data = await availabilityAnswer(q, { size: lead?.requiredSize, industry: String(lead?.industry || "") }).catch(() => null);
       if (data) { reply = ar ? data.ar : data.en; by = "landbank"; cat = "plots"; facts = data.f; }
       else {
         if (text.length >= 3) {
@@ -198,7 +208,7 @@ export async function chatTurn(t: any, text: string, opts: { lang?: string; mode
     const T = TR[L]; const n = custFirst ? (L === "zh" ? `，${custFirst}` : ` ${custFirst}`) : ""; const o = ownerFirst || T.o;
     const hi = back && cat !== "back" && cat !== "stop" && cat !== "greet" && cat !== "thanks" ? fill(T.hi, { n }) : "";
     let x: string | null = null;
-    if (cat === "plots" && facts) x = fill(T[facts.k] || T.fit, { ...facts, sized: facts.sized ? T.sized : "" }) + T.more;
+    if (cat === "plots" && facts) x = facts.k === "none" ? fill(T.none, facts) + T.more : fill(T[facts.k] || T.fit, facts).replace(/ \(\)|（）/g, "") + (facts.priced ? fill(T.offer, facts) : T.noprice) + T.more;
     else if (cat === "overview") x = await overviewIn(L);
     else if (T[cat]) x = fill(T[cat], { n, o });
     if (x) reply = hi + x; else if (reply && by !== "holding" && cat === "") reply = reply.replace(/\n\nAnything else I can help with\?$/, T.more);

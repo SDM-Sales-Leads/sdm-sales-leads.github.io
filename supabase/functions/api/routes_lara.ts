@@ -13,16 +13,17 @@ import { pg } from "./db.ts";
 import { analyse, isArabic, KbEntry, matchQuestion, normText, THRESHOLD } from "./lara_match.ts";
 import { canonicalParks } from "../../../src/lib/parkAliases.ts";
 import { PARK_AR, plotsAr, preferredLang, situationOf, writeFor } from "../../../src/components/crm/smartWriter.ts";
-import { availableByPark, plotFit } from "../../../src/components/crm/smartEngine.ts";
+import { availableByPark, plotFit, sizeRange } from "../../../src/components/crm/smartEngine.ts";
 import { firstNameOf } from "../../../src/lib/personName.ts";
 import { triggerHit, condsOk, condOne, stopReason, validateWorkflow, hasEmail, hasPhone, TRIGGERS, Workflow, graphOf, nextOf, NODE_LABEL, type Graph, type GNode } from "./lara_flow.ts";
 import { addNotifications } from "./notify.ts";
 import { teamIds } from "./routes_crm.ts";
 import { aiAnswer } from "./lara_ai.ts";
 import { parksIn } from "./lara_memory.ts";
-import { buildOffer, coverText, offerCandidates, OfferInput } from "./lara_offer.ts";
+import { buildOffer, coverText, offerCandidates, OfferInput, quickOffer } from "./lara_offer.ts";
 import { lbRoute } from "./integration.ts";
 import { sendOfferTestCopy } from "./lara_mail.ts";
+import { embedPending, siteStats, siteSuggest, suggestOpenMissed } from "./lara_site.ts";
 import { handleReply, laraMailCfg, pollLaraInbox, saveMailbox, sendDraft, sendQueued, SendRules } from "./lara_mail.ts";
 
 export interface LaraConfig {
@@ -410,31 +411,79 @@ export function sizesIn(question: string): number[] {
     .replace(/(^|[^a-z0-9])(d|د)\s*-?\s*75(?!\d)/gi, "$1");
   return (t.match(/\d[\d,]{2,}/g) || []).map((x) => Number(x.replace(/,/g, ""))).filter((x) => x >= 100);
 }
-export async function availabilityAnswer(question: string): Promise<{ ar: string; en: string; f?: any } | null> {
+/** city of each park, said with the plot (owner 19 Nov 2026: "say the plot that matches and its location") */
+export const PARK_CITY: Record<string, { ar: string; en: string }> = {
+  "Industria October": { ar: "أكتوبر", en: "October" }, "Industria New Sadat": { ar: "مدينة السادات", en: "Sadat City" }, "Industria Sadat": { ar: "مدينة السادات", en: "Sadat City" },
+  "Industria Borg El Arab": { ar: "برج العرب", en: "Borg El Arab" }, "Industria Sokhna": { ar: "العين السخنة", en: "Ain Sokhna" }, "Sokhna 360": { ar: "العين السخنة", en: "Ain Sokhna" },
+  "Industria East": { ar: "العاشر من رمضان", en: "10th of Ramadan" }, "Industria West": { ar: "العاشر من رمضان", en: "10th of Ramadan" },
+  "Industria Asher - Plot 10": { ar: "العاشر من رمضان", en: "10th of Ramadan" }, "Industria Asher - Plot 11": { ar: "العاشر من رمضان", en: "10th of Ramadan" },
+};
+const SECTOR_AR: Record<string, string> = { Chemical: "كيماوي", Textile: "نسيج", Engineering: "هندسي", "Food Processing": "غذائي", Food: "غذائي", Logistics: "لوجستي ومخازن",
+  "Logistic Services": "خدمات لوجستية", Service: "خدمات", Services: "خدمات", Pharmaceutical: "دوائي", Plastics: "بلاستيك", Plastic: "بلاستيك" };
+/** the customer's activity (question or lead) -> Land Bank sectors that suit it */
+const ACTIVITY: [RegExp, RegExp][] = [
+  [/غذائ|غذاي|اغذي|أغذي|food|f&b|عصير|البان|ألبان|مجمد|تعبئة غذ/i, /food/i], [/كيماو|كيميا|chemical|دهانات|بويات|عطور/i, /chemical/i],
+  [/نسيج|ملابس|مفروشات|textile|garment/i, /textile/i], [/هندس|معادن|engineering|metal/i, /engineering/i],
+  [/مخزن|مخازن|لوجست|مستودع|warehouse|logistic|storage/i, /logistic/i], [/دوائ|دواء|ادوي|أدوي|pharma/i, /pharma/i], [/بلاستيك|plastic/i, /plastic/i],
+];
+/** "is there land in October around 3,000 m?" answered from the Land Bank list (no Q&A needed). The customer gets ONE plot that
+ *  matches (size, then activity), where it is, and its initial offer price. Never counts or stock reports (owner, 19 Nov 2026). */
+export async function availabilityAnswer(question: string, ctx: { size?: unknown; industry?: string } = {}): Promise<{ ar: string; en: string; f?: any } | null> {
   const a = analyse(question);
   let parks = parksIn(question);
   // "Sokhna" alone could be either Sokhna park: answer for both (a customer rarely says "Industria")
   if (parks.length === 1 && parks[0] === "Industria Sokhna" && !/industria|اندستريا|إندستريا/i.test(question)) parks = ["Industria Sokhna", "Sokhna 360"];
-  if (!parks.length || !(a.concepts.has("availability") || a.concepts.has("size") || /ارض|اراضي|قطع|مصنع|مخزن|متر|م2|م²|land|plot|terrain|parcelle|arsa|arazi|地块|土地|厂房|m2|m²|sqm|meters?|metres?|mètres?|metrekare|平方米/i.test(normText(question) + " " + question))) return null;
-  const nums = sizesIn(question);
+  if (!parks.length || !(a.concepts.has("availability") || a.concepts.has("size") || a.concepts.has("price") || sizesIn(question).length > 0 || /ارض|اراضي|قطع|مصنع|مخزن|مخازن|متر|م2|م²|land|plot|terrain|parcelle|arsa|arazi|地块|土地|厂房|m2|m²|sqm|meters?|metres?|mètres?|metrekare|平方米/i.test(normText(question) + " " + question))) return null;
+  const asked = sizesIn(question);
+  const r = asked.length ? [asked[0], asked[1] || asked[0]] : sizeRange(ctx.size);
   const { data } = await admin.from("plots_snapshot").select("data,updated_at").eq("id", 1).maybeSingle();
   const all: any[] = Array.isArray(data?.data) ? data!.data : [];
-  const avail = all.filter((p) => p.status === "available" && parks.includes(p.park) && Number(p.areaSqm) > 0);
-  const fit = nums.length ? avail.filter((p) => p.areaSqm >= nums[0] * 0.7 && p.areaSqm <= (nums[1] || nums[0]) * 1.3) : avail;
-  const uniq = (a: string[]) => [...new Set(a)];
+  let avail = all.filter((p) => p.status === "available" && parks.includes(p.park) && Number(p.areaSqm) > 0);
+  const uniq = (x: string[]) => [...new Set(x)];
   const park = uniq(parks.map((p) => p.replace(/ - Plot \d+$/, ""))).join(" / "); const parkAr = uniq(parks.map((p) => PARK_AR[p] || p)).join(" و"); const f = (n: number) => Math.round(n).toLocaleString("en-US");
-  if (!avail.length) return { f: { k: "none", park }, ar: `حالياً لا توجد قطع متاحة في ${parkAr} حسب آخر تحديث لبنك الأراضي.`, en: `There are no available plots in ${park} in the latest Land Bank list.` };
-  const list = fit.length ? fit : avail;
-  const areas = list.map((p) => p.areaSqm).sort((x, y) => x - y);
-  const span = areas[0] === areas[areas.length - 1] ? `${f(areas[0])}` : `${f(areas[0])} – ${f(areas[areas.length - 1])}`;
-  if (nums.length && !fit.length) return { f: { k: "nofit", n: avail.length, park, span }, ar: `مفيش قطعة متاحة بالمساحة دي بالظبط في ${parkAr}، لكن متاح ${plotsAr(avail.length)} بمساحات ${span} م².`, en: `No available plot of that size in ${park}, but ${avail.length} plots are available (${span} sqm).` };
-  return { f: { k: "fit", n: list.length, park, span, sized: nums.length > 0 }, ar: `متاح حالياً ${plotsAr(list.length)} في ${parkAr}${nums.length ? ' قريبة من المساحة المطلوبة' : ''} بمساحات ${span} م².`, en: `${list.length} plots are available now in ${park}${nums.length ? ' close to the size asked' : ''} (${span} sqm).` };
+  if (!avail.length) return { f: { k: "none", park }, ar: `للأسف حالياً مفيش قطعة متاحة في ${parkAr}. تحب أرشح لحضرتك منطقة قريبة تناسب نشاطك؟`, en: `There is no plot available in ${park} right now. Shall I suggest a nearby park that suits your activity?` };
+  // the customer's activity narrows the choice when the Land Bank has plots of that sector
+  const act = ACTIVITY.find(([re]) => re.test(`${question} ${ctx.industry || ""}`));
+  if (act) { const s = avail.filter((p) => act[1].test(String(p.sector || "") + " " + String(p.landType || ""))); if (s.length) avail = s; }
+  const priced = avail.filter((p) => Number(p.listTotal) > 0);
+  const pool = priced.length ? priced : avail;
+  let best: any; let exact = true;
+  if (r) {
+    const mid = (r[0] + r[1]) / 2;
+    const fit = pool.filter((p) => p.areaSqm >= r[0] * 0.7 && p.areaSqm <= r[1] * 1.3);
+    exact = fit.length > 0;
+    best = [...(fit.length ? fit : pool)].sort((x, y) => Math.abs(x.areaSqm - mid) - Math.abs(y.areaSqm - mid))[0];
+  } else best = [...pool].sort((x, y) => (Number(x.listTotal) || 9e15) - (Number(y.listTotal) || 9e15) || x.areaSqm - y.areaSqm)[0];   // no size given: the easiest entry plot
+  const o = await quickOffer(best);
+  const city = PARK_CITY[best.park]; const bAr = PARK_AR[best.park] || best.park; const bEn = String(best.park).replace(/ - Plot \d+$/, "");
+  const sec = String(best.sector || "");
+  const secAr = [...new Set(sec.split(/\s*[\/,&]\s*/).map((x) => SECTOR_AR[x.trim()]).filter(Boolean))].join(" / ");   // "Engineering/ Chemical" -> هندسي / كيماوي
+  const showCity = city && !normText(bAr).includes(normText(city.ar).replace(/^مدينه\s*/, "")) ? city : null;   // no "إندستريا أكتوبر (أكتوبر)"
+  const fx = { k: exact ? "fit" : "nofit", park: bEn, city: showCity?.en || "", unit: best.unit, area: f(best.areaSqm), sqm: o ? f(o.sqm) : "", total: o ? f(o.total) : "", adv: o ? f(o.adv) : "", advPct: o?.advPct ?? "", n: o?.n ?? "", inst: o ? f(o.inst) : "", years: o?.years ?? "", priced: !!o, sized: !!r };
+  const headAr = (exact ? (r ? "متاح قطعة مناسبة لطلب حضرتك" : "متاح قطعة مناسبة لحضرتك") : "المساحة دي بالظبط مش متاحة حالياً، وأقرب قطعة لطلب حضرتك") +
+    ` في ${bAr}${showCity ? ` (${showCity.ar})` : ""}: قطعة رقم ${best.unit}${secAr ? `، نشاط ${secAr}` : ""}، بمساحة ${f(best.areaSqm)} م².`;
+  const headEn = (exact ? (r ? "A plot that matches your request is available" : "A plot that suits you is available") : "That exact size is not free right now; the closest plot to your request is") +
+    ` in ${bEn}${showCity ? ` (${showCity.en})` : ""}: plot ${best.unit}${sec ? `, ${sec}` : ""}, ${f(best.areaSqm)} sqm.`;
+  const offAr = o ? `\n\nالعرض المبدئي:\n• سعر المتر: ${f(o.sqm)} ج.م\n• الإجمالي كاش: ${f(o.total)} ج.م\n• أو بالتقسيط: مقدم ${o.advPct}% (${f(o.adv)} ج.م) والباقي ${o.n} قسط ربع سنوي ${f(o.inst)} ج.م على ${o.years} سنين.\nالأسعار مبدئية حسب آخر تحديث، ومسؤول المبيعات بيأكدها مع حضرتك في العرض الرسمي.`
+    : `\n\nسعر القطعة هيبعته لحضرتك مسؤول المبيعات في العرض الرسمي.`;
+  const offEn = o ? `\n\nInitial offer:\n• Price per sqm: EGP ${f(o.sqm)}\n• Cash total: EGP ${f(o.total)}\n• Or instalments: ${o.advPct}% down payment (EGP ${f(o.adv)}), then ${o.n} quarterly instalments of EGP ${f(o.inst)} over ${o.years} years.\nPrices are initial (latest update); your account manager confirms them in the official offer.`
+    : `\n\nYour account manager will send the plot's price in the official offer.`;
+  return { f: fx, ar: headAr + offAr, en: headEn + offEn };
 }
 
 export async function laraAnswer(question: string, opts: { record: boolean; source: "test" | "customer"; leadId?: string; by?: string }) {
   const q = str(question, 600);
   if (q.length < 3) throw bad("Write a question");
-  const data = await availabilityAnswer(q);
+  // a customer's own lead gives the size, activity and park when the question leaves them out
+  let lq = q; let ctx: { size?: unknown; industry?: string } = {};
+  if (opts.leadId) {
+    const { data: l } = await admin.from("crm_leads").select("data->requiredSize,data->industry,data->project").eq("id", opts.leadId).maybeSingle();
+    if (l) {
+      ctx = { size: (l as any).requiredSize, industry: String((l as any).industry || "") };
+      if (!parksIn(q).length && (l as any).project && /ارض|اراضي|أرض|أراضي|قطع|متاح|مساح|سعر|اسعار|أسعار|بكام|المتر|land|plot|available|size|price|cost/i.test(q)) lq = `${q} ${canonicalParks(String((l as any).project))[0] || ""}`;
+    }
+  }
+  const data = await availabilityAnswer(lq, ctx);
   const matches = matchQuestion(q, await activeKb(), 3);
   const best = matches[0];
   const answered = !!data || (!!best && best.score >= THRESHOLD);
@@ -444,7 +493,11 @@ export async function laraAnswer(question: string, opts: { record: boolean; sour
     // the same question asked again adds to its count instead of a new row
     const { data: same } = await admin.from("lara_missed").select("id,asked").eq("status", "open").eq("question", q).maybeSingle();
     if (same) { await admin.from("lara_missed").update({ asked: (same.asked || 1) + 1, updated_at: nowIso() }).eq("id", same.id); missedId = same.id; }
-    else { const ins = await admin.from("lara_missed").insert({ question: q, lang: isArabic(q) ? "ar" : "en", source: opts.source, lead_id: opts.leadId || null }).select("id").single(); missedId = ins.data?.id || null; }
+    else {
+      const ins = await admin.from("lara_missed").insert({ question: q, lang: isArabic(q) ? "ar" : "en", source: opts.source, lead_id: opts.leadId || null }).select("id").single(); missedId = ins.data?.id || null;
+      // a suggested answer from the website for the team (never sent to the customer as it is)
+      if (missedId) { const sg = await siteSuggest(q).catch(() => null); await admin.from("lara_missed").update({ suggest: sg || { none: true, at: nowIso() } }).eq("id", missedId).then(() => {}, () => {}); }
+    }
     await log("missed", opts.by || null, `No approved answer: "${q.slice(0, 120)}"`);
   }
   return {
@@ -696,6 +749,21 @@ route("POST", "/lara/missed/:id/answer", async ({ req, c, params }) => {
   await admin.from("lara_missed").update({ status: "answered", kb_id: kb.data.id, decided_by: who(c), updated_at: nowIso() }).eq("id", m.id);
   await log("kb", who(c), `Missed question answered: ${m.question.slice(0, 120)}`);
   return { success: true, kbId: kb.data.id };
+});
+// the company website as a knowledge base (lara_site.ts): status, meaning vectors (one batch per press), suggestions for missed questions
+route("GET", "/lara/site", async ({ c }) => { needAdmin(c); return { success: true, ...(await siteStats()) }; });
+route("POST", "/lara/site/embed", async ({ c }) => {
+  needAdmin(c);
+  if (!(await tryLock("lara-site-embed", 120))) throw new HttpError(409, "Already preparing, wait a moment");
+  try { const r = await embedPending(40); if (!r.ok) throw new HttpError(502, "Google refused the request (check the key in Settings, or wait a minute: free limits)"); return { success: true, ...r }; }
+  finally { await unlock("lara-site-embed"); }
+});
+route("POST", "/lara/site/suggest", async ({ req, c }) => {
+  needAdmin(c);
+  const b = await body(req, 1000);
+  const r = await suggestOpenMissed(b.all !== true);
+  await log("missed", who(c), `Website suggestions: ${r.suggested} of ${r.checked} open questions (${r.how})`);
+  return { success: true, ...r };
 });
 route("POST", "/lara/missed/:id/dismiss", async ({ c, params }) => {
   needAdmin(c);

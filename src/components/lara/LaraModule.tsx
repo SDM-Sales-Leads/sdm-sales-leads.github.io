@@ -281,7 +281,7 @@ const Knowledge: React.FC<{ reload: () => void }> = ({ reload }) => {
         </div>}>
         <div className="relative"><Search size={14} className="absolute left-3 top-2.5 text-brand-gray" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search questions and answers…" className="input-field w-full pl-8 text-sm" /></div>
         {edit && <KbForm v={edit} set={setEdit} onSave={save} onCancel={() => setEdit(null)} />}
-        {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : shown.length === 0 ? <p className="text-sm text-brand-gray py-4 text-center">{qd.trim() ? 'No answer matches this search.' : arch ? 'No archived answers.' : 'No answers yet. Start with Missed questions: 25 common customer questions are waiting for SDM\'s real answers.'}</p> : (
+        {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : shown.length === 0 ? <p className="text-sm text-brand-gray py-4 text-center">{qd.trim() ? 'No answer matches this search.' : arch ? 'No archived answers.' : 'No answers yet. Start with Missed questions: the questions customers ask most are waiting for SDM\'s real answers.'}</p> : (
           <ul className="divide-y divide-brand-gray/10">
             {shown.map((r) => (
               <li key={r.id} className="py-3 space-y-1">
@@ -389,7 +389,7 @@ const Missed: React.FC<{ reload: () => void }> = ({ reload }) => {
   return (
     <Card title={<><HelpCircle size={16} className="text-brand-red" />Missed questions</>} right={
       <div className="flex rounded-xl border border-brand-gray/20 overflow-hidden text-xs font-bold">{(['open', 'answered', 'dismissed'] as const).map((s) => <button key={s} onClick={() => setSt(s)} className={`px-3 py-1.5 ${st === s ? 'bg-brand-red text-white' : ''}`}>{s[0].toUpperCase() + s.slice(1)}</button>)}</div>}>
-      <p className="text-xs text-brand-gray">Questions Lara could not answer from the approved Q&A. Answer each once with SDM's real facts: it becomes an approved answer and Lara uses it from then on. The first 25 are the questions customers ask most (prepared by the Sales Director role); they have no answers on purpose.</p>
+      <p className="text-xs text-brand-gray">Questions Lara could not answer from the approved Q&A. Answer each once with SDM's real facts: it becomes an approved answer and Lara uses it from then on. Sorted by how many customers asked (counted from every lead's inquiry and call-center notes). A blue box is a suggested answer from our website: check it, edit it, then save.</p>
       <div className="relative"><Search size={14} className="absolute left-3 top-2.5 text-brand-gray" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search questions…" className="input-field w-full pl-8 text-sm" /></div>
       {rows === null ? <Loader2 className="animate-spin text-brand-gray" /> : rows.length === 0 ? <p className="text-sm text-brand-gray py-4 text-center">Nothing here.</p> : (
         <ul className="divide-y divide-brand-gray/10">
@@ -399,8 +399,20 @@ const Missed: React.FC<{ reload: () => void }> = ({ reload }) => {
                 <p className="text-sm font-bold text-brand-black" dir={isAr(m.question) ? 'rtl' : 'ltr'}>{m.question}</p>
                 <span className="text-[10px] text-brand-gray whitespace-nowrap">{m.source === 'seed' ? 'Common question' : m.source === 'customer' ? 'From a customer' : 'From a test'}{m.asked > 1 ? ` · asked ${m.asked}×` : ''}</span>
               </div>
+              {st === 'open' && open !== m.id && (m.suggest?.a_ar || m.suggest?.a_en) && (
+                <div className="rounded-xl border border-sky-200 bg-sky-50 p-2.5 text-xs space-y-1">
+                  <p className="font-bold text-sky-900">Suggested from our website <span className="font-normal text-sky-800">— check it before saving{m.suggest.how === 'words' ? ' (word match)' : ''}</span></p>
+                  {m.suggest.a_ar && <p dir="rtl" className="text-brand-black">{m.suggest.a_ar}</p>}
+                  {m.suggest.a_en && <p className="text-brand-black">{m.suggest.a_en}</p>}
+                  <p className="text-[10px] text-brand-gray">{m.suggest.path} · <a href={m.suggest.url_ar || m.suggest.url_en} target="_blank" rel="noopener noreferrer" className="underline">open page</a></p>
+                </div>
+              )}
               {st === 'open' && open !== m.id && (
-                <div className="flex gap-3 text-xs font-bold"><button onClick={() => { setOpen(m.id); setV({ ...EMPTY }); }} className="text-brand-red">Answer</button><button onClick={() => dismiss(m.id)} className="text-brand-gray">Dismiss</button></div>
+                <div className="flex gap-3 text-xs font-bold">
+                  <button onClick={() => { setOpen(m.id); setV({ ...EMPTY }); }} className="text-brand-red">Answer</button>
+                  {(m.suggest?.a_ar || m.suggest?.a_en) && <button onClick={() => { setOpen(m.id); setV({ ...EMPTY, topic: 'General', a_ar: m.suggest.a_ar ? `${m.suggest.a_ar}${m.suggest.url_ar ? `\n\nالتفاصيل على موقعنا: ${m.suggest.url_ar}` : ''}` : '', a_en: m.suggest.a_en ? `${m.suggest.a_en}${m.suggest.url_en ? `\n\nMore on our website: ${m.suggest.url_en}` : ''}` : '' }); }} className="text-sky-800">Use website answer</button>}
+                  <button onClick={() => dismiss(m.id)} className="text-brand-gray">Dismiss</button>
+                </div>
               )}
               {open === m.id && <KbForm v={v} set={setV} fixedQuestion={m.question} onSave={() => answer(m.id)} onCancel={() => setOpen(null)} />}
             </li>

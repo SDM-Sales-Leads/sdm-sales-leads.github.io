@@ -1,7 +1,7 @@
 // Lara settings: the customer web chat (buttons in her e-mails, website chat) and the AI for hard questions (off by default, capped).
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { MessageCircle, Sparkles, Copy, Loader2, ShieldCheck } from 'lucide-react';
+import { MessageCircle, Sparkles, Copy, Loader2, ShieldCheck, Globe } from 'lucide-react';
 
 const api = async (path: string, init?: RequestInit) => {
   const r = await fetch(`/api${path}`, init ? { ...init, headers: { 'Content-Type': 'application/json', ...(init.headers || {}) } } : undefined);
@@ -63,6 +63,50 @@ export const LaraChannels: React.FC = () => {
         <p className="text-[11px] text-brand-gray">Used today: {ai.usedToday ?? 0} of {ai.dailyCap ?? 20}. {ai.hasKey ? 'Key saved in the server safe.' : 'No key saved: the AI cannot run.'}</p>
         <button onClick={saveAi} disabled={!!busy} className="btn-primary rounded-xl px-3 py-1.5 text-xs font-bold disabled:opacity-50">{busy === 'ai' ? 'Saving…' : 'Save'}</button>
       </section>
+      <SiteKb />
     </>
+  );
+};
+
+/** the company website as Lara's knowledge base: status, "prepare meaning search" (one batch per call, repeated), suggestions */
+const SiteKb: React.FC = () => {
+  const [st, setSt] = useState<any>(null);
+  const [busy, setBusy] = useState('');
+  const load = useCallback(async () => { try { setSt(await api('/lara/site')); } catch (e: any) { toast.error(e.message); } }, []);
+  useEffect(() => { void load(); }, [load]);
+  const prepare = async () => {
+    setBusy('embed');
+    try {
+      for (let i = 0; i < 60; i++) {                      // 40 passages per call; stops when all are done or Google says wait
+        const r = await post('/lara/site/embed', {});
+        setSt((x: any) => ({ ...x, withMeaning: (x?.passages || 0) - r.left }));
+        if (!r.left) { toast.success('Meaning search ready'); break; }
+        await new Promise((res) => setTimeout(res, 1500));
+      }
+    } catch (e: any) { toast.error(e.message); } finally { setBusy(''); void load(); }
+  };
+  const suggest = async () => {
+    setBusy('suggest');
+    try { const r = await post('/lara/site/suggest', { all: true }); toast.success(`Website suggestions: ${r.suggested} of ${r.checked} open questions`); }
+    catch (e: any) { toast.error(e.message); } finally { setBusy(''); }
+  };
+  if (!st) return <section className={card}><Loader2 className="animate-spin text-brand-gray" /></section>;
+  const ready = st.passages > 0 && st.withMeaning >= st.passages;
+  return (
+    <section className={card}>
+      <h3 className="font-extrabold text-sm flex items-center gap-2"><Globe size={16} className="text-sky-700" />Website knowledge base</h3>
+      <p className="text-xs text-brand-gray">elsewedydevelopment.com (English + Arabic) stored as a tree: park › page › heading › passage. For each missed question Lara looks only inside the matching park and topic and suggests the best website passage with its link. Your team checks it and saves it as the approved answer; Lara never sends a website passage to a customer by herself.</p>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-xl bg-brand-gray/5 p-2"><div className="text-lg font-extrabold">{st.passages || '—'}</div><div className="text-[10px] text-brand-gray">passages</div></div>
+        <div className="rounded-xl bg-brand-gray/5 p-2"><div className="text-lg font-extrabold">{st.passages ? `${Math.round((st.withMeaning / st.passages) * 100)}%` : '—'}</div><div className="text-[10px] text-brand-gray">meaning search</div></div>
+        <div className="rounded-xl bg-brand-gray/5 p-2"><div className="text-sm font-extrabold">{st.loadedAt ? new Date(st.loadedAt).toLocaleDateString('en-GB') : '—'}</div><div className="text-[10px] text-brand-gray">site read on</div></div>
+      </div>
+      <p className="text-[11px] text-brand-gray">{!st.keySaved ? 'No Google key saved: suggestions use word search only. Save a free Google AI Studio key in the card above (you can leave "Use AI for hard questions" off) to switch on meaning search.' : ready ? 'Meaning search is on: questions are matched by meaning (Arabic and English), at most 300 questions a day.' : 'Key saved. Press "Prepare meaning search" once (about 2 minutes) to read every passage.'}</p>
+      <div className="flex flex-wrap gap-2">
+        {st.keySaved && !ready && <button onClick={prepare} disabled={!!busy} className="btn-primary rounded-xl px-3 py-1.5 text-xs font-bold disabled:opacity-50">{busy === 'embed' ? `Preparing… ${st.withMeaning}/${st.passages}` : 'Prepare meaning search'}</button>}
+        <button onClick={suggest} disabled={!!busy} className="rounded-xl border border-brand-gray/30 px-3 py-1.5 text-xs font-bold disabled:opacity-50">{busy === 'suggest' ? 'Looking…' : 'Suggest answers for missed questions'}</button>
+      </div>
+      <p className="text-[10px] text-brand-gray">To read the website again after it changes: scripts/site-kb/run.sh (then "Prepare meaning search" for the new passages).</p>
+    </section>
   );
 };

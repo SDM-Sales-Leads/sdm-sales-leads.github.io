@@ -89,12 +89,10 @@ function factsOf(l: Lead, ctx: WriterCtx): Facts {
   const f = ctx.fit;
   let fitAr = '', fitEn = '';
   if (f && f.count > 0 && parkEn) {
-    const areas = f.best.map((p) => p.areaSqM);
-    const lo = Math.min(...areas), hi = Math.max(...areas);
-    const span = lo === hi ? `${n0(lo)} م²` : `من ${n0(lo)} إلى ${n0(hi)} م²`;
-    const spanEn = lo === hi ? `${n0(lo)} sqm` : `${n0(lo)} to ${n0(hi)} sqm`;
-    fitAr = f.count === 1 ? `متاح حالياً قطعة مناسبة جداً في ${parkAr} بمساحة ${span}` : `متاح حالياً ${plotsAr(f.count)} مناسبة في ${parkAr}، أقربها لطلب حضرتك ${span}`;
-    fitEn = f.count === 1 ? `one plot that fits your request is available now in ${parkEn} (${spanEn})` : `${f.count} plots that fit your request are available now in ${parkEn}; the closest are ${spanEn}`;
+    // never a plot count to a customer (owner, 19 Nov 2026): the closest plot that matches, and where
+    const one = `${n0(f.best[0].areaSqM)} م²`; const oneEn = `${n0(f.best[0].areaSqM)} sqm`;
+    fitAr = `متاح حالياً قطعة مناسبة لطلب حضرتك في ${parkAr} بمساحة ${one}`;
+    fitEn = `a plot that fits your request is available now in ${parkEn} (${oneEn})`;
   } else if (f && f.count === 0 && size && parkEn) {
     fitAr = `المساحة دي بالظبط مش متاحة حالياً في ${parkAr}، لكن عندنا بدائل قريبة أقدر أعرضها على حضرتك`;
     fitEn = `that exact size is not free in ${parkEn} right now, but I have close alternatives to show you`;

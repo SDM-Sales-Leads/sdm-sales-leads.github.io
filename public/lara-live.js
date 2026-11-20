@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CLIPS = ["idle", "listen", "talk1", "talk2", "talk3", "talk4", "greet", "bye"];
+  var CLIPS = ["idle", "listen", "talk1", "talk2"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
     if (loading) return loading;
@@ -40,7 +40,7 @@
         poster.style.opacity = "0";
       };
       var seek = function () { try { if (opt.start) el.currentTime = 0; else if (!el.__seen) el.currentTime = Math.random() * Math.max(0, (el.duration || 2) - 1.2); el.__seen = true; } catch (e) {} };
-      el.playbackRate = 0.9; el.defaultPlaybackRate = 0.9;   // a touch calmer than the source movement
+      el.playbackRate = 1; el.defaultPlaybackRate = 1;   // Gemini clips move naturally at real speed
       el.onplaying = fade;
       if (el.getAttribute("src") !== src) { el.__seen = false; el.onloadedmetadata = function () { el.onloadedmetadata = null; seek(); }; el.src = src; } else seek();
       // play at once (hidden); show it the moment frames really play — Safari only loads a video once play() is called
@@ -81,7 +81,7 @@
       clearInterval(timer); cancelAnimationFrame(raf);
       try { ws && ws.close(); } catch (e) {}
       try { stream && stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
-      face.show("bye", { force: true, once: true, start: true });
+      face.show("idle", { force: true });
       setTimeout(function () { try { ctx && ctx.close(); } catch (e) {} face.remove(); }, 2600);
       post("end", {}).catch(function () {});
       if (o.onEnd) o.onEnd(reason || "end");
@@ -96,13 +96,12 @@
       // the customer "speaks" only after half a second of voice, and never while Lara speaks (her own voice / echo does not count)
       if (!speaking && now - C.micAt < 400) { if (!C.custFrom) C.custFrom = now; } else if (now - C.micAt > 900) C.custFrom = 0;
       var custom = !speaking && C.custFrom && now - C.custFrom > 500;
-      if (face.clip() === "greet" && face.age() < 2600) return;
       var cur = face.clip(), want;
-      if (speaking) want = /^talk/.test(cur) ? cur : ["talk1", "talk2", "talk3", "talk4"][Math.floor(Math.random() * 4)];
+      if (speaking) want = /^talk/.test(cur) ? cur : (Math.random() < 0.5 ? "talk1" : "talk2");
       else if (custom) want = "listen";
       else want = "idle";   // also while a tool runs: calm, no cartoon "thinking"
       if (/^talk/.test(want) && /^talk/.test(cur)) {
-        if (face.age() > 6500) face.show(["talk1", "talk2", "talk3", "talk4"].filter(function (x) { return x !== cur; })[Math.floor(Math.random() * 3)], { force: true });
+        if (face.age() > 9000) face.show(cur === "talk1" ? "talk2" : "talk1", { force: true });
       } else if (want !== cur) {
         // start talking at once; any other change only after 1.5 s in the current clip (no flicker)
         if (/^talk/.test(want) || face.age() > 1500) face.show(want);
@@ -143,7 +142,7 @@
       if (sc.turnComplete) { flush("in"); flush("out"); }
     }
 
-    var ready = preload(o.base).then(function () { face.show("greet", { force: true, once: true, start: true }); });
+    var ready = preload(o.base).then(function () { face.show("idle", { force: true }); });
     var go = post("start", { lang: o.lang }).then(function (t) {
       o.maxSec = Number(t.maxSec) || o.maxSec || 300;
       var AC = window.AudioContext || window.webkitAudioContext;

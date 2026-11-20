@@ -205,7 +205,7 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
   function speak(text, done) {
     var clean = String(text).replace(/[•👋🙏*_#]/g, " ").replace(/\s+/g, " ").trim();
     var fin = function () { clearTimeout(speakTimer); A.speaking = false; mood(call ? "listen" : "idle"); chatFaceDo(call ? "listen" : "idle"); if (!call) cap(""); if (done) { var d = done; done = null; d(); } };
-    A.speaking = true; mood("happy"); cap(S.speaking); chatFaceDo(["talk1", "talk2", "talk4"][Math.floor(Math.random() * 3)]);
+    A.speaking = true; mood("happy"); cap(S.speaking); chatFaceDo(Math.random() < 0.5 ? "talk1" : "talk2");
     if (!synth || !(voiceOn || call)) { speakTimer = setTimeout(fin, Math.min(9000, 600 + clean.length * 45)); return; }   // silent: she still "says" it
     try {
       synth.cancel();

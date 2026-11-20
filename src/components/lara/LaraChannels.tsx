@@ -77,11 +77,13 @@ const SiteKb: React.FC = () => {
   const prepare = async () => {
     setBusy('embed');
     try {
-      for (let i = 0; i < 60; i++) {                      // 40 passages per call; stops when all are done or Google says wait
+      // 20 passages per call, one call every 16 s (the free tier allows ~80 a minute); "wait" from Google = pause 65 s and go on
+      for (let i = 0; i < 200; i++) {
         const r = await post('/lara/site/embed', {});
         setSt((x: any) => ({ ...x, withMeaning: (x?.passages || 0) - r.left }));
         if (!r.left) { toast.success('Meaning search ready'); break; }
-        await new Promise((res) => setTimeout(res, 1500));
+        if (r.wait) toast.message('Google free limit: waiting a minute, then going on…');
+        await new Promise((res) => setTimeout(res, r.wait ? 65000 : 16000));
       }
     } catch (e: any) { toast.error(e.message); } finally { setBusy(''); void load(); }
   };
@@ -101,7 +103,7 @@ const SiteKb: React.FC = () => {
         <div className="rounded-xl bg-brand-gray/5 p-2"><div className="text-lg font-extrabold">{st.passages ? `${Math.round((st.withMeaning / st.passages) * 100)}%` : '—'}</div><div className="text-[10px] text-brand-gray">meaning search</div></div>
         <div className="rounded-xl bg-brand-gray/5 p-2"><div className="text-sm font-extrabold">{st.loadedAt ? new Date(st.loadedAt).toLocaleDateString('en-GB') : '—'}</div><div className="text-[10px] text-brand-gray">site read on</div></div>
       </div>
-      <p className="text-[11px] text-brand-gray">{!st.keySaved ? 'No Google key saved: suggestions use word search only. Save a free Google AI Studio key in the card above (you can leave "Use AI for hard questions" off) to switch on meaning search.' : ready ? 'Meaning search is on: questions are matched by meaning (Arabic and English), at most 300 questions a day.' : 'Key saved. Press "Prepare meaning search" once (about 2 minutes) to read every passage.'}</p>
+      <p className="text-[11px] text-brand-gray">{!st.keySaved ? 'No Google key saved: suggestions use word search only. Save a free Google AI Studio key in the card above (you can leave "Use AI for hard questions" off) to switch on meaning search.' : ready ? 'Meaning search is on: questions are matched by meaning (Arabic and English), at most 300 questions a day.' : 'Key saved. Press "Prepare meaning search" once and keep this page open (about 15 minutes on the free tier) to read every passage.'}</p>
       <div className="flex flex-wrap gap-2">
         {st.keySaved && !ready && <button onClick={prepare} disabled={!!busy} className="btn-primary rounded-xl px-3 py-1.5 text-xs font-bold disabled:opacity-50">{busy === 'embed' ? `Preparing… ${st.withMeaning}/${st.passages}` : 'Prepare meaning search'}</button>}
         <button onClick={suggest} disabled={!!busy} className="rounded-xl border border-brand-gray/30 px-3 py-1.5 text-xs font-bold disabled:opacity-50">{busy === 'suggest' ? 'Looking…' : 'Suggest answers for missed questions'}</button>

@@ -755,7 +755,11 @@ route("GET", "/lara/site", async ({ c }) => { needAdmin(c); return { success: tr
 route("POST", "/lara/site/embed", async ({ c }) => {
   needAdmin(c);
   if (!(await tryLock("lara-site-embed", 120))) throw new HttpError(409, "Already preparing, wait a moment");
-  try { const r = await embedPending(40); if (!r.ok) throw new HttpError(502, "Google refused the request (check the key in Settings, or wait a minute: free limits)"); return { success: true, ...r }; }
+  try {
+    const r = await embedPending(20);
+    if (!r.ok && !r.wait) throw new HttpError(502, "Google refused the request: check the key in Settings");
+    return { success: true, ...r };                       // wait = free per-minute limit: the screen waits a minute and goes on
+  }
   finally { await unlock("lara-site-embed"); }
 });
 route("POST", "/lara/site/suggest", async ({ req, c }) => {

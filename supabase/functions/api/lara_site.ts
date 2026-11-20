@@ -40,12 +40,14 @@ const parksOf = (q: string, parks?: string[]) => (parks && parks.length ? parks 
 // meaning vectors (Google embeddings). The key never leaves the server.
 // ---------------------------------------------------------------------------------------------
 export async function semanticReady(): Promise<boolean> { return await hasSecret("lara_ai_key").catch(() => false); }
+let lastStatus = 0;   // Google's last answer (429 = free per-minute limit: wait a minute and go on)
 async function embed(texts: string[], task: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY", titles?: string[]): Promise<number[][] | null> {
   const key = await getSecret("lara_ai_key"); if (!key || !texts.length) return null;
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:batchEmbedContents`, {
     method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key }, signal: AbortSignal.timeout(30000),
     body: JSON.stringify({ requests: texts.map((t, i) => ({ model: `models/${MODEL}`, content: { parts: [{ text: t.slice(0, 6000) }] }, taskType: task, ...(titles?.[i] ? { title: titles[i].slice(0, 300) } : {}), outputDimensionality: DIM })) }),
   });
+  lastStatus = r.status;
   if (!r.ok) { await admin.from("lara_log").insert({ kind: "ai", actor: "Website search", text: `Embedding call refused (${r.status})` }).then(() => {}, () => {}); return null; }
   const j = await r.json().catch(() => null);
   const out = (j?.embeddings || []).map((e: any) => (Array.isArray(e?.values) ? e.values.map(Number) : null));
@@ -54,7 +56,8 @@ async function embed(texts: string[], task: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QU
 const vecLit = (v: number[]) => `[${v.map((x) => (Number.isFinite(x) ? x.toFixed(6) : "0")).join(",")}]`;
 
 /** give the next passages their meaning vector (called again and again by the admin button until none is left) */
-export async function embedPending(max = 40): Promise<{ done: number; left: number; ok: boolean }> {
+/** 20 passages per call: the free tier allows about 80–100 a minute (20 Nov 2026: 3 calls of 40 within 6 s gave 429) */
+export async function embedPending(max = 20): Promise<{ done: number; left: number; ok: boolean; wait: boolean }> {
   const { data } = await admin.from("lara_site").select("id,path,body").eq("active", true).is("embedding", null).order("id").limit(Math.min(100, Math.max(1, max)));
   const rows = (data || []) as any[];
   let done = 0, ok = true;
@@ -67,7 +70,7 @@ export async function embedPending(max = 40): Promise<{ done: number; left: numb
     }
   }
   const { count } = await admin.from("lara_site").select("id", { count: "exact", head: true }).eq("active", true).is("embedding", null);
-  return { done, left: count || 0, ok };
+  return { done, left: count || 0, ok, wait: !ok && lastStatus === 429 };
 }
 
 // ---------------------------------------------------------------------------------------------

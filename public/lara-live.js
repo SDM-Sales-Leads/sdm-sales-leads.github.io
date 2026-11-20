@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CLIPS = ["idle", "listen", "talk1", "talk2", "talk3", "talk4", "think", "greet", "bye"];
+  var CLIPS = ["idle", "listen", "talk1", "talk2", "talk3", "talk4", "greet", "bye"];
   var cache = {}, loading = null;
   function preload(base) {
     if (loading) return loading;
@@ -30,6 +30,7 @@
       if (name === clip && !opt.force) return;
       var nx = cur === 0 ? 1 : 0, el = v[nx], src = cache[name] || (base + name + ".mp4");
       clip = name; since = Date.now();
+      (window.__laraClips = window.__laraClips || []).push([since, name]);   // for tests: how often her clip changes
       el.loop = !opt.once;
       var shown = false, me = clip;
       var fade = function () {
@@ -38,9 +39,10 @@
         var old = cur; cur = nx; setTimeout(function () { if (old >= 0 && old !== cur) try { v[old].pause(); } catch (e) {} }, 300);
         poster.style.opacity = "0";
       };
-      var seek = function () { try { el.currentTime = opt.start ? 0 : Math.random() * Math.max(0, (el.duration || 2) - 1.2); } catch (e) {} };
+      var seek = function () { try { if (opt.start) el.currentTime = 0; else if (!el.__seen) el.currentTime = Math.random() * Math.max(0, (el.duration || 2) - 1.2); el.__seen = true; } catch (e) {} };
+      el.playbackRate = 0.9; el.defaultPlaybackRate = 0.9;   // a touch calmer than the source movement
       el.onplaying = fade;
-      if (el.getAttribute("src") !== src) { el.onloadedmetadata = function () { el.onloadedmetadata = null; seek(); }; el.src = src; } else seek();
+      if (el.getAttribute("src") !== src) { el.__seen = false; el.onloadedmetadata = function () { el.onloadedmetadata = null; seek(); }; el.src = src; } else seek();
       // play at once (hidden); show it the moment frames really play — Safari only loads a video once play() is called
       var p = el.play(); if (p && p.then) p.then(function () { if (el.readyState >= 2) fade(); }).catch(function () {});
     }
@@ -88,16 +90,23 @@
     // the face follows the sound (10 times a second)
     function tick() {
       if (C.ended) return;
-      var now = Date.now(), speaking = now < C.outUntil + 120 && C.lvlOut > 0.012, custom = now - C.micAt < 500;
-      var age = now - C.t0, want;
-      if (age < 2500 && face.clip() === "greet") return;
-      if (speaking) want = C.lvlOut > 0.09 ? "talk3" : C.lvlOut > 0.05 ? "talk1" : "talk2";
-      else if (C.toolBusy > 0) want = "think";
+      var now = Date.now();
+      // Lara "speaks" for as long as her audio is queued (+0.6 s), not while the sound level is high: pauses between words never break it
+      var speaking = now < C.outUntil + 600;
+      // the customer "speaks" only after half a second of voice, and never while Lara speaks (her own voice / echo does not count)
+      if (!speaking && now - C.micAt < 400) { if (!C.custFrom) C.custFrom = now; } else if (now - C.micAt > 900) C.custFrom = 0;
+      var custom = !speaking && C.custFrom && now - C.custFrom > 500;
+      if (face.clip() === "greet" && face.age() < 2600) return;
+      var cur = face.clip(), want;
+      if (speaking) want = /^talk/.test(cur) ? cur : ["talk1", "talk2", "talk3", "talk4"][Math.floor(Math.random() * 4)];
       else if (custom) want = "listen";
-      else want = now < C.outUntil + 400 ? face.clip() : "idle";
-      // change talk clip only when the current one has played a while (no flicker), keep listening/idle steady
-      if (/^talk/.test(want) && /^talk/.test(face.clip())) { if (face.age() > 5500) face.show(["talk1", "talk2", "talk3", "talk4"][Math.floor(Math.random() * 4)], { force: true }); }
-      else if (want !== face.clip() && face.age() > 350) face.show(want);
+      else want = "idle";   // also while a tool runs: calm, no cartoon "thinking"
+      if (/^talk/.test(want) && /^talk/.test(cur)) {
+        if (face.age() > 6500) face.show(["talk1", "talk2", "talk3", "talk4"].filter(function (x) { return x !== cur; })[Math.floor(Math.random() * 3)], { force: true });
+      } else if (want !== cur) {
+        // start talking at once; any other change only after 1.5 s in the current clip (no flicker)
+        if (/^talk/.test(want) || face.age() > 1500) face.show(want);
+      }
       state(speaking ? "speaking" : C.toolBusy ? "thinking" : custom ? "listening" : "idle");
       // cost guards
       var secs = (now - C.t0) / 1000;

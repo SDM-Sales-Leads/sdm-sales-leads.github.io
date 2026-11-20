@@ -52,7 +52,12 @@
       // play at once (hidden); show it the moment frames really play — Safari only loads a video once play() is called
       var p = el.play(); if (p && p.then) p.then(function () { if (el.readyState >= 2) fade(); }).catch(function () {});
     }
-    return { show: show, clip: function () { return clip; }, age: function () { return Date.now() - since; }, remove: function () { wrap.remove(); } };
+    return { show: show, clip: function () { return clip; }, age: function () { return Date.now() - since; }, remove: function () {
+      // release the video players at once (a removed but still-loaded <video> keeps one of the browser's few media connections,
+      // and the next clip then never loads — 21 Nov 2026 test: talk clip stuck at readyState 0)
+      v.forEach(function (x) { try { x.pause(); x.removeAttribute("src"); x.load(); } catch (e) {} });
+      wrap.remove();
+    } };
   }
 
   // ---- microphone -> 16 kHz PCM (AudioWorklet) ---------------------------------------------------------------------------------

@@ -53,7 +53,7 @@
 
   /* start(o): o = { api, key, lang ('ar'|'en'), stage (element), base ('lara/'), maxSec, onLine(dir, text, final), onState(s), onNote(t), onEnd(reason) } */
   function start(o) {
-    var C = { ended: false, muted: false, t0: Date.now(), toolBusy: 0, outUntil: 0, micAt: Date.now(), lvlOut: 0, warned: false, asked: false, lines: { in: "", out: "" } };
+    var C = { lang: o.lang, ended: false, muted: false, t0: Date.now(), toolBusy: 0, outUntil: 0, micAt: Date.now(), lvlOut: 0, warned: false, asked: false, lines: { in: "", out: "" } };
     var face = Face(o.stage, o.base);
     var ctx, ws, node, stream, gain, an, nextT = 0, srcs = [], timer = null, raf = null;
     function post(p, b) { return fetch(o.api + "/chat/s/" + o.key + "/live/" + p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b || {}) }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.error || ("Error " + r.status)); return j; }); }); }
@@ -115,7 +115,7 @@
         m.toolCall.functionCalls.forEach(function (fc) {
           if (fc.name === "end_call") { send({ toolResponse: { functionResponses: [{ id: fc.id, name: fc.name, response: { result: "OK" } }] } }); setTimeout(function () { var wait = Math.max(0, C.outUntil - Date.now()); setTimeout(function () { end("bye"); }, wait + 600); }, 1500); return; }
           C.toolBusy++;
-          post("tool", { name: fc.name, args: fc.args || {}, lang: o.lang }).then(function (r) { return r.result; }).catch(function () { return "NO_ANSWER"; }).then(function (res) {
+          post("tool", { name: fc.name, args: fc.args || {}, lang: C.lang }).then(function (r) { return r.result; }).catch(function () { return "NO_ANSWER"; }).then(function (res) {
             C.toolBusy = Math.max(0, C.toolBusy - 1);
             send({ toolResponse: { functionResponses: [{ id: fc.id, name: fc.name, response: { result: res } }] } });
           });
@@ -125,7 +125,7 @@
       if (!sc) { if (m.goAway) end("time"); return; }
       if (sc.interrupted) { stopAudio(); flush("out"); }
       if (sc.modelTurn && sc.modelTurn.parts) sc.modelTurn.parts.forEach(function (p) { if (p.inlineData && p.inlineData.data) play(p.inlineData.data); });
-      if (sc.inputTranscription && sc.inputTranscription.text) { if (C.lines.out) flush("out"); C.lines.in += sc.inputTranscription.text; if (o.onLine) o.onLine("in", C.lines.in, false); }
+      if (sc.inputTranscription && sc.inputTranscription.text) { if (C.lines.out) flush("out"); C.lines.in += sc.inputTranscription.text; if (/[a-z]{3,}/i.test(C.lines.in) || /[\u0600-\u06FF]/.test(C.lines.in)) C.lang = /[\u0600-\u06FF]/.test(C.lines.in) ? "ar" : "en"; if (o.onLine) o.onLine("in", C.lines.in, false); }
       if (sc.outputTranscription && sc.outputTranscription.text) { if (C.lines.in) flush("in"); C.lines.out += sc.outputTranscription.text; if (o.onLine) o.onLine("out", C.lines.out, false); }
       if (sc.turnComplete) { flush("in"); flush("out"); }
     }

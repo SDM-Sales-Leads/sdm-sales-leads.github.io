@@ -10,8 +10,9 @@
   function preload(base) {
     if (loading) return loading;
     loading = Promise.all(CLIPS.map(function (n) {
-      return fetch(base + n + ".mp4").then(function (r) { if (!r.ok) throw new Error(n); return r.blob(); })
-        .then(function (b) { cache[n] = URL.createObjectURL(b); }).catch(function () { cache[n] = base + n + ".mp4"; });
+      // warm the browser cache only: the <video> plays the normal web address (Safari plays blob: video late or not at all — 20 Nov 2026 test)
+      cache[n] = base + n + ".mp4";
+      return fetch(base + n + ".mp4").then(function (r) { return r.ok ? r.blob() : null; }).catch(function () {});
     }));
     return loading;
   }
@@ -30,15 +31,18 @@
       var nx = cur === 0 ? 1 : 0, el = v[nx], src = cache[name] || (base + name + ".mp4");
       clip = name; since = Date.now();
       el.loop = !opt.once;
-      if (el.src !== src) el.src = src;
-      var go = function () {
-        try { el.currentTime = opt.start ? 0 : Math.random() * Math.max(0, (el.duration || 2) - 1.2); } catch (e) {}
-        var p = el.play(); if (p && p.catch) p.catch(function () {});
-        el.style.opacity = "1"; if (cur >= 0) v[cur].style.opacity = "0";
+      var shown = false, me = clip;
+      var fade = function () {
+        if (shown || clip !== me) return; shown = true;
+        el.style.opacity = "1"; if (cur >= 0 && cur !== nx) v[cur].style.opacity = "0";
         var old = cur; cur = nx; setTimeout(function () { if (old >= 0 && old !== cur) try { v[old].pause(); } catch (e) {} }, 300);
         poster.style.opacity = "0";
       };
-      if (el.readyState >= 2) go(); else { el.onloadeddata = function () { el.onloadeddata = null; if (clip === name) go(); }; try { el.load(); } catch (e) {} }
+      var seek = function () { try { el.currentTime = opt.start ? 0 : Math.random() * Math.max(0, (el.duration || 2) - 1.2); } catch (e) {} };
+      el.onplaying = fade;
+      if (el.getAttribute("src") !== src) { el.onloadedmetadata = function () { el.onloadedmetadata = null; seek(); }; el.src = src; } else seek();
+      // play at once (hidden); show it the moment frames really play — Safari only loads a video once play() is called
+      var p = el.play(); if (p && p.then) p.then(function () { if (el.readyState >= 2) fade(); }).catch(function () {});
     }
     return { show: show, clip: function () { return clip; }, age: function () { return Date.now() - since; }, remove: function () { wrap.remove(); } };
   }

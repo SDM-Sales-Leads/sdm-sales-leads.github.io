@@ -18,6 +18,7 @@ import "./usage.ts";
 import "./routes_smart.ts";
 import "./routes_lara.ts";
 import "./lara_chat.ts";
+import "./lara_live.ts";
 import { route } from "./router.ts";
 import { ingestInbox } from "./ingest.ts";
 import { syncFacebook } from "./fbsheet.ts";

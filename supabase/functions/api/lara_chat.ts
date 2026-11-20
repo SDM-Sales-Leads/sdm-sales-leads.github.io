@@ -3,7 +3,7 @@
 // Answer order, cheapest first: rules (stop / hello / thanks / call me) -> Land Bank data -> approved Q&A -> AI (only when the owner switched it
 // on, under a daily cap) -> a polite holding reply that hands the question to the salesperson. Lists are paged on the server; the inbox reads
 // one summary row per conversation (kept by a database trigger), never the messages.
-import { admin, bad, body, Caller, getConfig, HttpError, needAdmin, normPhone, nowIso, rateLimit, setConfig, str } from "./lib.ts";
+import { admin, bad, body, Caller, getConfig, hasSecret, HttpError, needAdmin, normPhone, nowIso, rateLimit, setConfig, str } from "./lib.ts";
 import { route } from "./router.ts";
 import { pg } from "./db.ts";
 import { firstNameOf } from "../../../src/lib/personName.ts";
@@ -24,22 +24,25 @@ async function staffSendRules() {
   return { sendEnabled: cfg.sendEnabled, mode: cfg.mode === "off" ? "off" : "approve", maxSendPerDay: 10000, minDaysBetween: 0, maxUnanswered: 1000, sendStart: 0, sendEnd: 24 };
 }
 const isAr = (t: string) => /[؀-ۿ]/.test(t || "");
-const ipOf = (req: Request) => (req.headers.get("cf-connecting-ip") || req.headers.get("x-real-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim().slice(0, 60) || "unknown";
+export const ipOf = (req: Request) => (req.headers.get("cf-connecting-ip") || req.headers.get("x-real-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim().slice(0, 60) || "unknown";
 /** a chat key has a fixed shape: anything else is refused before it can touch the rate-limit table or the database */
-const keyShape = (key: string) => { if (!/^[a-z0-9]{20,40}$/.test(String(key || ""))) throw new HttpError(404, "This chat link is not valid"); };
+export const keyShape = (key: string) => { if (!/^[a-z0-9]{20,40}$/.test(String(key || ""))) throw new HttpError(404, "This chat link is not valid"); };
 export const GREET_RE = /^\s*(bonjour|bonsoir|salut|merhaba|selam|你好|您好|hi|hello|hey|good (morning|evening|afternoon)|السلام عليكم|سلام|اهلا|أهلا|مرحبا|هاي|صباح الخير|مساء الخير|ازيك|إزيك)[\s!.,؟?]*$/i;
 export const THANKS_RE = /^\s*(merci( beaucoup)?|teşekkürler|teşekkür ederim|sağ ol|谢谢|多谢|thanks?|thank you|thx|ok(ay)?|شكرا|شكراً|متشكر|تمام|ماشي|اوك)[\s!.,؟?]*$/i;
 export const PLOTS_RE = /^\s*(terrains disponibles|mevcut arsalar|可售地块|available plots|الأراضي المتاحة|الاراضي المتاحة)\s*$/i;
 
-export interface ChatCfg { enabled: boolean; callNumber: string; welcomeAr: string; welcomeEn: string; voice: boolean; record: boolean; provider: string; liveModel: string; liveVoice: string }
+export interface ChatCfg { enabled: boolean; callNumber: string; welcomeAr: string; welcomeEn: string; voice: boolean; record: boolean; provider: string; liveModel: string; liveVoice: string; liveDailyMin: number; liveMaxSec: number }
+const LIVE_MODEL = "gemini-3.1-flash-live-preview";   // step 0 (20 Nov 2026): first sound 0.9 s, natural Egyptian Arabic, no thinking tokens
+const capN = (v: any, d: number, lo: number, hi: number) => { const n = Number(v ?? d); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.round(n))) : d; };
 export async function chatCfg(): Promise<ChatCfg> {
   const c = await getConfig<any>("lara_chat", {});
   return { enabled: c.enabled === true, callNumber: String(c.callNumber || ""), welcomeAr: String(c.welcomeAr || ""), welcomeEn: String(c.welcomeEn || ""),
-    voice: c.voice !== false, record: c.record !== false, provider: c.provider === "gemini-live" ? "gemini-live" : "browser", liveModel: String(c.liveModel || ""), liveVoice: String(c.liveVoice || "") };
+    voice: c.voice !== false, record: c.record !== false, provider: c.provider === "gemini-live" ? "gemini-live" : "browser", liveModel: String(c.liveModel || LIVE_MODEL), liveVoice: String(c.liveVoice || "Aoede"),
+    liveDailyMin: capN(c.liveDailyMin, 60, 0, 600), liveMaxSec: capN(c.liveMaxSec, 300, 60, 900) };
 }
 
 /** while the owner keeps Lara on hold, chat answers only staff (test) conversations */
-async function chatOpen(t: any): Promise<boolean> {
+export async function chatOpen(t: any): Promise<boolean> {
   const cc = await chatCfg();
   if (cc.enabled && (await getConfig<any>("lara_test_lock", true)) === false) return true;
   if (t.customer_email) { const { data } = await admin.from("app_users").select("id").ilike("email", String(t.customer_email).replace(/[%_\\]/g, "")).limit(1); if (data?.length) return true; }
@@ -47,11 +50,11 @@ async function chatOpen(t: any): Promise<boolean> {
   return false;
 }
 
-async function leadInfo(leadId: string) {
+export async function leadInfo(leadId: string) {
   const { data } = await admin.from("crm_leads").select("id,status,assigned_to,phone_norm,data->customerName,data->assignedSalespersonName,data->project,data->email,data->phoneNumber,data->requiredSize,data->industry,data->budget,data->source,data->lastContactDate,data->nextFollowUpDate,data->channel").eq("id", leadId).maybeSingle();
   return data as any;
 }
-async function staffTo(ownerId: string | null): Promise<string[]> {
+export async function staffTo(ownerId: string | null): Promise<string[]> {
   if (ownerId) return [ownerId];
   const { data } = await admin.from("app_users").select("id").in("role", ["Admin", "Sales Operation"]).neq("active", false).limit(20);
   return (data || []).map((r: any) => r.id);
@@ -220,7 +223,7 @@ export async function chatTurn(t: any, text: string, opts: { lang?: string; mode
 }
 
 const pub = (m: any) => ({ id: m.id, dir: m.direction, who: m.direction === "in" ? "you" : m.kind === "staff" ? (firstNameOf(m.author || "") || "Sales") : "Lara", channel: m.channel || "email", body: String(m.body || "").slice(0, 3000), at: m.at });
-async function threadByKey(key: string) {
+export async function threadByKey(key: string) {
   if (!/^[a-z0-9]{20,40}$/.test(key)) throw new HttpError(404, "This chat link is not valid");
   const { data } = await admin.from("lara_threads").select("*").eq("chat_key", key).maybeSingle();
   if (!data) throw new HttpError(404, "This chat link is not valid");
@@ -246,7 +249,8 @@ route("GET", "/chat/s/:key", async ({ req, params }) => {
     call: btn.call || null, whatsapp: btn.whatsapp || null, welcome: { ar: cc.welcomeAr, en: cc.welcomeEn },
     back: open ? { ar: welcomeBack(t, true, { customer: firstNameOf(String(lead?.customerName || t.visitor?.name || "")), owner: firstNameOf(o?.name || "") }), en: welcomeBack(t, false, { customer: firstNameOf(String(lead?.customerName || t.visitor?.name || "")), owner: firstNameOf(o?.name || "") }) } : null,
     messages: (msgs || []).reverse().map(pub), suggest: SUGGEST, lang: t.memory?.lang || null, rated: !!t.rating,
-    voice: { enabled: cc.voice, record: cc.record, provider: "browser" },   // Gemini Live joins here when its key is connected
+    // Gemini Live (video Lara) only when the owner chose it AND a Google key is saved; otherwise the browser's own free voice
+    voice: { enabled: cc.voice, record: cc.record, provider: cc.provider === "gemini-live" && (await hasSecret("lara_ai_key").catch(() => false)) ? "gemini-live" : "browser", maxSec: cc.liveMaxSec },
   };
 }, { public: true });
 
@@ -412,7 +416,9 @@ route("POST", "/lara/inbox/:id/reply", async ({ req, c, params }) => {
 // ---------------------------------------------------------------------------------------------
 route("GET", "/lara/channels", async ({ c }) => {
   needAdmin(c);
-  return { success: true, chat: await chatCfg(), ai: await aiCfg(), testLock: (await getConfig<any>("lara_test_lock", true)) !== false, chatPage: "https://sdm-sales-leads.github.io/chat.html" };
+  const lu = await getConfig<any>("lara_live_usage", {}); const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo" }).format(new Date());
+  return { success: true, chat: await chatCfg(), ai: await aiCfg(), testLock: (await getConfig<any>("lara_test_lock", true)) !== false, chatPage: "https://sdm-sales-leads.github.io/chat.html",
+    live: { usedSec: lu.day === today ? Number(lu.sec) || 0 : 0, keySaved: await hasSecret("lara_ai_key").catch(() => false) } };
 });
 route("POST", "/lara/chat-settings", async ({ req, c }) => {
   needAdmin(c);
@@ -420,7 +426,8 @@ route("POST", "/lara/chat-settings", async ({ req, c }) => {
   const locked = (await getConfig<any>("lara_test_lock", true)) !== false;
   if (b.enabled === true && locked) throw new HttpError(409, "Lara is on hold (test lock). Website chat can be opened only after the lock is lifted.");
   const next = { enabled: b.enabled === true, callNumber: str(b.callNumber, 30).replace(/[^\d+ ]/g, ""), welcomeAr: str(b.welcomeAr, 400), welcomeEn: str(b.welcomeEn, 400),
-    voice: b.voice !== false, record: b.record !== false, provider: b.provider === "gemini-live" ? "gemini-live" : "browser", liveModel: str(b.liveModel, 80).replace(/[^a-z0-9.\-]/gi, ""), liveVoice: str(b.liveVoice, 40).replace(/[^a-z0-9 \-]/gi, "") };
+    voice: b.voice !== false, record: b.record !== false, provider: b.provider === "gemini-live" ? "gemini-live" : "browser", liveModel: str(b.liveModel, 80).replace(/[^a-z0-9.\-]/gi, "") || LIVE_MODEL, liveVoice: str(b.liveVoice, 40).replace(/[^a-z0-9 \-]/gi, "") || "Aoede",
+    liveDailyMin: capN(b.liveDailyMin, 60, 0, 600), liveMaxSec: capN(b.liveMaxSec, 300, 60, 900) };
   await setConfig("lara_chat", next);
   await log("config", who(c), `Web chat ${next.enabled ? "OPEN to customers" : "closed to customers (staff tests only)"}; call button ${next.callNumber || "none"}`);
   return { success: true, chat: next };

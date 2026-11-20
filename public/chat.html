@@ -15,6 +15,12 @@ body{font-family:-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;background:var
 .app{width:100%;max-width:560px;height:100%;display:flex;flex-direction:column;background:var(--card);box-shadow:0 0 40px rgba(0,0,0,.06)}
 .stage{position:relative;background:radial-gradient(120% 90% at 50% 0%,var(--stage2),var(--stage1) 70%);color:#fff;transition:height .35s ease;height:176px;flex:none;overflow:hidden}
 .stage.call{height:min(52vh,380px)}.stage.min{height:58px}
+.stage.live{height:auto;aspect-ratio:16/9;max-height:62vh;background:#111}.stage.live svg{display:none}
+.lv{position:absolute;inset:0;z-index:0;background:#111}.lv video,.lv .lvp{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:opacity .25s ease}
+.stage.live .top{background:linear-gradient(rgba(0,0,0,.45),transparent)}.stage.live .cap{bottom:96px;font-weight:600;letter-spacing:.2px}
+.stage.live .cap::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:#D92D20;margin-inline-end:6px;vertical-align:1px}
+.lvbar{position:absolute;inset:auto 0 0 0;height:120px;background:linear-gradient(transparent,rgba(0,0,0,.55));z-index:1;pointer-events:none}
+.m.live{opacity:.92}.round.mic.mute{background:#6b6b6b}.round.mic.mute::after{content:'';position:absolute}
 .stage svg{position:absolute;left:50%;bottom:-6px;height:106%;transform:translateX(-50%);transition:height .35s,left .35s,transform .35s}
 .stage.min svg{height:56px;left:34px;bottom:1px}
 .top{position:absolute;inset:0 0 auto 0;display:flex;align-items:center;gap:8px;padding:10px 12px;z-index:2}
@@ -128,6 +134,7 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
   <textarea id="rc" dir="auto" style="height:60px"></textarea>
   <div style="display:flex;gap:8px"><button class="go" id="rno" type="button" style="flex:1;padding:12px;background:var(--line);color:var(--ink)"></button><button class="go" id="rgo" type="button" style="flex:2;padding:12px" disabled></button></div>
 </div></div>
+<script src="lara-live.js" defer></script>
 <script>
 (function () {
   var API = "https://iyubegbevtjcvtuubpaq.supabase.co/functions/v1/api";
@@ -215,21 +222,59 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
       rec.start();
     } catch (e) {}
   }
-  function startCall(consent) {
-    call = { t0: Date.now(), turns: 0, consent: consent, chunks: [], mr: null, busy: false, heard: false };
-    $("stage").className = "stage call"; $("callbar").hidden = false; $("talk").hidden = true; mood("listen"); cap(S.idle);
+  function recordCall(consent) {
     if (consent && navigator.mediaDevices && window.MediaRecorder && info && info.voice && info.voice.record) {
       navigator.mediaDevices.getUserMedia({ audio: true }).then(function (st) {
         if (!call) { st.getTracks().forEach(function (x) { x.stop(); }); return; }
         call.stream = st;
-        try { call.mr = new MediaRecorder(st, { audioBitsPerSecond: 16000 }); call.mr.ondataavailable = function (e) { if (e.data.size) call.chunks.push(e.data); }; call.mr.start(1000); setTimeout(function () { try { if (call && call.mr && call.mr.state === "recording") call.mr.stop(); } catch (e) {} }, 5 * 60000); } catch (e) {}
+        try { call.mr = new MediaRecorder(st, { audioBitsPerSecond: 16000 }); call.mr.ondataavailable = function (e) { if (e.data.size) call.chunks.push(e.data); }; call.mr.start(1000); setTimeout(function () { try { if (call && call.mr && call.mr.state === "recording") call.mr.stop(); } catch (e) {} }, 15 * 60000); } catch (e) {}
       }).catch(function () {});
     }
+  }
+  // ---- video call: Lara's face + Gemini Live voice + live transcript (lara-live.js) ---------------------------------------------
+  function liveLine(dir, text, fin) {
+    if (!call) return;
+    var b = call.bubbles[dir];
+    if (!b) {
+      b = document.createElement("div"); b.className = "m live " + (dir === "in" ? "in" : "out");
+      var s = document.createElement("small"); s.textContent = (dir === "in" ? S.you : "Lara") + " · 🎥 · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      b.appendChild(s); b.appendChild(document.createElement("span")); $("log").appendChild(b); call.bubbles[dir] = b;
+    }
+    b.dir = isAr(text) ? "rtl" : "ltr"; b.lastChild.textContent = text;
+    if (fin) { call.bubbles[dir] = null; b.className = b.className.replace(" live", ""); if (dir === "in") call.turns++; }
+    scroll();
+  }
+  function startLive(consent) {
+    call = { t0: Date.now(), turns: 0, consent: consent, chunks: [], mr: null, busy: false, heard: false, live: null, bubbles: {} };
+    clearTimeout(pollT);
+    $("stage").className = "stage call live"; $("callbar").hidden = false; $("talk").hidden = true; cap(S.thinking);
+    var bar = document.createElement("div"); bar.className = "lvbar"; bar.id = "lvbar"; $("stage").appendChild(bar);
+    recordCall(consent);
+    var lv = window.LaraLive.start({
+      api: API, key: key, lang: lang === "ar" ? "ar" : "en", stage: $("stage"), base: "lara/", maxSec: (info.voice && info.voice.maxSec) || 300,
+      onLine: liveLine,
+      onState: function (s) { cap(s === "speaking" ? S.speaking : s === "thinking" ? S.thinking : s === "listening" ? S.listening : S.idle); },
+      onEnd: function (why, err) {
+        if (why === "failed") note(err && err.message ? err.message : S.closed);
+        if (why === "silence") note(S.ended);
+        if (call && call.live === lv) { call.live = null; endCall(); }
+      },
+    });
+    call.live = lv;
+  }
+  function startCall(consent) {
+    if (info && info.voice && info.voice.provider === "gemini-live" && window.LaraLive && window.AudioWorkletNode && window.WebSocket) return startLive(consent);
+    call = { t0: Date.now(), turns: 0, consent: consent, chunks: [], mr: null, busy: false, heard: false };
+    $("stage").className = "stage call"; $("callbar").hidden = false; $("talk").hidden = true; mood("listen"); cap(S.idle);
+    recordCall(consent);
     if (!SR) note(S.novoice);
     speak(S.hello.replace("{n}", info && info.customer ? (lang === "zh" ? "，" : " ") + info.customer : ""), listen);
   }
   function endCall() {
     if (!call) return; var c = call; call = null;
+    if (c.live) { var lv = c.live; c.live = null; try { lv.end(); } catch (e) {} }
+    if (c.bubbles) { last = new Date().toISOString(); schedule(4000); var lb = $("lvbar"); if (lb) lb.remove(); }
+    $("mic").classList.remove("mute");
     try { if (rec) rec.abort(); } catch (e) {} try { if (synth) synth.cancel(); } catch (e) {}
     clearTimeout(speakTimer); A.speaking = false; mood("idle"); cap(""); $("stage").className = "stage"; $("callbar").hidden = true; $("talk").hidden = false; note(S.ended);
     var secs = Math.round((Date.now() - c.t0) / 1000);
@@ -293,6 +338,7 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
   function schedule(ms) { clearTimeout(pollT); pollT = setTimeout(poll, ms); }
   function poll() {
     if (document.visibilityState !== "visible") return;
+    if (call && call.bubbles) return;
     var idle = Date.now() - idleSince; if (idle > 15 * 60000) return;
     req("/chat/s/" + key + "/after?t=" + encodeURIComponent(last || new Date(0).toISOString())).then(function (r) { r.messages.forEach(function (m) { if (add(m) && m.dir !== "in" && (voiceOn || call)) speak(m.body); }); })
       .catch(function () {}).then(function () { schedule(idle < 120000 ? 4000 : 15000); });
@@ -314,7 +360,7 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
   $("talk").onclick = function () { $("cok").parentNode.hidden = !(info.voice && info.voice.record); $("consent").hidden = false; };
   $("cno").onclick = function () { $("consent").hidden = true; };
   $("cgo").onclick = function () { $("consent").hidden = true; startCall($("cok").checked && !$("cok").parentNode.hidden); };
-  $("end").onclick = endCall; $("mic").onclick = function () { if (rec && $("mic").classList.contains("on")) { try { rec.stop(); } catch (e) {} } else listen(); };
+  $("end").onclick = endCall; $("mic").onclick = function () { if (call && call.live) { var mu = !call.live.muted(); call.live.mute(mu); $("mic").classList.toggle("mute", mu); $("mic").classList.toggle("on", !mu); return; } if (rec && $("mic").classList.contains("on")) { try { rec.stop(); } catch (e) {} } else listen(); };
   window.__lara = { mood: mood, speak: speak, setLang: setLang, startCall: startCall, endCall: endCall, askRate: askRate, send: send, state: A };   // for testing
 
   function openChat() {

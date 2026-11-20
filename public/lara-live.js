@@ -35,9 +35,15 @@
       var shown = false, me = clip;
       var fade = function () {
         if (shown || clip !== me) return; shown = true;
-        el.style.opacity = "1"; if (cur >= 0 && cur !== nx) v[cur].style.opacity = "0";
-        var old = cur; cur = nx; setTimeout(function () { if (old >= 0 && old !== cur) try { v[old].pause(); } catch (e) {} }, 300);
-        poster.style.opacity = "0";
+        // the new clip fades in ON TOP of the old one, which stays fully visible underneath -> never a dark/black moment
+        // (21 Nov 2026: fading both at once showed the black background through both)
+        var old = cur;
+        el.style.zIndex = "2"; if (old >= 0 && old !== nx) v[old].style.zIndex = "1";
+        el.style.opacity = "1"; cur = nx;
+        setTimeout(function () {
+          if (old >= 0 && old !== cur) { v[old].style.transition = "none"; v[old].style.opacity = "0"; v[old].offsetWidth; v[old].style.transition = ""; try { v[old].pause(); } catch (e) {} }
+          poster.style.opacity = "0";
+        }, 400);
       };
       var seek = function () { try { if (opt.start) el.currentTime = 0; else if (!el.__seen) el.currentTime = Math.random() * Math.max(0, (el.duration || 2) - 1.2); el.__seen = true; } catch (e) {} };
       el.playbackRate = 1; el.defaultPlaybackRate = 1;   // Gemini clips move naturally at real speed

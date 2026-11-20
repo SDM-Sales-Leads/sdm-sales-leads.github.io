@@ -15,6 +15,9 @@ body{font-family:-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;background:var
 .app{width:100%;max-width:560px;height:100%;display:flex;flex-direction:column;background:var(--card);box-shadow:0 0 40px rgba(0,0,0,.06)}
 .stage{position:relative;background:radial-gradient(120% 90% at 50% 0%,var(--stage2),var(--stage1) 70%);color:#fff;transition:height .35s ease;height:176px;flex:none;overflow:hidden}
 .stage.call{height:min(52vh,380px)}.stage.min{height:58px}
+.stage.real{height:210px}.stage.real svg{display:none}.stage.real .lv video,.stage.real .lv .lvp{object-position:50% 18%}
+.stage.real .top{background:linear-gradient(rgba(0,0,0,.45),transparent)}
+.stage.real.min{height:58px}.stage.real.min .lv{inset:3px auto auto 12px;width:52px;height:52px;border-radius:50%;overflow:hidden}
 .stage.live{height:auto;aspect-ratio:16/9;max-height:62vh;background:#111}.stage.live svg{display:none}
 .lv{position:absolute;inset:0;z-index:0;background:#111}.lv video,.lv .lvp{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:opacity .45s ease}
 .stage.live .top{background:linear-gradient(rgba(0,0,0,.45),transparent)}.stage.live .cap{bottom:96px;font-weight:600;letter-spacing:.2px}
@@ -201,8 +204,8 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
   }
   function speak(text, done) {
     var clean = String(text).replace(/[•👋🙏*_#]/g, " ").replace(/\s+/g, " ").trim();
-    var fin = function () { clearTimeout(speakTimer); A.speaking = false; mood(call ? "listen" : "idle"); if (!call) cap(""); if (done) { var d = done; done = null; d(); } };
-    A.speaking = true; mood("happy"); cap(S.speaking);
+    var fin = function () { clearTimeout(speakTimer); A.speaking = false; mood(call ? "listen" : "idle"); chatFaceDo(call ? "listen" : "idle"); if (!call) cap(""); if (done) { var d = done; done = null; d(); } };
+    A.speaking = true; mood("happy"); cap(S.speaking); chatFaceDo(["talk1", "talk2", "talk4"][Math.floor(Math.random() * 3)]);
     if (!synth || !(voiceOn || call)) { speakTimer = setTimeout(fin, Math.min(9000, 600 + clean.length * 45)); return; }   // silent: she still "says" it
     try {
       synth.cancel();
@@ -247,6 +250,7 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
   function startLive(consent) {
     call = { t0: Date.now(), turns: 0, consent: consent, chunks: [], mr: null, busy: false, heard: false, live: null, bubbles: {} };
     clearTimeout(pollT);
+    chatFaceOff();
     $("stage").className = "stage call live"; $("callbar").hidden = false; $("talk").hidden = true; cap(S.thinking);
     var bar = document.createElement("div"); bar.className = "lvbar"; bar.id = "lvbar"; $("stage").appendChild(bar);
     recordCall(consent);
@@ -262,10 +266,20 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
     });
     call.live = lv;
   }
+  // ---- the real Lara outside calls (replaces the drawn face; 20 Nov 2026) --------------------------------------------------------------
+  var chatFace = null;
+  function chatFaceOn() {
+    if (chatFace || !window.LaraLive || !window.LaraLive.face) return;
+    $("stage").classList.add("real");
+    chatFace = window.LaraLive.face($("stage"), "lara/"); chatFace.show("idle", { force: true });
+  }
+  function chatFaceOff() { if (chatFace) { chatFace.remove(); chatFace = null; } }
+  function chatFaceDo(name) { if (chatFace) chatFace.show(name); }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", chatFaceOn); else setTimeout(chatFaceOn, 0);
   function startCall(consent) {
     if (info && info.voice && info.voice.provider === "gemini-live" && window.LaraLive && window.AudioWorkletNode && window.WebSocket) return startLive(consent);
     call = { t0: Date.now(), turns: 0, consent: consent, chunks: [], mr: null, busy: false, heard: false };
-    $("stage").className = "stage call"; $("callbar").hidden = false; $("talk").hidden = true; mood("listen"); cap(S.idle);
+    $("stage").className = (chatFace ? "stage real" : "stage") + " call"; $("callbar").hidden = false; $("talk").hidden = true; mood("listen"); cap(S.idle);
     recordCall(consent);
     if (!SR) note(S.novoice);
     speak(S.hello.replace("{n}", info && info.customer ? (lang === "zh" ? "，" : " ") + info.customer : ""), listen);
@@ -273,10 +287,10 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
   function endCall() {
     if (!call) return; var c = call; call = null;
     if (c.live) { var lv = c.live; c.live = null; try { lv.end(); } catch (e) {} }
-    if (c.bubbles) { last = new Date().toISOString(); schedule(4000); var lb = $("lvbar"); if (lb) lb.remove(); }
+    if (c.bubbles) { last = new Date().toISOString(); schedule(4000); var lb = $("lvbar"); if (lb) lb.remove(); setTimeout(chatFaceOn, 2700); }
     $("mic").classList.remove("mute");
     try { if (rec) rec.abort(); } catch (e) {} try { if (synth) synth.cancel(); } catch (e) {}
-    clearTimeout(speakTimer); A.speaking = false; mood("idle"); cap(""); $("stage").className = "stage"; $("callbar").hidden = true; $("talk").hidden = false; note(S.ended);
+    clearTimeout(speakTimer); A.speaking = false; mood("idle"); cap(""); $("stage").className = chatFace || (window.LaraLive && window.LaraLive.face) ? "stage real" : "stage"; $("callbar").hidden = true; $("talk").hidden = false; note(S.ended);
     var secs = Math.round((Date.now() - c.t0) / 1000);
     var fin = function (audio, mime) { req("/chat/s/" + key + "/call", { seconds: secs, turns: c.turns, lang: lang, consent: c.consent, audio: audio || undefined, mime: mime }).catch(function () {}); if (!info.rated) askRate(); };
     var done = function () {
@@ -356,7 +370,7 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
   $("lang").onchange = function () { setLang(this.value); };
   $("spk").onclick = function () { voiceOn = !voiceOn; LS.set("lara_voice", voiceOn ? "1" : "0"); this.textContent = voiceOn ? "🔊" : "🔈"; if (!voiceOn && synth) synth.cancel(); };
   $("spk").textContent = voiceOn ? "🔊" : "🔈";
-  $("fold").onclick = function () { var s = $("stage"); if (call) return; var min = s.className.indexOf("min") < 0; s.className = min ? "stage min" : "stage"; this.textContent = min ? "▾" : "▴"; };
+  $("fold").onclick = function () { var s = $("stage"); if (call) return; var min = s.className.indexOf("min") < 0; s.className = (chatFace ? "stage real" : "stage") + (min ? " min" : ""); this.textContent = min ? "▾" : "▴"; };
   $("talk").onclick = function () { $("cok").parentNode.hidden = !(info.voice && info.voice.record); $("consent").hidden = false; };
   $("cno").onclick = function () { $("consent").hidden = true; };
   $("cgo").onclick = function () { $("consent").hidden = true; startCall($("cok").checked && !$("cok").parentNode.hidden); };

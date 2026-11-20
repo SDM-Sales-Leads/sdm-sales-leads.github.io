@@ -180,5 +180,7 @@
     document.addEventListener("visibilitychange", function hid() { if (document.visibilityState === "hidden" && !C.ended) { end("hidden"); document.removeEventListener("visibilitychange", hid); } });
     return api;
   }
-  window.LaraLive = { start: start, preload: preload };
+  /* the real Lara for the chat page outside calls (replaces the old drawn face): face(box, base).show("idle" | "talk1".. | "listen") */
+  function face(box, base) { preload(base); return Face(box, base); }
+  window.LaraLive = { start: start, preload: preload, face: face };
 })();

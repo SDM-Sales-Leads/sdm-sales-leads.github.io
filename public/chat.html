@@ -137,7 +137,7 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
   <textarea id="rc" dir="auto" style="height:60px"></textarea>
   <div style="display:flex;gap:8px"><button class="go" id="rno" type="button" style="flex:1;padding:12px;background:var(--line);color:var(--ink)"></button><button class="go" id="rgo" type="button" style="flex:2;padding:12px" disabled></button></div>
 </div></div>
-<script src="lara-live.js" defer></script>
+<script src="lara-live.js?v=5" defer></script>
 <script>
 (function () {
   var API = "https://iyubegbevtjcvtuubpaq.supabase.co/functions/v1/api";
@@ -205,7 +205,7 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
   function speak(text, done) {
     var clean = String(text).replace(/[•👋🙏*_#]/g, " ").replace(/\s+/g, " ").trim();
     var fin = function () { clearTimeout(speakTimer); A.speaking = false; mood(call ? "listen" : "idle"); chatFaceDo(call ? "listen" : "idle"); if (!call) cap(""); if (done) { var d = done; done = null; d(); } };
-    A.speaking = true; mood("happy"); cap(S.speaking); chatFaceDo(Math.random() < 0.5 ? "talk1" : "talk2");
+    A.speaking = true; mood("happy"); cap(S.speaking); if (synth && (voiceOn || call)) chatFaceDo(Math.random() < 0.5 ? "talk1" : "talk2");   // talking face only while her voice is really heard
     if (!synth || !(voiceOn || call)) { speakTimer = setTimeout(fin, Math.min(9000, 600 + clean.length * 45)); return; }   // silent: she still "says" it
     try {
       synth.cancel();

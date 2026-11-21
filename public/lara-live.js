@@ -5,14 +5,15 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
+  var CV = "5";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen", "talk1", "talk2"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
     if (loading) return loading;
     loading = Promise.all(CLIPS.map(function (n) {
       // warm the browser cache only: the <video> plays the normal web address (Safari plays blob: video late or not at all — 20 Nov 2026 test)
-      cache[n] = base + n + ".mp4";
-      return fetch(base + n + ".mp4").then(function (r) { return r.ok ? r.blob() : null; }).catch(function () {});
+      cache[n] = base + n + ".mp4?v=" + CV;
+      return fetch(cache[n]).then(function (r) { return r.ok ? r.blob() : null; }).catch(function () {});
     }));
     return loading;
   }
@@ -20,7 +21,7 @@
   // ---- the face: two <video> layers, cross-fade --------------------------------------------------------------------------------
   function Face(box, base) {
     var wrap = document.createElement("div"); wrap.className = "lv";
-    var poster = document.createElement("img"); poster.className = "lvp"; poster.src = base + "poster.jpg"; poster.alt = "";
+    var poster = document.createElement("img"); poster.className = "lvp"; poster.src = base + "poster.jpg?v=" + CV; poster.alt = "";
     var v = [0, 1].map(function () { var x = document.createElement("video"); x.muted = true; x.playsInline = true; x.setAttribute("playsinline", ""); x.setAttribute("muted", ""); x.loop = true; x.preload = "auto"; x.style.opacity = "0"; wrap.appendChild(x); return x; });
     wrap.insertBefore(poster, v[0]);
     box.appendChild(wrap);
@@ -28,7 +29,7 @@
     function show(name, opt) {
       opt = opt || {};
       if (name === clip && !opt.force) return;
-      var nx = cur === 0 ? 1 : 0, el = v[nx], src = cache[name] || (base + name + ".mp4");
+      var nx = cur === 0 ? 1 : 0, el = v[nx], src = cache[name] || (base + name + ".mp4?v=" + CV);
       clip = name; since = Date.now();
       (window.__laraClips = window.__laraClips || []).push([since, name]);   // for tests: how often her clip changes
       el.loop = !opt.once;

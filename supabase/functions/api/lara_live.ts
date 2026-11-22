@@ -54,8 +54,8 @@ Start: greet the customer formally${o.customer ? ` by name (e.g. "أستاذ ${o
 /** start a video call: checks, reserve minutes, locked one-use token */
 route("POST", "/chat/s/:key/live/start", async ({ req, params }) => {
   keyShape(params.key);
-  await rateLimit(`livestart:${ipOf(req)}`, 3600, 10);
-  await rateLimit(`livestartk:${params.key}`, 3600, 6);
+  await rateLimit(`livestart:${ipOf(req)}`, 3600, 40);
+  await rateLimit(`livestartk:${params.key}`, 3600, 30);   // 22 Nov 2026: 6/h blocked the owner's own tests; minutes are capped separately (daily cap)
   const t = await threadByKey(params.key);
   if (!(await chatOpen(t))) throw new HttpError(403, "Calls are not open yet");
   if (t.status === "stopped" || (t.customer_email && (await isOptedOut([t.customer_email])))) throw new HttpError(403, "This conversation was stopped at your request");

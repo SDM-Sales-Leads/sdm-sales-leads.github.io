@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "5";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CV = "6";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen", "talk1", "talk2"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
@@ -19,7 +19,7 @@
   }
 
   // ---- the face: two <video> layers, cross-fade --------------------------------------------------------------------------------
-  function Face(box, base) {
+  function Face(box, base, report) {
     var wrap = document.createElement("div"); wrap.className = "lv";
     var poster = document.createElement("img"); poster.className = "lvp"; poster.src = base + "poster.jpg?v=" + CV; poster.alt = "";
     var v = [0, 1].map(function () { var x = document.createElement("video"); x.muted = true; x.playsInline = true; x.setAttribute("playsinline", ""); x.setAttribute("muted", ""); x.loop = true; x.preload = "auto"; x.style.opacity = "0"; wrap.appendChild(x); return x; });
@@ -34,8 +34,9 @@
       (window.__laraClips = window.__laraClips || []).push([since, name]);   // for tests: how often her clip changes
       el.loop = !opt.once;
       var shown = false, me = clip;
+      var stallT = setTimeout(function () { if (!shown && clip === me && report) report(name, 1500); }, 1500);
       var fade = function () {
-        if (shown || clip !== me) return; shown = true;
+        if (shown || clip !== me) return; shown = true; clearTimeout(stallT);
         // the new clip fades in ON TOP of the old one, which stays fully visible underneath -> never a dark/black moment
         // (21 Nov 2026: fading both at once showed the black background through both)
         var old = cur;
@@ -72,7 +73,19 @@
   /* start(o): o = { api, key, lang ('ar'|'en'), stage (element), base ('lara/'), maxSec, onLine(dir, text, final), onState(s), onNote(t), onEnd(reason) } */
   function start(o) {
     var C = { lang: o.lang, ended: false, muted: false, t0: Date.now(), toolBusy: 0, outUntil: 0, micAt: Date.now(), lvlOut: 0, warned: false, asked: false, lines: { in: "", out: "" } };
-    var face = Face(o.stage, o.base);
+    // ---- audit log (0032): every call's events go to Lara > Issues & audit; problems become issues automatically ----
+    var AU = { id: (window.crypto && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(16) + Math.random().toString(16).slice(2))), q: [], first: 0, desyncFrom: 0, desyncClip: "", spk: false };
+    function ev(kind, data) { AU.q.push({ t: Date.now() - C.t0, kind: kind, data: data || {} }); if (AU.q.length >= 40) flushEv(); }
+    function flushEv(final) {
+      if (!AU.q.length) return;
+      var batch = AU.q.splice(0, 80);
+      try { fetch(o.api + "/chat/s/" + o.key + "/live/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ callId: AU.id, events: batch }), keepalive: !!final }).catch(function () {}); } catch (e) {}
+    }
+    var evTimer = setInterval(flushEv, 5000);
+    var onErr = function (e) { ev("error", { message: String((e && (e.message || (e.reason && e.reason.message))) || e).slice(0, 300) }); };
+    window.addEventListener("error", onErr); window.addEventListener("unhandledrejection", onErr);
+    ev("start", { lang: o.lang, ua: navigator.userAgent.slice(0, 140) });
+    var face = Face(o.stage, o.base, function (clip, ms) { ev("clip_stall", { clip: clip, ms: ms }); });
     var ctx, ws, node, stream, gain, an, nextT = 0, srcs = [], timer = null, raf = null;
     function post(p, b) { return fetch(o.api + "/chat/s/" + o.key + "/live/" + p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b || {}) }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.error || ("Error " + r.status)); return j; }); }); }
     function state(s) { if (o.onState) o.onState(s); }
@@ -85,11 +98,14 @@
       var at = Math.max(ctx.currentTime + 0.04, nextT); s.start(at); nextT = at + buf.duration; srcs.push(s);
       s.onended = function () { srcs = srcs.filter(function (x) { return x !== s; }); };
       C.outUntil = Date.now() + (nextT - ctx.currentTime) * 1000;
+      if (!AU.first) { AU.first = Date.now(); ev("first_audio", { ms: AU.first - C.t0 }); }
     }
     function send(m) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); }
     function end(reason) {
       if (C.ended) return; C.ended = true;
       flush("in"); flush("out");
+      ev("end", { reason: reason || "end" }); clearInterval(evTimer); flushEv(true);
+      window.removeEventListener("error", onErr); window.removeEventListener("unhandledrejection", onErr);
       clearInterval(timer); cancelAnimationFrame(raf);
       try { ws && ws.close(); } catch (e) {}
       try { stream && stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
@@ -119,6 +135,10 @@
         if (/^talk/.test(want) || face.age() > 1500) face.show(want);
       }
       state(speaking ? "speaking" : C.toolBusy ? "thinking" : custom ? "listening" : "idle");
+      var heard = now < C.outUntil && C.lvlOut > 0.015, faceTalks = /^talk/.test(face.clip());
+      if (heard !== AU.spk) { AU.spk = heard; ev(heard ? "speak_start" : "speak_end", { clip: face.clip() }); }
+      if (heard && !faceTalks) { if (!AU.desyncFrom) { AU.desyncFrom = now; AU.desyncClip = face.clip(); } }
+      else if (AU.desyncFrom) { var dms = now - AU.desyncFrom; AU.desyncFrom = 0; if (dms >= 300) ev("desync", { ms: dms, clip: AU.desyncClip }); }
       // cost guards
       var secs = (now - C.t0) / 1000;
       if (!C.warned && secs > o.maxSec - 30) { C.warned = true; send({ realtimeInput: { text: "(System: 30 seconds left in this call. Wrap up politely and offer that the account manager follows up.)" } }); }
@@ -132,14 +152,15 @@
 
     function onMsg(m) {
       if (m.setupComplete) {
+        ev("connected", {});
         send({ realtimeInput: { text: o.lang === "ar" ? "(System: the call is connected. Greet the customer now.)" : "(System: the call is connected. Greet the customer now.)" } });
         return;
       }
       if (m.toolCall && m.toolCall.functionCalls) {
         m.toolCall.functionCalls.forEach(function (fc) {
           if (fc.name === "end_call") { send({ toolResponse: { functionResponses: [{ id: fc.id, name: fc.name, response: { result: "OK" } }] } }); setTimeout(function () { var wait = Math.max(0, C.outUntil - Date.now()); setTimeout(function () { end("bye"); }, wait + 600); }, 1500); return; }
-          C.toolBusy++;
-          post("tool", { name: fc.name, args: fc.args || {}, lang: C.lang }).then(function (r) { return r.result; }).catch(function () { return "NO_ANSWER"; }).then(function (res) {
+          C.toolBusy++; var t1 = Date.now();
+          post("tool", { name: fc.name, args: fc.args || {}, lang: C.lang }).then(function (r) { ev("tool", { name: fc.name, ms: Date.now() - t1, answered: !/^NO_/.test(String(r.result || "")) }); return r.result; }).catch(function (e) { ev("tool_error", { name: fc.name, error: String(e && e.message || e).slice(0, 200) }); return "NO_ANSWER"; }).then(function (res) {
             C.toolBusy = Math.max(0, C.toolBusy - 1);
             send({ toolResponse: { functionResponses: [{ id: fc.id, name: fc.name, response: { result: res } }] } });
           });
@@ -147,9 +168,9 @@
       }
       var sc = m.serverContent;
       if (!sc) { if (m.goAway) end("time"); return; }
-      if (sc.interrupted) { stopAudio(); flush("out"); }
+      if (sc.interrupted) { ev("interrupted", {}); stopAudio(); flush("out"); }
       if (sc.modelTurn && sc.modelTurn.parts) sc.modelTurn.parts.forEach(function (p) { if (p.inlineData && p.inlineData.data) play(p.inlineData.data); });
-      if (sc.inputTranscription && sc.inputTranscription.text) { if (C.lines.out) flush("out"); C.lines.in += sc.inputTranscription.text; if (/[a-z]{3,}/i.test(C.lines.in) || /[\u0600-\u06FF]/.test(C.lines.in)) C.lang = /[\u0600-\u06FF]/.test(C.lines.in) ? "ar" : "en"; if (o.onLine) o.onLine("in", C.lines.in, false); }
+      if (sc.inputTranscription && sc.inputTranscription.text) { if (C.lines.out) flush("out"); C.lines.in += sc.inputTranscription.text; if (/[a-z]{3,}/i.test(C.lines.in) || /[\u0600-\u06FF]/.test(C.lines.in)) { var nl = /[\u0600-\u06FF]/.test(C.lines.in) ? "ar" : "en"; if (nl !== C.lang) ev("lang", { lang: nl }); C.lang = nl; } if (o.onLine) o.onLine("in", C.lines.in, false); }
       if (sc.outputTranscription && sc.outputTranscription.text) { if (C.lines.in) flush("in"); C.lines.out += sc.outputTranscription.text; if (o.onLine) o.onLine("out", C.lines.out, false); }
       if (sc.turnComplete) { flush("in"); flush("out"); }
     }
@@ -174,7 +195,7 @@
           ws = new WebSocket(t.ws + "?access_token=" + encodeURIComponent(t.token));
           ws.onopen = function () { send({ setup: { model: "models/" + t.model } }); };
           ws.onmessage = function (ev) { (typeof ev.data === "string" ? Promise.resolve(ev.data) : ev.data.text()).then(function (s) { try { onMsg(JSON.parse(s)); } catch (e) {} }); };
-          ws.onclose = function () { if (!C.ended) end("closed"); };
+          ws.onclose = function (e) { ev("ws_close", { code: e && e.code, reason: String(e && e.reason || "").slice(0, 120), clean: C.ended }); if (!C.ended) end("closed"); };
           ws.onerror = function () { if (o.onNote) o.onNote("connection"); };
           timer = setInterval(tick, 100); meter();
           if (ctx.state === "suspended") ctx.resume();

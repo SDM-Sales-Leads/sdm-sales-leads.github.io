@@ -6,11 +6,11 @@
 //    Q&A; unknown = Missed questions), request_call (account manager), end_call. She never invents prices or dates.
 //  • Cost guards: daily minute cap (atomic, 0031), max call length (token expires with it), one call at a time per conversation,
 //    rate limits per link and per IP. Same hold rules as the chat: while Lara is on hold only staff test conversations can call.
-import { admin, bad, body, getConfig, getSecret, HttpError, nowIso, rateLimit, str } from "./lib.ts";
+import { admin, bad, body, getConfig, getSecret, HttpError, needAdmin, nowIso, rateLimit, str } from "./lib.ts";
 import { route } from "./router.ts";
 import { pg } from "./db.ts";
 import { firstNameOf } from "../../../src/lib/personName.ts";
-import { availabilityAnswer, laraAnswer, log } from "./routes_lara.ts";
+import { availabilityAnswer, laraAnswer, log, pageOf, who } from "./routes_lara.ts";
 import { appendTimeline, isOptedOut, ownerOf } from "./lara_mail.ts";
 import { addNotifications } from "./notify.ts";
 import { chatCfg, chatOpen, ipOf, keyShape, leadInfo, staffTo, threadByKey } from "./lara_chat.ts";
@@ -38,7 +38,8 @@ const TOOLS = [{ functionDeclarations: [
 function instructions(o: { ar: boolean; customer: string; owner: string; project: string; size: string }) {
   return `You are Lara, the digital sales assistant of Elsewedy Industrial Development (SDM), which sells industrial land in Egyptian industrial parks. You are an AI assistant, not a human; if asked, say so kindly.
 You are on a live video call with ${o.customer ? `the customer ${o.customer}` : "a customer"}.${o.owner ? ` Their account manager is ${o.owner}.` : ""}${o.project ? ` They showed interest in ${o.project}${o.size ? `, about ${o.size} sqm` : ""}.` : ""}
-Start in ${o.ar ? "warm, natural Egyptian Arabic (polite: حضرتك)" : "clear, friendly English"}. ALWAYS answer in the language of the customer's LAST words (Egyptian Arabic or English), even when a tool result is in the other language: then translate it naturally.
+Start in ${o.ar ? "formal, professional Arabic" : "formal, professional English"}. ALWAYS answer in the language of the customer's LAST words (Arabic or English), even when a tool result is in the other language: then translate it accurately.
+Tone (owner, 22 Nov 2026): you represent a major industrial developer speaking with business owners and investors. In Arabic speak clear, polished Modern Standard Arabic with a courteous business tone, as a senior corporate sales consultant would on a formal call; address the customer as "حضرتك" (or "سيادتك"), use phrases like "يسعدني" / "بكل تأكيد" / "تفضل حضرتك"; NO slang or colloquial Egyptian words (never say "إزيك", "تمام كده", "خلاص", "أوي", "عايز", "فين"), no jokes, no filler words, no exaggerated enthusiasm. Tool results may be written in colloquial Arabic: always restate them in formal Arabic. Read numbers precisely and formally (e.g. "ألفان وخمسمائة وعشرون متراً مربعاً", "اثنا عشر ألف جنيه للمتر المربع").
 Rules:
 - Short turns: 1 to 3 sentences, then let the customer speak. One question at a time.
 - For ANY question about available land, plots, sizes, locations or prices: call find_plot, then say the result naturally. Never give stock reports or plot counts.
@@ -47,7 +48,7 @@ Rules:
 - If the customer wants a person, a call, a meeting or a site visit: call request_call and confirm.
 - When the customer says goodbye or stop: say a short polite goodbye, then call end_call.
 - Never ask for passwords, card numbers or ID numbers.
-Start: greet the customer${o.customer ? ` by name (${o.customer})` : ""} in one short sentence and ask how you can help.`;
+Start: greet the customer formally${o.customer ? ` by name (e.g. "أستاذ ${o.customer}")` : ""} in one short sentence, introduce yourself as Lara, the digital sales assistant of Elsewedy Industrial Development, and ask how you can help.`;
 }
 
 /** start a video call: checks, reserve minutes, locked one-use token */
@@ -167,3 +168,102 @@ export async function liveUsage() {
   const u = await getConfig<any>("lara_live_usage", {});
   return { day: day(), usedSec: u.day === day() ? Number(u.sec) || 0 : 0 };
 }
+
+// ---------------------------------------------------------------------------------------------
+// issues + audit log (0032, owner 22 Nov 2026: "a log of issues and an audit log for her issues so we can track and fix them")
+// ---------------------------------------------------------------------------------------------
+const EVENT_KINDS = new Set(["start", "connected", "greeting", "first_audio", "speak_start", "speak_end", "tool", "tool_error", "interrupted", "desync",
+  "clip_stall", "ws_close", "error", "mic", "end", "lang", "note"]);
+/** problems that become (or add to) an issue automatically */
+function problemOf(e: any): { kind: string; title: string; details: string } | null {
+  const d = e.data || {};
+  if (e.kind === "desync" && Number(d.ms) >= 500) return { kind: "desync", title: "Face and voice out of sync", details: `Lara's voice played for ${Math.round(Number(d.ms))} ms while her face showed "${str(d.clip, 20)}" instead of a talking clip.` };
+  if (e.kind === "first_audio" && Number(d.ms) >= 3500) return { kind: "slow_start", title: "Slow first answer", details: `First sound after ${Math.round(Number(d.ms))} ms.` };
+  if (e.kind === "clip_stall") return { kind: "clip_stall", title: "Video clip did not load in time", details: `Clip "${str(d.clip, 20)}" was not ready for ${Math.round(Number(d.ms) || 0)} ms.` };
+  if (e.kind === "ws_close" && !d.clean) return { kind: "connection", title: "Call connection dropped", details: `Gemini Live closed the connection (code ${str(String(d.code ?? ""), 10)} ${str(d.reason, 120)}).` };
+  if (e.kind === "tool_error") return { kind: "tool_error", title: "A tool failed during a call", details: `${str(d.name, 40)}: ${str(d.error, 200)}` };
+  if (e.kind === "error") return { kind: "error", title: "Error on the call page", details: str(d.message, 300) };
+  return null;
+}
+async function raiseIssue(p: { kind: string; title: string; details: string }, ctx: { callId: string; threadId: string | null; leadId: string | null }) {
+  const { data: open } = await admin.from("lara_issues").select("id,count").eq("source", "auto").eq("kind", p.kind).in("status", ["open", "investigating"]).order("last_seen", { ascending: false }).limit(1).maybeSingle();
+  if (open) { await admin.from("lara_issues").update({ count: (open.count || 1) + 1, last_seen: nowIso(), details: p.details, call_id: ctx.callId, thread_id: ctx.threadId, lead_id: ctx.leadId, updated_at: nowIso() }).eq("id", open.id); return; }
+  await admin.from("lara_issues").insert({ source: "auto", kind: p.kind, title: p.title, details: p.details, call_id: ctx.callId, thread_id: ctx.threadId, lead_id: ctx.leadId });
+}
+
+/** the call page sends what happened (batched); problems are raised as issues */
+route("POST", "/chat/s/:key/live/events", async ({ req, params }) => {
+  keyShape(params.key);
+  await rateLimit(`liveev:${params.key}`, 3600, 120);
+  const t = await threadByKey(params.key);
+  if (!(await chatOpen(t))) throw new HttpError(403, "Calls are not open yet");
+  const b = await body(req, 40_000);
+  const callId = str(b.callId, 40).replace(/[^a-z0-9-]/gi, "");
+  if (callId.length < 8) throw bad("callId?");
+  const evs = (Array.isArray(b.events) ? b.events : []).slice(0, 80).filter((e: any) => e && EVENT_KINDS.has(String(e.kind)));
+  if (!evs.length) return { success: true, saved: 0 };
+  const { count } = await admin.from("lara_call_events").select("id", { count: "exact", head: true }).eq("call_id", callId);
+  if ((count || 0) > 1500) return { success: true, saved: 0 };                      // a runaway page cannot fill the table
+  const rows = evs.map((e: any) => ({ call_id: callId, thread_id: t.id, lead_id: t.lead_id || null, t_ms: Math.max(0, Math.min(3_600_000, Math.round(Number(e.t) || 0))),
+    kind: String(e.kind), data: JSON.parse(JSON.stringify(e.data || {}).slice(0, 2000) || "{}") }));
+  await admin.from("lara_call_events").insert(rows);
+  for (const e of evs) { const p = problemOf(e); if (p) await raiseIssue(p, { callId, threadId: t.id, leadId: t.lead_id || null }).catch(() => {}); }
+  return { success: true, saved: rows.length };
+}, { public: true });
+
+/** admin: issues list (paged, status filter, search) */
+route("GET", "/lara/issues", async ({ c, query }) => {
+  needAdmin(c);
+  const st = query.get("status") || "open";
+  const pg0 = pageOf(query);
+  let q: any = admin.from("lara_issues").select("*", { count: "exact" });
+  if (st === "open") q = q.in("status", ["open", "investigating"]); else if (["fixed", "wontfix"].includes(st)) q = q.eq("status", st);
+  if (pg0.qs) q = q.or(`title.ilike.%${pg0.qs}%,details.ilike.%${pg0.qs}%,note.ilike.%${pg0.qs}%`);
+  const { data, count } = await q.order("last_seen", { ascending: false }).range(pg0.from, pg0.to);
+  return { success: true, rows: data || [], total: count || 0 };
+});
+/** admin: report an issue by hand (e.g. "her Arabic was too informal") */
+route("POST", "/lara/issues", async ({ req, c }) => {
+  needAdmin(c);
+  const b = await body(req, 8000);
+  const title = str(b.title, 200); if (!title) throw bad("Write what is wrong");
+  const kind = ["desync", "lip_sync", "language", "answer", "voice", "face", "connection", "other"].includes(b.kind) ? b.kind : "other";
+  const { data } = await admin.from("lara_issues").insert({ source: "staff", kind, title, details: str(b.details, 4000), call_id: str(b.callId, 40) || null, created_by: who(c), updated_by: who(c) }).select("*").single();
+  await log("config", who(c), `Issue reported: ${title}`);
+  return { success: true, issue: data };
+});
+/** admin: change status / add a note */
+route("POST", "/lara/issues/:id", async ({ req, c, params }) => {
+  needAdmin(c);
+  const b = await body(req, 8000);
+  const patch: any = { updated_by: who(c), updated_at: nowIso() };
+  if (["open", "investigating", "fixed", "wontfix"].includes(b.status)) patch.status = b.status;
+  if (typeof b.note === "string") patch.note = str(b.note, 4000);
+  const { data } = await admin.from("lara_issues").update(patch).eq("id", params.id).select("*").maybeSingle();
+  if (!data) throw new HttpError(404, "Issue not found");
+  await log("config", who(c), `Issue "${String(data.title).slice(0, 80)}" -> ${data.status}`);
+  return { success: true, issue: data };
+});
+/** admin: recent video calls (one row per call, paged) and one call's full timeline */
+route("GET", "/lara/call-audit", async ({ c, query }) => {
+  needAdmin(c);
+  const call = str(query.get("call") || "", 40).replace(/[^a-z0-9-]/gi, "");
+  if (call) {
+    const { data } = await admin.from("lara_call_events").select("t_ms,kind,data,at").eq("call_id", call).order("id").limit(1500);
+    return { success: true, events: data || [] };
+  }
+  const pg0 = pageOf(query);
+  const { data } = await admin.from("lara_call_events").select("call_id,lead_id,at,data").eq("kind", "start").order("at", { ascending: false }).range(pg0.from, pg0.to);
+  const ids = (data || []).map((r: any) => r.call_id);
+  const sums: Record<string, any> = {};
+  if (ids.length) {
+    const { data: ev } = await admin.from("lara_call_events").select("call_id,kind,data,t_ms").in("call_id", ids).in("kind", ["end", "first_audio", "desync", "clip_stall", "ws_close", "error", "tool_error"]).limit(3000);
+    for (const e of ev || []) {
+      const s = (sums[e.call_id] ||= { problems: 0 });
+      if (e.kind === "end") s.seconds = Math.round((e.t_ms || 0) / 1000), s.reason = e.data?.reason;
+      else if (e.kind === "first_audio") s.firstAudioMs = e.data?.ms;
+      else s.problems++;
+    }
+  }
+  return { success: true, rows: (data || []).map((r: any) => ({ callId: r.call_id, leadId: r.lead_id, at: r.at, lang: r.data?.lang, ...(sums[r.call_id] || {}) })) };
+});

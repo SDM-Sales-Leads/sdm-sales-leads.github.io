@@ -677,7 +677,7 @@ route("POST", "/lara/drafts/:id/send", async ({ c, params }) => {
 });
 
 /** one page of a Lara list (owner, 11 Nov 2026: pages of 10/25/50/100 on the server, never a whole list) */
-function pageOf(query: URLSearchParams, def = 25) {
+export function pageOf(query: URLSearchParams, def = 25) {
   const size = [10, 25, 50, 100].includes(Number(query.get("size"))) ? Number(query.get("size")) : def;
   const page = Math.max(1, Math.min(5000, Number(query.get("page")) || 1));
   const qs = str(query.get("q") || "", 80).replace(/[^\p{L}\p{N}\s@.-]/gu, " ").replace(/\s+/g, " ").trim();

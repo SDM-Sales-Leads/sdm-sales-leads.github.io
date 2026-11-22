@@ -13,6 +13,7 @@ import { LaraWorkflows } from './LaraWorkflows';
 import { LaraWhatsApp } from './LaraWhatsApp';
 import { LaraInbox } from './LaraInbox';
 import { LaraChannels } from './LaraChannels';
+import { LaraIssues } from './LaraIssues';
 import { LaraInsights } from './LaraInsights';
 import { Pager, useDebounced } from './Pager';
 import { LaraOffers, openInLandBank, openOfferPdf } from './LaraOffers';
@@ -87,6 +88,7 @@ export const LaraModule: React.FC<Props> = ({ sub, leads, setActiveSubTab }) => 
       {sub === 'lara-kb' && <Knowledge reload={load} />}
       {sub === 'lara-missed' && <Missed reload={load} />}
       {sub === 'lara-settings' && <SettingsTab ov={ov} reload={load} />}
+      {sub === 'lara-issues' && <LaraIssues />}
       {sub === 'lara-log' && <LogTab />}
     </div>
   );

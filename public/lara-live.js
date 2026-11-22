@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "12";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CV = "13";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
@@ -64,7 +64,7 @@
 
   // ---- lip sync from her VOICE (22 Nov 2026) -------------------------------------------------------------------------------------
   // Each audio chunk from Gemini is analysed BEFORE it plays (40 ms frames: loudness, low "a/o/u" band, mid "i/e" band, hiss "s/sh"),
-  // and the matching real mouth shape (cut from her own Gemini videos) is shown exactly when that frame is heard (audio clock).
+  // and the matching mouth shape (whole lower face rendered from her own photo, v3) is shown exactly when that frame is heard (audio clock).
   // Head stays on the calm clip (still + blinks); only the mouth area changes. No pre-made talking clip, so voice and lips stay locked.
   function fft(re, im) {
     var n = re.length, i, j, k, l, t;
@@ -84,12 +84,14 @@
     var N = 1024, win = new Float32Array(N); for (var i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1));
     function shapeOf(rms, low, mid, hiss) {
       peak = Math.max(rms, peak * 0.985); var e = rms / Math.max(peak, 0.02);
+      // v3 shapes (22 Nov 2026): whole lower face rendered from her own photo (lips, teeth, jaw, chin move together)
       if (e < 0.08) return "closed";
-      if (hiss > 0.18 && e < 0.7) return "teeth";          // s / sh / t: teeth
-      if (e > 0.72) return low > 0.45 ? "open" : "open";
-      if (low > 0.55 && mid < 0.12) return "open";          // o / u ("round" left out: it pulled creases on the cheeks)
-      if (mid > 0.22) return "smile";                       // i / e
-      if (e > 0.35) return "open";
+      if (hiss > 0.18 && e < 0.7) return "ff";             // s / sh / f / t: teeth just showing
+      if (low > 0.55 && mid < 0.12 && e > 0.2) return "oo"; // o / u: rounded lips
+      if (mid > 0.22 && e < 0.8) return "ee";               // i / e: wide lips, teeth
+      if (e > 0.82) return "wide";
+      if (e > 0.55) return "open";
+      if (e > 0.3) return "mid";
       return "slight";
     }
     function feed(f, at) {                                   // f: Float32 24 kHz chunk, at: AudioContext time it starts
@@ -112,9 +114,9 @@
       var now = ctx.currentTime - (ctx.outputLatency || 0), want = "closed";
       while (tl.length && tl[0].t + 0.04 < now - 0.2) tl.shift();
       for (var i = tl.length - 1; i >= 0; i--) { if (tl[i].t <= now) { if (now < tl[i].t + 0.06) want = tl[i].s; break; } }
-      if (!imgs[want]) want = want === "teeth" ? "smile" : "slight";
+      if (!imgs[want]) want = imgs.slight ? "slight" : "closed";
       if (want !== cur) { prev = cur; cur = want; mix = 0; }
-      mix = Math.min(1, mix + 0.7);                          // shape change within ~1-2 screen frames (a long blend shows two mouths)
+      mix = Math.min(1, mix + 0.5);                          // whole-face shapes: a 2-frame blend reads as motion, not two mouths
       if (cur !== "closed") activeAt = Date.now();
       // ONE solid mouth at all times (22 Nov 2026: a half-transparent new mouth over her closed lips looked like two mouths):
       // the previous shape is drawn fully, the new one blends in on top of it; "closed" is drawn too (tone-matched to the face)

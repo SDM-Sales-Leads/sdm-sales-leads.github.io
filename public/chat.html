@@ -254,6 +254,15 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
     var c = $("mutecap"); if (mu && !c) { c = document.createElement("div"); c.id = "mutecap"; c.className = "mutecap"; $("stage").appendChild(c); }
     if (c) { if (mu) c.textContent = S.muted; else c.remove(); }
   }
+  // server reasons a call could not start, in the page language (owner 22 Nov: an English message showed on the Arabic page)
+  function callErr(m) {
+    var ar = lang === "ar", t = String(m || "");
+    if (/already running/i.test(t)) return ar ? "في مكالمة شغالة مع لارا في نافذة تانية. اقفلها الأول وبعدين ابدأ من هنا." : "A call with Lara is already open in another window. Close it first, then start here.";
+    if (/busy right now/i.test(t)) return ar ? "مكالمات الفيديو مشغولة دلوقتي. اكتب لـ لارا هنا أو كلّمنا." : t;
+    if (/not open yet|not switched on|not set up/i.test(t)) return ar ? "المكالمات مع لارا مش متاحة دلوقتي. اكتب رسالتك هنا." : t;
+    if (/too many/i.test(t)) return ar ? "محاولات كتير ورا بعض. استنى دقيقة وجرّب تاني." : t;
+    return t || S.closed;
+  }
   function startLive(consent) {
     call = { t0: Date.now(), turns: 0, consent: consent, chunks: [], mr: null, busy: false, heard: false, live: null, bubbles: {} };
     clearTimeout(pollT);
@@ -269,7 +278,7 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
       onLine: liveLine,
       onState: function (s) { cap(s === "speaking" ? S.speaking : s === "thinking" ? S.thinking : S.listening); },   // live call: no "tap the mic" hint, she always hears
       onEnd: function (why, err) {
-        if (why === "failed") note(err && err.message ? err.message : S.closed);
+        if (why === "failed") note(callErr(err && err.message));
         if (why === "silence") note(S.ended);
         if (call && call.live === lv) { call.live = null; endCall(); }
       },

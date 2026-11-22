@@ -48,7 +48,8 @@ Rules:
 - If the customer wants a person, a call, a meeting or a site visit: call request_call and confirm.
 - When the customer says goodbye or stop: say a short polite goodbye, then call end_call.
 - Never ask for passwords, card numbers or ID numbers.
-Start: greet the customer formally${o.customer ? ` by name (e.g. "أستاذ ${o.customer}")` : ""} in one short sentence, introduce yourself as Lara, the digital sales assistant of Elsewedy Industrial Development, and ask how you can help.`;
+Names: when you speak or write Arabic, say and write every person's name in Arabic letters (e.g. Walid → وليد, Ahmed → أحمد), never in Latin letters.
+Start: greet the customer formally${o.customer ? ` by name (e.g. "أستاذ ${o.customer}", written in Arabic letters)` : ""} in one short sentence, introduce yourself as Lara, the digital sales assistant of Elsewedy Industrial Development, and ask how you can help.`;
 }
 
 /** start a video call: checks, reserve minutes, locked one-use token */
@@ -76,7 +77,8 @@ route("POST", "/chat/s/:key/live/start", async ({ req, params }) => {
     model: `models/${cc.liveModel}`,
     generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: cc.liveVoice } } } },
     systemInstruction: { parts: [{ text: instructions({ ar, customer: firstNameOf(String(lead?.customerName || t.visitor?.name || "")), owner: firstNameOf(o.name || ""), project: canonicalParks(String(lead?.project || ""))[0] || "", size: String(lead?.requiredSize || "") }) }] },
-    tools: TOOLS, inputAudioTranscription: {}, outputAudioTranscription: {},
+    // transcript of the customer's words: hint the call language (owner 22 Nov: Arabic "ألو" showed as French "Allô")
+    tools: TOOLS, inputAudioTranscription: { languageCodes: ar ? ["ar-EG", "en-US"] : ["en-US", "ar-EG"] }, outputAudioTranscription: {},
     realtimeInputConfig: { automaticActivityDetection: { silenceDurationMs: 700 } },
   };
   const r = await fetch("https://generativelanguage.googleapis.com/v1alpha/auth_tokens", {

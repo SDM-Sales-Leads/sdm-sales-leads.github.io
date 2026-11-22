@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "13";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CV = "14";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
@@ -82,17 +82,28 @@
       return Promise.all(j.shapes.map(function (n) { return new Promise(function (res) { var im = new Image(); im.onload = function () { imgs[n] = im; res(); }; im.onerror = res; im.src = base + "mouth_" + n + ".png?v=" + CV; }); }));
     }).then(function () { ready = true; }).catch(function () {});
     var N = 1024, win = new Float32Array(N); for (var i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1));
+    // v3 shapes (22 Nov 2026): whole lower face rendered from her own photo (lips, teeth, jaw, chin move together).
+    // Calm speech (owner: "the mouth is moving really fast, looks funny"): loudness is smoothed (opens fast, closes slower),
+    // a new shape must be heard for 80 ms and each shape stays at least 120 ms; "wide" only on strong vowels.
+    var es = 0, held = "closed", heldN = 0, cand = "", candN = 0;
     function shapeOf(rms, low, mid, hiss) {
       peak = Math.max(rms, peak * 0.985); var e = rms / Math.max(peak, 0.02);
-      // v3 shapes (22 Nov 2026): whole lower face rendered from her own photo (lips, teeth, jaw, chin move together)
-      if (e < 0.08) return "closed";
-      if (hiss > 0.18 && e < 0.7) return "ff";             // s / sh / f / t: teeth just showing
-      if (low > 0.55 && mid < 0.12 && e > 0.2) return "oo"; // o / u: rounded lips
-      if (mid > 0.22 && e < 0.8) return "ee";               // i / e: wide lips, teeth
-      if (e > 0.82) return "wide";
-      if (e > 0.55) return "open";
-      if (e > 0.3) return "mid";
+      es = e > es ? es * 0.45 + e * 0.55 : es * 0.7 + e * 0.3;
+      if (es < 0.1) return "closed";
+      if (hiss > 0.25 && es < 0.5) return "ff";              // s / sh / f: teeth just showing
+      if (low > 0.62 && mid < 0.1 && es > 0.3) return "oo";  // clear o / u: rounded lips
+      if (mid > 0.26 && es > 0.3 && es < 0.8) return "ee";   // clear i / e: wide lips
+      if (es > 0.88) return "wide";
+      if (es > 0.6) return "open";
+      if (es > 0.32) return "mid";
       return "slight";
+    }
+    function steady(raw) {                                   // returns the shape to show and how many past frames to repaint
+      heldN++;
+      if (raw === held) { cand = ""; candN = 0; return { s: held, back: 0 }; }
+      if (raw === cand) candN++; else { cand = raw; candN = 1; }
+      if (candN >= 2 && heldN >= 3) { held = raw; heldN = 0; cand = ""; candN = 0; return { s: held, back: 1 }; }
+      return { s: held, back: 0 };
     }
     function feed(f, at) {                                   // f: Float32 24 kHz chunk, at: AudioContext time it starts
       var step = 960;                                        // 40 ms
@@ -103,10 +114,9 @@
         fft(re, im);
         var tot = 1e-9, low = 0, mid = 0, hiss = 0, hz = 24000 / N;
         for (var b = 1; b < N / 2; b++) { var m = Math.hypot(re[b], im[b]), fq = b * hz; tot += m; if (fq > 150 && fq < 900) low += m; else if (fq > 1400 && fq < 3200) mid += m; else if (fq > 4500) hiss += m; }
-        var sh = shapeOf(rms, low / tot, mid / tot, hiss / tot);
-        recent.push(sh); if (recent.length > 3) recent.shift();
-        if (recent.length === 3 && recent[0] === recent[2] && recent[1] !== recent[0]) { recent[1] = recent[0]; if (tl.length) tl[tl.length - 1].s = recent[0]; }   // no 1-frame jitter
-        tl.push({ t: at + p / 24000, s: sh });
+        var st = steady(shapeOf(rms, low / tot, mid / tot, hiss / tot));
+        if (st.back && tl.length) tl[tl.length - 1].s = st.s;   // the change started one frame ago (keeps lips on time)
+        tl.push({ t: at + p / 24000, s: st.s });
       }
     }
     function render(ctx) {
@@ -116,7 +126,7 @@
       for (var i = tl.length - 1; i >= 0; i--) { if (tl[i].t <= now) { if (now < tl[i].t + 0.06) want = tl[i].s; break; } }
       if (!imgs[want]) want = imgs.slight ? "slight" : "closed";
       if (want !== cur) { prev = cur; cur = want; mix = 0; }
-      mix = Math.min(1, mix + 0.5);                          // whole-face shapes: a 2-frame blend reads as motion, not two mouths
+      mix = Math.min(1, mix + 0.22);                         // ~75 ms blend at 60 fps: soft motion between whole-face shapes
       if (cur !== "closed") activeAt = Date.now();
       // ONE solid mouth at all times (22 Nov 2026: a half-transparent new mouth over her closed lips looked like two mouths):
       // the previous shape is drawn fully, the new one blends in on top of it; "closed" is drawn too (tone-matched to the face)
@@ -125,7 +135,7 @@
       if (imgs[cur]) { g.globalAlpha = mix < 1 && imgs[prev] ? mix : 1; g.drawImage(imgs[cur], info.x, info.y); }
       g.globalAlpha = 1;
     }
-    return { feed: feed, render: render, clear: function () { tl = []; recent = []; }, active: function () { return Date.now() - activeAt < 400; }, ready: function () { return ready; } };
+    return { feed: feed, render: render, clear: function () { tl = []; recent = []; es = 0; held = "closed"; heldN = 0; cand = ""; candN = 0; }, active: function () { return Date.now() - activeAt < 400; }, ready: function () { return ready; } };
   }
 
   // ---- microphone -> 16 kHz PCM (AudioWorklet) ---------------------------------------------------------------------------------

@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "19";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CV = "20";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
@@ -82,7 +82,7 @@
   // Images: 3 styles × 6 openings, each a whole-lower-face render of her own photo (LivePortrait, MIT).
   var VIS = ["viseme_aa", "viseme_E", "viseme_I", "viseme_O", "viseme_U", "viseme_PP", "viseme_SS", "viseme_TH", "viseme_DD", "viseme_FF", "viseme_kk", "viseme_nn", "viseme_RR", "viseme_CH", "viseme_sil"];
   var STYLE = { viseme_O: "r", viseme_U: "r", viseme_CH: "r", viseme_RR: "r", viseme_E: "w", viseme_I: "w", viseme_SS: "w", viseme_FF: "w" };
-  var HA_DELAY = 0.09;                                       // HeadAudio needs ~50-100 ms: her voice is delayed the same, so lips stay on time
+  var HA_DELAY = 0.045;                                      // her voice reaches the speaker 45 ms after the mouth reads it (jaw opening time)
   function Mouth(box, base) {
     var cv = document.createElement("canvas"); cv.className = "lvm"; cv.width = 960; cv.height = 540; box.appendChild(cv);
     var g = cv.getContext("2d"), imgs = {}, info = null, ready = false, activeAt = 0, drawn = "";
@@ -92,7 +92,9 @@
       return Promise.all(j.shapes.map(function (n) { return new Promise(function (res) { var im = new Image(); im.onload = function () { imgs[n] = im; res(); }; im.onerror = res; im.src = base + "jaw_" + n + "." + (j.ext || "webp") + "?v=" + CV; }); }));
     }).then(function () { ready = true; }).catch(function () {});
     function attach(ctx, src, heard) {
-      an = heard || null; if (an) buf = new Float32Array(an.fftSize);
+      // read her voice BEFORE the speaker delay: the jaw needs ~40 ms to open, so it now lands with the sound (measured 22 Nov)
+      if (ctx && src) { an = ctx.createAnalyser(); an.fftSize = 1024; src.connect(an); } else an = heard || null;
+      if (an) buf = new Float32Array(an.fftSize);
       if (!ctx || !ctx.audioWorklet || !window.Promise) return Promise.resolve(false);
       var root = new URL("vendor/headaudio/", location.href).href;
       return ctx.audioWorklet.addModule(root + "headworklet.min.mjs").then(function () { return import(root + "headaudio.min.mjs"); }).then(function (m) {
@@ -254,7 +256,8 @@
       ctx = o.ctx || new AC();
       ev("mic", { ctx: ctx.state, given: !!o.ctx });
       gain = ctx.createGain(); an = ctx.createAnalyser(); an.fftSize = 1024; var dl = ctx.createDelay(0.5); dl.delayTime.value = 0; gain.connect(dl); dl.connect(an); an.connect(ctx.destination);
-      var haReady = mouth.attach(ctx, gain, an).then(function (ok) { if (ok) dl.delayTime.value = HA_DELAY; ev("lipsync", { mode: ok ? "headaudio" : "bands" }); });
+      dl.delayTime.value = HA_DELAY;
+      var haReady = mouth.attach(ctx, gain, an).then(function (ok) { ev("lipsync", { mode: ok ? "headaudio" : "bands" }); });
       return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }).then(function (st) {
         stream = st;
         var url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));

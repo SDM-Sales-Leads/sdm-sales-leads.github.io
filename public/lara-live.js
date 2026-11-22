@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "8";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CV = "9";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
@@ -115,9 +115,11 @@
       if (want !== cur) { prev = cur; cur = want; mix = 0; }
       mix = Math.min(1, mix + 0.4);                          // ~3 screen frames blend between shapes
       if (cur !== "closed") activeAt = Date.now();
+      // ONE solid mouth at all times (22 Nov 2026: a half-transparent new mouth over her closed lips looked like two mouths):
+      // the previous shape is drawn fully, the new one blends in on top of it; "closed" is drawn too (tone-matched to the face)
       g.clearRect(info.x - 2, info.y - 2, info.w + 4, info.h + 4);
-      if (prev !== "closed" && mix < 1 && imgs[prev]) { g.globalAlpha = 1 - mix; g.drawImage(imgs[prev], info.x, info.y); }
-      if (cur !== "closed" && imgs[cur]) { g.globalAlpha = mix; g.drawImage(imgs[cur], info.x, info.y); }
+      if (mix < 1 && imgs[prev]) { g.globalAlpha = 1; g.drawImage(imgs[prev], info.x, info.y); }
+      if (imgs[cur]) { g.globalAlpha = mix < 1 && imgs[prev] ? mix : 1; g.drawImage(imgs[cur], info.x, info.y); }
       g.globalAlpha = 1;
     }
     return { feed: feed, render: render, clear: function () { tl = []; recent = []; }, active: function () { return Date.now() - activeAt < 400; }, ready: function () { return ready; } };

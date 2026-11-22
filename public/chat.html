@@ -15,7 +15,7 @@ body{font-family:-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;background:var
 .app{width:100%;max-width:560px;height:100%;display:flex;flex-direction:column;background:var(--card);box-shadow:0 0 40px rgba(0,0,0,.06)}
 .stage{position:relative;background:radial-gradient(120% 90% at 50% 0%,var(--stage2),var(--stage1) 70%);color:#fff;transition:height .35s ease;height:176px;flex:none;overflow:hidden}
 .stage.call{height:min(52vh,380px)}.stage.min{height:58px}
-.stage.real{height:210px}.stage.real svg{display:none}.stage.real .lv video,.stage.real .lv .lvp,.stage.real .lv canvas{object-position:50% 100%}
+.stage.real{height:210px}.stage.real svg{display:none}.stage.real .lv video,.stage.real .lv .lvp,.stage.real .lv canvas{object-position:50% 72%}
 .stage.real .top{background:linear-gradient(rgba(0,0,0,.45),transparent)}
 .stage.real.min{height:58px}.stage.real.min .lv{inset:3px auto auto 12px;width:52px;height:52px;border-radius:50%;overflow:hidden}
 .stage.live{height:auto;aspect-ratio:16/9;max-height:62vh;background:#111}.stage.live svg{display:none}
@@ -137,7 +137,7 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
   <textarea id="rc" dir="auto" style="height:60px"></textarea>
   <div style="display:flex;gap:8px"><button class="go" id="rno" type="button" style="flex:1;padding:12px;background:var(--line);color:var(--ink)"></button><button class="go" id="rgo" type="button" style="flex:2;padding:12px" disabled></button></div>
 </div></div>
-<script src="lara-live.js?v=25" defer></script>
+<script src="lara-live.js?v=26" defer></script>
 <script>
 (function () {
   var API = "https://iyubegbevtjcvtuubpaq.supabase.co/functions/v1/api";

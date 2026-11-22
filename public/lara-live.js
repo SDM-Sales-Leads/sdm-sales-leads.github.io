@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "25";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CV = "26";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
@@ -89,7 +89,7 @@
     var g = cv.getContext("2d"), imgs = {}, info = null, ready = false, activeAt = 0, drawn = "";
     var ha = null, haOn = false, vals = {}, lastT = 0, an = null, buf = null, env = 0, peak = 0.04, style = "n", styleCand = "n", styleSince = 0;
     fetch(base + "jaw.json?v=" + CV).then(function (r) { return r.json(); }).then(function (j) {
-      info = j;
+      info = j; cv.width = j.frameW || 960; cv.height = j.frameH || 540;   // same size as the clips (1280x720 since the full logo-wall picture)
       return Promise.all(j.shapes.map(function (n) { return new Promise(function (res) { var im = new Image(); im.onload = function () { imgs[n] = im; res(); }; im.onerror = res; im.src = base + "jaw_" + n + "." + (j.ext || "webp") + "?v=" + CV; }); }));
     }).then(function () { ready = true; }).catch(function () {});
     function attach(ctx, src, heard) {

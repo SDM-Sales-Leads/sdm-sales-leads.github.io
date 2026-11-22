@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "18";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CV = "19";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
@@ -74,99 +74,66 @@
       for (i = 0; i < n; i += l) { var cr = 1, ci = 0; for (k = 0; k < l / 2; k++) { var xr = re[i + k + l / 2] * cr - im[i + k + l / 2] * ci, xi = re[i + k + l / 2] * ci + im[i + k + l / 2] * cr; re[i + k + l / 2] = re[i + k] - xr; im[i + k + l / 2] = im[i + k] - xi; re[i + k] += xr; im[i + k] += xi; t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t; } }
     }
   }
-  // v4 (22 Nov 2026, owner: "lips not synced to what she's saying"): HeadAudio (MIT, in-browser, met4citizen) listens to her voice
-  // as it plays and detects the 15 standard lip shapes (visemes: aa, E, I, O, U, PP, FF, SS, ...). Each viseme is a whole-lower-face
-  // render of her own photo (LivePortrait, MIT), full and half strength. If HeadAudio cannot load, the older sound-band method is used.
+  // v5 (22 Nov 2026, owner: "the Arabic she's saying is not synced to her lips"). Measured in a live call: HeadAudio's lip shapes
+  // (trained on English) matched her Arabic loudness only weakly (0.5) and often closed the lips on loud vowels. Now:
+  //  • JAW opening follows the loudness of her voice exactly as it is heard (analyser after the speaker delay), every screen frame,
+  //    smoothly between 6 openings — every syllable opens and closes the mouth;
+  //  • HeadAudio only chooses the LIP STYLE: round (o/u), slightly wide (e/i/s) or normal, and closes the lips on m/b/p.
+  // Images: 3 styles × 6 openings, each a whole-lower-face render of her own photo (LivePortrait, MIT).
   var VIS = ["viseme_aa", "viseme_E", "viseme_I", "viseme_O", "viseme_U", "viseme_PP", "viseme_SS", "viseme_TH", "viseme_DD", "viseme_FF", "viseme_kk", "viseme_nn", "viseme_RR", "viseme_CH", "viseme_sil"];
+  var STYLE = { viseme_O: "r", viseme_U: "r", viseme_CH: "r", viseme_RR: "r", viseme_E: "w", viseme_I: "w", viseme_SS: "w", viseme_FF: "w" };
   var HA_DELAY = 0.09;                                       // HeadAudio needs ~50-100 ms: her voice is delayed the same, so lips stay on time
   function Mouth(box, base) {
     var cv = document.createElement("canvas"); cv.className = "lvm"; cv.width = 960; cv.height = 540; box.appendChild(cv);
-    var g = cv.getContext("2d"), imgs = {}, info = null, ready = false, tl = [], peak = 0.05, activeAt = 0, drawn = "";
-    var ha = null, haOn = false, vals = {}, lastT = 0;
-    fetch(base + "vis.json?v=" + CV).then(function (r) { return r.json(); }).then(function (j) {
+    var g = cv.getContext("2d"), imgs = {}, info = null, ready = false, activeAt = 0, drawn = "";
+    var ha = null, haOn = false, vals = {}, lastT = 0, an = null, buf = null, env = 0, peak = 0.04, style = "n", styleCand = "n", styleSince = 0;
+    fetch(base + "jaw.json?v=" + CV).then(function (r) { return r.json(); }).then(function (j) {
       info = j;
-      return Promise.all(j.shapes.map(function (n) { return new Promise(function (res) { var im = new Image(); im.onload = function () { imgs[n] = im; res(); }; im.onerror = res; im.src = base + "vis_" + n + "." + (j.ext || "webp") + "?v=" + CV; }); }));
+      return Promise.all(j.shapes.map(function (n) { return new Promise(function (res) { var im = new Image(); im.onload = function () { imgs[n] = im; res(); }; im.onerror = res; im.src = base + "jaw_" + n + "." + (j.ext || "webp") + "?v=" + CV; }); }));
     }).then(function () { ready = true; }).catch(function () {});
-    // ---- HeadAudio: attach to the call's audio once it exists ----
-    function attach(ctx, src) {
+    function attach(ctx, src, heard) {
+      an = heard || null; if (an) buf = new Float32Array(an.fftSize);
       if (!ctx || !ctx.audioWorklet || !window.Promise) return Promise.resolve(false);
       var root = new URL("vendor/headaudio/", location.href).href;
       return ctx.audioWorklet.addModule(root + "headworklet.min.mjs").then(function () { return import(root + "headaudio.min.mjs"); }).then(function (m) {
-        ha = new m.HeadAudio(ctx, { visemeMinMs: 80, visemeRampMs: 70, parameterData: { vadMode: 1, vadGateActiveDb: -45, vadGateInactiveDb: -58, silMode: 0 } });
+        ha = new m.HeadAudio(ctx, { visemeMinMs: 90, visemeRampMs: 70, parameterData: { vadMode: 1, vadGateActiveDb: -45, vadGateInactiveDb: -58, silMode: 0 } });
         ha.onvalue = function (k, v) { vals[k] = v; };
         return ha.loadModel(root + "model-en-mixed.bin").then(function () { src.connect(ha); haOn = true; return true; });
       }).catch(function () { haOn = false; return false; });
     }
-    // ---- fallback: sound bands -> 8 shapes, on the audio clock ----
-    var N = 1024, win = new Float32Array(N); for (var i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1));
-    var es = 0, held = "sil", heldN = 0, cand = "", candN = 0;
-    function shapeOf(rms, low, mid, hiss) {
-      peak = Math.max(rms, peak * 0.985); var e = rms / Math.max(peak, 0.02);
-      es = e > es ? es * 0.45 + e * 0.55 : es * 0.7 + e * 0.3;
-      if (es < 0.1) return "sil";
-      if (hiss > 0.25 && es < 0.5) return "SS";
-      if (low > 0.62 && mid < 0.1 && es > 0.3) return "O";
-      if (mid > 0.26 && es > 0.3 && es < 0.8) return "E";
-      if (es > 0.88) return "aa";
-      if (es > 0.6) return "aa_h";
-      if (es > 0.32) return "DD";
-      return "nn_h";
-    }
-    function steady(raw) {
-      heldN++;
-      if (raw === held) { cand = ""; candN = 0; return { s: held, back: 0 }; }
-      if (raw === cand) candN++; else { cand = raw; candN = 1; }
-      if (candN >= 2 && heldN >= 2) { held = raw; heldN = 0; cand = ""; candN = 0; return { s: held, back: 1 }; }
-      return { s: held, back: 0 };
-    }
-    function feed(f, at) {
-      if (haOn) return;
-      var step = 960;
-      for (var p = 0; p + step <= f.length; p += step) {
-        var re = new Float32Array(N), im = new Float32Array(N), s2 = 0;
-        for (var q = 0; q < step; q++) { var x = f[p + q]; s2 += x * x; re[q] = x * win[Math.floor(q * N / step)]; }
-        var rms = Math.sqrt(s2 / step);
-        fft(re, im);
-        var tot = 1e-9, low = 0, mid = 0, hiss = 0, hz = 24000 / N;
-        for (var b = 1; b < N / 2; b++) { var m = Math.hypot(re[b], im[b]), fq = b * hz; tot += m; if (fq > 150 && fq < 900) low += m; else if (fq > 1400 && fq < 3200) mid += m; else if (fq > 4500) hiss += m; }
-        var st = steady(shapeOf(rms, low / tot, mid / tot, hiss / tot));
-        if (st.back && tl.length) tl[tl.length - 1].s = st.s;
-        tl.push({ t: at + p / 24000, s: st.s });
-      }
-    }
-    function pic(v, strength) {                              // viseme_xx + strength -> image name (full or half)
-      var n = v.replace("viseme_", "");
-      if (n === "sil") return "sil";
-      if (n === "PP") return "PP";
-      var h = n + "_h";
-      return strength < 0.55 && imgs[h] ? h : (imgs[n] ? n : "sil");
-    }
+    function img(st, k) { return k === 0 && st === "n" ? "sil" : st + k; }
     function put(name, alpha) { var im = imgs[name]; if (!im) return; g.globalAlpha = alpha; g.drawImage(im, info.x, info.y); }
     function render(ctx) {
       if (!ready || !ctx) return;
       var now = performance.now(), dt = lastT ? Math.min(100, now - lastT) : 16; lastT = now;
-      var a = "sil", av = 0, b2 = "", bv = 0;
+      // 1. loudness of what is heard right now
+      var lv = 0;
+      if (an) { an.getFloatTimeDomainData(buf); var s2 = 0; for (var i = 0; i < buf.length; i++) s2 += buf[i] * buf[i]; lv = Math.sqrt(s2 / buf.length); }
+      var k1 = 1 - Math.exp(-dt / (lv > env ? 25 : 70));    // opens in ~25 ms, closes in ~70 ms (like a jaw)
+      env += (lv - env) * k1;
+      peak = Math.max(env, peak * Math.exp(-dt / 4000), 0.02);
+      var open = Math.max(0, Math.min(1, (env / peak - 0.1) / 0.75)); open = Math.pow(open, 0.85);
+      // 2. lip style from HeadAudio (round / wide / normal), m-b-p closes the lips
+      var want = "n", pp = 0;
       if (haOn) {
         ha.update(dt);
-        for (var i = 0; i < VIS.length - 1; i++) { var v = vals[VIS[i]] || 0; if (v > av) { b2 = a; bv = av; a = VIS[i]; av = v; } else if (v > bv) { b2 = VIS[i]; bv = v; } }
-        var A = av > 0.06 ? pic(a, av / 0.7) : "sil", B = bv > 0.12 ? pic(b2, bv / 0.7) : "";
-        var key = A + "|" + B + "|" + Math.round(bv / Math.max(av + bv, 1e-6) * 10);
-        if (A !== "sil") activeAt = Date.now();
-        if (key === drawn) return; drawn = key;
-        g.clearRect(info.x - 2, info.y - 2, info.w + 4, info.h + 4);
-        put(A, 1);
-        if (B && B !== A) put(B, bv / (av + bv));          // the next shape fades in while the last one fades out
-        g.globalAlpha = 1; return;
+        var best = 0, bk = "";
+        for (var v = 0; v < VIS.length - 1; v++) { var x = vals[VIS[v]] || 0; if (x > best) { best = x; bk = VIS[v]; } }
+        pp = vals.viseme_PP || 0;
+        if (best > 0.2 && STYLE[bk]) want = STYLE[bk];
       }
-      // fallback timeline
-      var tnow = ctx.currentTime - (ctx.outputLatency || 0), want = "sil";
-      while (tl.length && tl[0].t + 0.04 < tnow - 0.2) tl.shift();
-      for (var k = tl.length - 1; k >= 0; k--) { if (tl[k].t <= tnow) { if (tnow < tl[k].t + 0.06) want = tl[k].s; break; } }
-      if (want !== "sil") activeAt = Date.now();
-      if (want === drawn) return; drawn = want;
-      g.clearRect(info.x - 2, info.y - 2, info.w + 4, info.h + 4); put(want, 1); g.globalAlpha = 1;
+      if (want !== styleCand) { styleCand = want; styleSince = now; }
+      if (styleCand !== style && now - styleSince > 60) style = styleCand;
+      if (pp > 0.45) open *= 0.2;
+      // 3. draw: two neighbouring openings blended by the fraction -> smooth jaw movement
+      var f = open * 5, k = Math.floor(f), fr = f - k; if (k >= 5) { k = 5; fr = 0; }
+      if (open > 0.05) activeAt = Date.now();
+      var A = img(style, k), B = fr > 0.08 ? img(style, k + 1) : "", key = A + B + Math.round(fr * 12);
+      if (key === drawn) return; drawn = key;
+      g.clearRect(info.x - 2, info.y - 2, info.w + 4, info.h + 4);
+      put(A, 1); if (B) put(B, fr); g.globalAlpha = 1;
     }
-    return { attach: attach, feed: feed, render: render, clear: function () { tl = []; es = 0; held = "sil"; heldN = 0; cand = ""; candN = 0; vals = {}; }, active: function () { return Date.now() - activeAt < 400; }, ready: function () { return ready; }, mode: function () { return haOn ? "headaudio" : "bands"; } };
+    return { attach: attach, feed: function () {}, render: render, clear: function () { vals = {}; env = 0; }, active: function () { return Date.now() - activeAt < 400; }, ready: function () { return ready; }, mode: function () { return (haOn ? "headaudio" : "loudness") + "+jaw"; } };
   }
 
   // ---- microphone -> 16 kHz PCM (AudioWorklet) ---------------------------------------------------------------------------------
@@ -287,7 +254,7 @@
       ctx = o.ctx || new AC();
       ev("mic", { ctx: ctx.state, given: !!o.ctx });
       gain = ctx.createGain(); an = ctx.createAnalyser(); an.fftSize = 1024; var dl = ctx.createDelay(0.5); dl.delayTime.value = 0; gain.connect(dl); dl.connect(an); an.connect(ctx.destination);
-      var haReady = mouth.attach(ctx, gain).then(function (ok) { if (ok) dl.delayTime.value = HA_DELAY; ev("lipsync", { mode: ok ? "headaudio" : "bands" }); });
+      var haReady = mouth.attach(ctx, gain, an).then(function (ok) { if (ok) dl.delayTime.value = HA_DELAY; ev("lipsync", { mode: ok ? "headaudio" : "bands" }); });
       return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }).then(function (st) {
         stream = st;
         var url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));

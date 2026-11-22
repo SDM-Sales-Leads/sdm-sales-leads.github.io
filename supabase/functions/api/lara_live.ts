@@ -68,7 +68,9 @@ route("POST", "/chat/s/:key/live/start", async ({ req, params }) => {
   const ar = str(b.lang, 5) !== "en";
   // one call at a time per conversation (a second tab cannot double the minutes)
   const mem = t.memory || {};
-  if (mem.liveUntil && Date.parse(mem.liveUntil) > Date.now()) throw new HttpError(409, "A call is already running in another window");
+  // a call that died without hanging up (phone app switched, page reloaded) stops sending its 5-second heartbeat: a new call may take over
+  const beat = Date.parse(String(mem.liveBeat || mem.liveStart || "")) || 0;
+  if (mem.liveUntil && Date.parse(mem.liveUntil) > Date.now() && Date.now() - beat < 20_000) throw new HttpError(409, "A call is already running in another window");
   if (!(await take(cc.liveMaxSec, cc.liveDailyMin * 60))) throw new HttpError(429, "Video calls are busy right now. Please chat by text or call us.");
   const lead = t.visitor ? null : await leadInfo(t.lead_id);
   const o = t.visitor ? { name: "", customer: String(t.visitor?.name || "") } : await ownerOf(t.lead_id);
@@ -196,13 +198,15 @@ async function raiseIssue(p: { kind: string; title: string; details: string }, c
 /** the call page sends what happened (batched); problems are raised as issues */
 route("POST", "/chat/s/:key/live/events", async ({ req, params }) => {
   keyShape(params.key);
-  await rateLimit(`liveev:${params.key}`, 3600, 120);
+  await rateLimit(`liveev:${params.key}`, 3600, 1500);   // 5-second heartbeat + events
   const t = await threadByKey(params.key);
   if (!(await chatOpen(t))) throw new HttpError(403, "Calls are not open yet");
   const b = await body(req, 40_000);
   const callId = str(b.callId, 40).replace(/[^a-z0-9-]/gi, "");
   if (callId.length < 8) throw bad("callId?");
   const evs = (Array.isArray(b.events) ? b.events : []).slice(0, 80).filter((e: any) => e && EVENT_KINDS.has(String(e.kind)));
+  // heartbeat: the running call page posts every 5 s (also with no events)
+  if (!evs.some((e: any) => e.kind === "end") && t.memory?.liveUntil && Date.parse(t.memory.liveUntil) > Date.now()) await admin.from("lara_threads").update({ memory: { ...t.memory, liveBeat: new Date().toISOString() } }).eq("id", t.id);
   if (!evs.length) return { success: true, saved: 0 };
   const { count } = await admin.from("lara_call_events").select("id", { count: "exact", head: true }).eq("call_id", callId);
   if ((count || 0) > 1500) return { success: true, saved: 0 };                      // a runaway page cannot fill the table

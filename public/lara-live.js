@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "22";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CV = "23";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
@@ -82,6 +82,7 @@
   // Images: 3 styles × 6 openings, each a whole-lower-face render of her own photo (LivePortrait, MIT).
   var VIS = ["viseme_aa", "viseme_E", "viseme_I", "viseme_O", "viseme_U", "viseme_PP", "viseme_SS", "viseme_TH", "viseme_DD", "viseme_FF", "viseme_kk", "viseme_nn", "viseme_RR", "viseme_CH", "viseme_sil"];
   var STYLE = { viseme_O: "r", viseme_U: "r", viseme_CH: "r", viseme_RR: "r", viseme_E: "w", viseme_I: "w", viseme_SS: "w", viseme_FF: "w" };
+  var WEBKIT = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)) || (/Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|CriOS|FxiOS/.test(navigator.userAgent)) || /CriOS|FxiOS/.test(navigator.userAgent);
   var HA_DELAY = 0.045;                                      // her voice reaches the speaker 45 ms after the mouth reads it (jaw opening time)
   function Mouth(box, base) {
     var cv = document.createElement("canvas"); cv.className = "lvm"; cv.width = 960; cv.height = 540; box.appendChild(cv);
@@ -93,8 +94,10 @@
     }).then(function () { ready = true; }).catch(function () {});
     function attach(ctx, src, heard) {
       // read her voice BEFORE the speaker delay: the jaw needs ~40 ms to open, so it now lands with the sound (measured 22 Nov)
-      if (ctx && src) { an = ctx.createAnalyser(); an.fftSize = 1024; src.connect(an); } else an = heard || null;
+      if (ctx && src) { an = ctx.createAnalyser(); an.fftSize = 1024; src.connect(an); var z = ctx.createGain(); z.gain.value = 0; an.connect(z); z.connect(ctx.destination); } else an = heard || null;
       if (an) buf = new Float32Array(an.fftSize);
+      // iPhone/iPad and Safari (WebKit): her voice must never depend on the lip-shape helper -> jaw from loudness only (22 Nov: no sound on iPhone)
+      if (WEBKIT) return Promise.resolve(false);
       if (!ctx || !ctx.audioWorklet || !window.Promise) return Promise.resolve(false);
       var root = new URL("vendor/headaudio/", location.href).href;
       return ctx.audioWorklet.addModule(root + "headworklet.min.mjs").then(function () { return import(root + "headaudio.min.mjs"); }).then(function (m) {
@@ -151,9 +154,9 @@
     var C = { lang: o.lang, ended: false, muted: false, t0: Date.now(), toolBusy: 0, outUntil: 0, micAt: Date.now(), lvlOut: 0, warned: false, asked: false, lines: { in: "", out: "" } };
     // ---- audit log (0032): every call's events go to Lara > Issues & audit; problems become issues automatically ----
     var AU = { id: (window.crypto && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(16) + Math.random().toString(16).slice(2))), q: [], first: 0, desyncFrom: 0, desyncClip: "", spk: false };
-    function ev(kind, data) { AU.q.push({ t: Date.now() - C.t0, kind: kind, data: data || {} }); if (AU.q.length >= 40) flushEv(); }
+    function ev(kind, data) { AU.q.push({ t: Date.now() - C.t0, kind: kind, data: data || {} }); if (AU.q.length >= 40 || kind === "error" || kind === "first_audio" || kind === "connected") flushEv(); }
     function flushEv(final) {
-      if (!AU.q.length) return;
+      if (!AU.q.length && (final || C.ended)) return;      // an empty post every 5 s = heartbeat (the server frees the line if it stops)
       var batch = AU.q.splice(0, 80);
       try { fetch(o.api + "/chat/s/" + o.key + "/live/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ callId: AU.id, events: batch }), keepalive: !!final }).catch(function () {}); } catch (e) {}
     }
@@ -168,7 +171,8 @@
     function state(s) { if (o.onState) o.onState(s); }
     function flush(dir) { var t = C.lines[dir].trim(); C.lines[dir] = ""; if (!t) return; if (o.onLine) o.onLine(dir, t, true); post("say", { dir: dir, text: t }).catch(function () {}); }
     function stopAudio() { srcs.forEach(function (s) { try { s.stop(); } catch (e) {} }); srcs = []; nextT = 0; C.outUntil = 0; mouth.clear(); }
-    function play(b) {
+    function play(b) { try { play1(b); } catch (e) { if (!AU.playErr) { AU.playErr = 1; ev("error", { where: "play", message: String(e && e.message || e).slice(0, 200), ctx: ctx && ctx.state }); } } }
+    function play1(b) {
       if (!ctx) return;
       var f = pcm24(b), buf = ctx.createBuffer(1, f.length, 24000); buf.copyToChannel ? buf.copyToChannel(f, 0) : buf.getChannelData(0).set(f);
       var s = ctx.createBufferSource(); s.buffer = buf; s.connect(gain);
@@ -242,7 +246,7 @@
       var sc = m.serverContent;
       if (!sc) { if (m.goAway) end("time"); return; }
       if (sc.interrupted) { ev("interrupted", {}); stopAudio(); flush("out"); }
-      if (sc.modelTurn && sc.modelTurn.parts) sc.modelTurn.parts.forEach(function (p) { if (p.inlineData && p.inlineData.data) play(p.inlineData.data); });
+      if (sc.modelTurn && sc.modelTurn.parts) sc.modelTurn.parts.forEach(function (p) { if (p.inlineData && p.inlineData.data) { if (!AU.got) { AU.got = 1; ev("greeting", { ms: Date.now() - C.t0, ctx: ctx && ctx.state }); } play(p.inlineData.data); } });
       if (sc.inputTranscription && sc.inputTranscription.text) { if (C.lines.out) flush("out"); C.lines.in += sc.inputTranscription.text; if (/[a-z]{3,}/i.test(C.lines.in) || /[\u0600-\u06FF]/.test(C.lines.in)) { var nl = /[\u0600-\u06FF]/.test(C.lines.in) ? "ar" : "en"; if (nl !== C.lang) ev("lang", { lang: nl }); C.lang = nl; } if (o.onLine) o.onLine("in", C.lines.in, false); }
       if (sc.outputTranscription && sc.outputTranscription.text) { if (C.lines.in) flush("in"); C.lines.out += sc.outputTranscription.text; if (o.onLine) o.onLine("out", C.lines.out, false); }
       if (sc.turnComplete) { flush("in"); flush("out"); }
@@ -271,7 +275,7 @@
           };
           ws = new WebSocket(t.ws + "?access_token=" + encodeURIComponent(t.token));
           ws.onopen = function () { send({ setup: { model: "models/" + t.model } }); };
-          ws.onmessage = function (ev) { (typeof ev.data === "string" ? Promise.resolve(ev.data) : ev.data.text()).then(function (s) { try { onMsg(JSON.parse(s)); } catch (e) {} }); };
+          ws.onmessage = function (m) { (typeof m.data === "string" ? Promise.resolve(m.data) : m.data.text()).then(function (s) { try { onMsg(JSON.parse(s)); } catch (e) { if (!AU.msgErr) { AU.msgErr = 1; ev("error", { where: "message", message: String(e && e.message || e).slice(0, 200) }); } } }).catch(function (e) { ev("error", { where: "message-read", message: String(e && e.message || e).slice(0, 200) }); }); };
           ws.onclose = function (e) { ev("ws_close", { code: e && e.code, reason: String(e && e.reason || "").slice(0, 120), clean: C.ended }); if (!C.ended) end("closed"); };
           ws.onerror = function () { if (o.onNote) o.onNote("connection"); };
           timer = setInterval(tick, 100); meter();

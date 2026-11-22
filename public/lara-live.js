@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "9";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CV = "10";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
@@ -113,7 +113,7 @@
       while (tl.length && tl[0].t + 0.04 < now - 0.2) tl.shift();
       for (var i = tl.length - 1; i >= 0; i--) { if (tl[i].t <= now) { if (now < tl[i].t + 0.06) want = tl[i].s; break; } }
       if (want !== cur) { prev = cur; cur = want; mix = 0; }
-      mix = Math.min(1, mix + 0.4);                          // ~3 screen frames blend between shapes
+      mix = Math.min(1, mix + 0.7);                          // shape change within ~1-2 screen frames (a long blend shows two mouths)
       if (cur !== "closed") activeAt = Date.now();
       // ONE solid mouth at all times (22 Nov 2026: a half-transparent new mouth over her closed lips looked like two mouths):
       // the previous shape is drawn fully, the new one blends in on top of it; "closed" is drawn too (tone-matched to the face)

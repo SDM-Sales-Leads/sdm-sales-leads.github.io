@@ -172,7 +172,7 @@ export async function liveUsage() {
 // ---------------------------------------------------------------------------------------------
 // issues + audit log (0032, owner 22 Nov 2026: "a log of issues and an audit log for her issues so we can track and fix them")
 // ---------------------------------------------------------------------------------------------
-const EVENT_KINDS = new Set(["start", "connected", "greeting", "first_audio", "speak_start", "speak_end", "tool", "tool_error", "interrupted", "desync",
+const EVENT_KINDS = new Set(["lipsync", "mute", "unmute", "start", "connected", "greeting", "first_audio", "speak_start", "speak_end", "tool", "tool_error", "interrupted", "desync",
   "clip_stall", "ws_close", "error", "mic", "end", "lang", "note"]);
 /** problems that become (or add to) an issue automatically */
 function problemOf(e: any): { kind: string; title: string; details: string } | null {

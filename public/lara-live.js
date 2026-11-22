@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "15";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CV = "16";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
@@ -314,9 +314,11 @@
       end: function () { end("user"); },
       mute: function (on) { C.muted = !!on; try { stream && stream.getAudioTracks().forEach(function (t) { t.enabled = !C.muted; }); } catch (e) {} ev(C.muted ? "mute" : "unmute", {}); if (!C.muted) C.micAt = Date.now(); },
       muted: function () { return C.muted; },
+      lipsync: function () { return mouth.mode(); },
     };
     api.ready.catch(function (e) { ev("error", { message: "call did not start: " + String(e && e.message || e).slice(0, 250) }); ev("end", { reason: "failed" }); clearInterval(evTimer); flushEv(true); if (!C.ended) { C.ended = true; face.remove(); try { stream && stream.getTracks().forEach(function (t) { t.stop(); }); } catch (x) {} try { ctx && ctx.close(); } catch (x) {} post("end", {}).catch(function () {}); } if (o.onEnd) o.onEnd("failed", e); });
     document.addEventListener("visibilitychange", function hid() { if (document.visibilityState === "hidden" && !C.ended) { end("hidden"); document.removeEventListener("visibilitychange", hid); } });
+    window.LaraLive.last = api;
     return api;
   }
   /* the real Lara for the chat page outside calls (replaces the old drawn face): face(box, base).show("idle" | "talk1".. | "listen") */

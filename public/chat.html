@@ -137,7 +137,7 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
   <textarea id="rc" dir="auto" style="height:60px"></textarea>
   <div style="display:flex;gap:8px"><button class="go" id="rno" type="button" style="flex:1;padding:12px;background:var(--line);color:var(--ink)"></button><button class="go" id="rgo" type="button" style="flex:2;padding:12px" disabled></button></div>
 </div></div>
-<script src="lara-live.js?v=15" defer></script>
+<script src="lara-live.js?v=16" defer></script>
 <script>
 (function () {
   var API = "https://iyubegbevtjcvtuubpaq.supabase.co/functions/v1/api";
@@ -267,7 +267,7 @@ label.ck{display:flex;gap:8px;font-size:13px;align-items:flex-start}label.ck inp
     var lv = window.LaraLive.start({
       ctx: actx, api: API, key: key, lang: lang === "ar" ? "ar" : "en", stage: $("stage"), base: "lara/", maxSec: (info.voice && info.voice.maxSec) || 300,
       onLine: liveLine,
-      onState: function (s) { cap(s === "speaking" ? S.speaking : s === "thinking" ? S.thinking : s === "listening" ? S.listening : S.idle); },
+      onState: function (s) { cap(s === "speaking" ? S.speaking : s === "thinking" ? S.thinking : S.listening); },   // live call: no "tap the mic" hint, she always hears
       onEnd: function (why, err) {
         if (why === "failed") note(err && err.message ? err.message : S.closed);
         if (why === "silence") note(S.ended);

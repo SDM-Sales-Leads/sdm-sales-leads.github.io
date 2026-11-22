@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "24";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CV = "25";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {

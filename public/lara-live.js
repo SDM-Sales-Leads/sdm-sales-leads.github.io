@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "10";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CV = "11";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
@@ -85,9 +85,9 @@
     function shapeOf(rms, low, mid, hiss) {
       peak = Math.max(rms, peak * 0.985); var e = rms / Math.max(peak, 0.02);
       if (e < 0.08) return "closed";
-      if (hiss > 0.18 && e < 0.7) return "smile";          // s / sh / t: teeth
+      if (hiss > 0.18 && e < 0.7) return "teeth";          // s / sh / t: teeth
       if (e > 0.72) return low > 0.45 ? "open" : "open";
-      if (low > 0.55 && mid < 0.12) return "round";         // o / u
+      if (low > 0.55 && mid < 0.12) return "open";          // o / u ("round" left out: it pulled creases on the cheeks)
       if (mid > 0.22) return "smile";                       // i / e
       if (e > 0.35) return "open";
       return "slight";
@@ -112,6 +112,7 @@
       var now = ctx.currentTime - (ctx.outputLatency || 0), want = "closed";
       while (tl.length && tl[0].t + 0.04 < now - 0.2) tl.shift();
       for (var i = tl.length - 1; i >= 0; i--) { if (tl[i].t <= now) { if (now < tl[i].t + 0.06) want = tl[i].s; break; } }
+      if (!imgs[want]) want = want === "teeth" ? "smile" : "slight";
       if (want !== cur) { prev = cur; cur = want; mix = 0; }
       mix = Math.min(1, mix + 0.7);                          // shape change within ~1-2 screen frames (a long blend shows two mouths)
       if (cur !== "closed") activeAt = Date.now();

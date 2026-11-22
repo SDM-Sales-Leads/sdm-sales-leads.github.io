@@ -5,7 +5,7 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "6";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CV = "7";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
   var CLIPS = ["idle", "listen", "talk1", "talk2"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
@@ -179,7 +179,9 @@
     var go = post("start", { lang: o.lang }).then(function (t) {
       o.maxSec = Number(t.maxSec) || o.maxSec || 300;
       var AC = window.AudioContext || window.webkitAudioContext;
-      ctx = new AC();
+      // iPhone/iPad: the audio context must be created inside the tap (chat.html makes it there and passes o.ctx)
+      ctx = o.ctx || new AC();
+      ev("mic", { ctx: ctx.state, given: !!o.ctx });
       gain = ctx.createGain(); an = ctx.createAnalyser(); an.fftSize = 1024; gain.connect(an); an.connect(ctx.destination);
       return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }).then(function (st) {
         stream = st;
@@ -208,7 +210,7 @@
       mute: function (on) { C.muted = !!on; },
       muted: function () { return C.muted; },
     };
-    api.ready.catch(function (e) { if (!C.ended) { C.ended = true; face.remove(); try { stream && stream.getTracks().forEach(function (t) { t.stop(); }); } catch (x) {} try { ctx && ctx.close(); } catch (x) {} post("end", {}).catch(function () {}); } if (o.onEnd) o.onEnd("failed", e); });
+    api.ready.catch(function (e) { ev("error", { message: "call did not start: " + String(e && e.message || e).slice(0, 250) }); ev("end", { reason: "failed" }); clearInterval(evTimer); flushEv(true); if (!C.ended) { C.ended = true; face.remove(); try { stream && stream.getTracks().forEach(function (t) { t.stop(); }); } catch (x) {} try { ctx && ctx.close(); } catch (x) {} post("end", {}).catch(function () {}); } if (o.onEnd) o.onEnd("failed", e); });
     document.addEventListener("visibilitychange", function hid() { if (document.visibilityState === "hidden" && !C.ended) { end("hidden"); document.removeEventListener("visibilitychange", hid); } });
     return api;
   }

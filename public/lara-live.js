@@ -5,8 +5,8 @@
    Cost guards: max call length (server token expires too), 20 s silence -> "are you still there?", 12 s more -> end, tab hidden -> end. */
 (function () {
   "use strict";
-  var CV = "7";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
-  var CLIPS = ["idle", "listen", "talk1", "talk2"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
+  var CV = "8";   // clip version: bump when the clips change, so no browser keeps playing old ones (21 Nov 2026)
+  var CLIPS = ["idle", "listen"];   // 21 Nov 2026: talk1/2 = Gemini Pro videos of Lara, idle/listen = same portrait
   var cache = {}, loading = null;
   function preload(base) {
     if (loading) return loading;
@@ -54,12 +54,73 @@
       // play at once (hidden); show it the moment frames really play — Safari only loads a video once play() is called
       var p = el.play(); if (p && p.then) p.then(function () { if (el.readyState >= 2) fade(); }).catch(function () {});
     }
-    return { show: show, clip: function () { return clip; }, age: function () { return Date.now() - since; }, remove: function () {
+    return { wrap: wrap, show: show, clip: function () { return clip; }, age: function () { return Date.now() - since; }, remove: function () {
       // release the video players at once (a removed but still-loaded <video> keeps one of the browser's few media connections,
       // and the next clip then never loads — 21 Nov 2026 test: talk clip stuck at readyState 0)
       v.forEach(function (x) { try { x.pause(); x.removeAttribute("src"); x.load(); } catch (e) {} });
       wrap.remove();
     } };
+  }
+
+  // ---- lip sync from her VOICE (22 Nov 2026) -------------------------------------------------------------------------------------
+  // Each audio chunk from Gemini is analysed BEFORE it plays (40 ms frames: loudness, low "a/o/u" band, mid "i/e" band, hiss "s/sh"),
+  // and the matching real mouth shape (cut from her own Gemini videos) is shown exactly when that frame is heard (audio clock).
+  // Head stays on the calm clip (still + blinks); only the mouth area changes. No pre-made talking clip, so voice and lips stay locked.
+  function fft(re, im) {
+    var n = re.length, i, j, k, l, t;
+    for (i = 1, j = 0; i < n; i++) { var bit = n >> 1; for (; j & bit; bit >>= 1) j ^= bit; j ^= bit; if (i < j) { t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+    for (l = 2; l <= n; l <<= 1) {
+      var a = -2 * Math.PI / l, wr = Math.cos(a), wi = Math.sin(a);
+      for (i = 0; i < n; i += l) { var cr = 1, ci = 0; for (k = 0; k < l / 2; k++) { var xr = re[i + k + l / 2] * cr - im[i + k + l / 2] * ci, xi = re[i + k + l / 2] * ci + im[i + k + l / 2] * cr; re[i + k + l / 2] = re[i + k] - xr; im[i + k + l / 2] = im[i + k] - xi; re[i + k] += xr; im[i + k] += xi; t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t; } }
+    }
+  }
+  function Mouth(box, base) {
+    var cv = document.createElement("canvas"); cv.className = "lvm"; cv.width = 960; cv.height = 540; box.appendChild(cv);
+    var g = cv.getContext("2d"), imgs = {}, info = null, ready = false, tl = [], peak = 0.05, cur = "closed", prev = "closed", mix = 1, lastShape = "closed", activeAt = 0, recent = [];
+    fetch(base + "mouth.json?v=" + CV).then(function (r) { return r.json(); }).then(function (j) {
+      info = j;
+      return Promise.all(j.shapes.map(function (n) { return new Promise(function (res) { var im = new Image(); im.onload = function () { imgs[n] = im; res(); }; im.onerror = res; im.src = base + "mouth_" + n + ".png?v=" + CV; }); }));
+    }).then(function () { ready = true; }).catch(function () {});
+    var N = 1024, win = new Float32Array(N); for (var i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1));
+    function shapeOf(rms, low, mid, hiss) {
+      peak = Math.max(rms, peak * 0.985); var e = rms / Math.max(peak, 0.02);
+      if (e < 0.08) return "closed";
+      if (hiss > 0.18 && e < 0.7) return "smile";          // s / sh / t: teeth
+      if (e > 0.72) return low > 0.45 ? "open" : "open";
+      if (low > 0.55 && mid < 0.12) return "round";         // o / u
+      if (mid > 0.22) return "smile";                       // i / e
+      if (e > 0.35) return "open";
+      return "slight";
+    }
+    function feed(f, at) {                                   // f: Float32 24 kHz chunk, at: AudioContext time it starts
+      var step = 960;                                        // 40 ms
+      for (var p = 0; p + step <= f.length; p += step) {
+        var re = new Float32Array(N), im = new Float32Array(N), s2 = 0;
+        for (var q = 0; q < step; q++) { var x = f[p + q]; s2 += x * x; re[q] = x * win[Math.floor(q * N / step)]; }
+        var rms = Math.sqrt(s2 / step);
+        fft(re, im);
+        var tot = 1e-9, low = 0, mid = 0, hiss = 0, hz = 24000 / N;
+        for (var b = 1; b < N / 2; b++) { var m = Math.hypot(re[b], im[b]), fq = b * hz; tot += m; if (fq > 150 && fq < 900) low += m; else if (fq > 1400 && fq < 3200) mid += m; else if (fq > 4500) hiss += m; }
+        var sh = shapeOf(rms, low / tot, mid / tot, hiss / tot);
+        recent.push(sh); if (recent.length > 3) recent.shift();
+        if (recent.length === 3 && recent[0] === recent[2] && recent[1] !== recent[0]) { recent[1] = recent[0]; if (tl.length) tl[tl.length - 1].s = recent[0]; }   // no 1-frame jitter
+        tl.push({ t: at + p / 24000, s: sh });
+      }
+    }
+    function render(ctx) {
+      if (!ready || !ctx) return;
+      var now = ctx.currentTime - (ctx.outputLatency || 0), want = "closed";
+      while (tl.length && tl[0].t + 0.04 < now - 0.2) tl.shift();
+      for (var i = tl.length - 1; i >= 0; i--) { if (tl[i].t <= now) { if (now < tl[i].t + 0.06) want = tl[i].s; break; } }
+      if (want !== cur) { prev = cur; cur = want; mix = 0; }
+      mix = Math.min(1, mix + 0.4);                          // ~3 screen frames blend between shapes
+      if (cur !== "closed") activeAt = Date.now();
+      g.clearRect(info.x - 2, info.y - 2, info.w + 4, info.h + 4);
+      if (prev !== "closed" && mix < 1 && imgs[prev]) { g.globalAlpha = 1 - mix; g.drawImage(imgs[prev], info.x, info.y); }
+      if (cur !== "closed" && imgs[cur]) { g.globalAlpha = mix; g.drawImage(imgs[cur], info.x, info.y); }
+      g.globalAlpha = 1;
+    }
+    return { feed: feed, render: render, clear: function () { tl = []; recent = []; }, active: function () { return Date.now() - activeAt < 400; }, ready: function () { return ready; } };
   }
 
   // ---- microphone -> 16 kHz PCM (AudioWorklet) ---------------------------------------------------------------------------------
@@ -86,16 +147,18 @@
     window.addEventListener("error", onErr); window.addEventListener("unhandledrejection", onErr);
     ev("start", { lang: o.lang, ua: navigator.userAgent.slice(0, 140) });
     var face = Face(o.stage, o.base, function (clip, ms) { ev("clip_stall", { clip: clip, ms: ms }); });
+    var mouth = Mouth(face.wrap, o.base);
     var ctx, ws, node, stream, gain, an, nextT = 0, srcs = [], timer = null, raf = null;
     function post(p, b) { return fetch(o.api + "/chat/s/" + o.key + "/live/" + p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b || {}) }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.error || ("Error " + r.status)); return j; }); }); }
     function state(s) { if (o.onState) o.onState(s); }
     function flush(dir) { var t = C.lines[dir].trim(); C.lines[dir] = ""; if (!t) return; if (o.onLine) o.onLine(dir, t, true); post("say", { dir: dir, text: t }).catch(function () {}); }
-    function stopAudio() { srcs.forEach(function (s) { try { s.stop(); } catch (e) {} }); srcs = []; nextT = 0; C.outUntil = 0; }
+    function stopAudio() { srcs.forEach(function (s) { try { s.stop(); } catch (e) {} }); srcs = []; nextT = 0; C.outUntil = 0; mouth.clear(); }
     function play(b) {
       if (!ctx) return;
       var f = pcm24(b), buf = ctx.createBuffer(1, f.length, 24000); buf.copyToChannel ? buf.copyToChannel(f, 0) : buf.getChannelData(0).set(f);
       var s = ctx.createBufferSource(); s.buffer = buf; s.connect(gain);
       var at = Math.max(ctx.currentTime + 0.04, nextT); s.start(at); nextT = at + buf.duration; srcs.push(s);
+      mouth.feed(f, at);
       s.onended = function () { srcs = srcs.filter(function (x) { return x !== s; }); };
       C.outUntil = Date.now() + (nextT - ctx.currentTime) * 1000;
       if (!AU.first) { AU.first = Date.now(); ev("first_audio", { ms: AU.first - C.t0 }); }
@@ -125,17 +188,11 @@
       if (!speaking && now - C.micAt < 400) { if (!C.custFrom) C.custFrom = now; } else if (now - C.micAt > 900) C.custFrom = 0;
       var custom = !speaking && C.custFrom && now - C.custFrom > 500;
       var cur = face.clip(), want;
-      if (speaking) want = /^talk/.test(cur) ? cur : (Math.random() < 0.5 ? "talk1" : "talk2");
-      else if (custom) want = "listen";
-      else want = "idle";   // also while a tool runs: calm, no cartoon "thinking"
-      if (/^talk/.test(want) && /^talk/.test(cur)) {
-        if (face.age() > 9000) face.show(cur === "talk1" ? "talk2" : "talk1", { force: true });
-      } else if (want !== cur) {
-        // start talking at once; any other change only after 1.5 s in the current clip (no flicker)
-        if (/^talk/.test(want) || face.age() > 1500) face.show(want);
-      }
+      // head: calm clip (still + blinks) also while she speaks — her mouth moves from her voice (Mouth); listening while the customer talks
+      want = custom ? "listen" : "idle";
+      if (want !== cur && face.age() > 1500) face.show(want);
       state(speaking ? "speaking" : C.toolBusy ? "thinking" : custom ? "listening" : "idle");
-      var heard = now < C.outUntil && C.lvlOut > 0.015, faceTalks = /^talk/.test(face.clip());
+      var heard = now < C.outUntil && C.lvlOut > 0.04, faceTalks = mouth.active() || !mouth.ready();
       if (heard !== AU.spk) { AU.spk = heard; ev(heard ? "speak_start" : "speak_end", { clip: face.clip() }); }
       if (heard && !faceTalks) { if (!AU.desyncFrom) { AU.desyncFrom = now; AU.desyncClip = face.clip(); } }
       else if (AU.desyncFrom) { var dms = now - AU.desyncFrom; AU.desyncFrom = 0; if (dms >= 300) ev("desync", { ms: dms, clip: AU.desyncClip }); }
@@ -148,7 +205,7 @@
       if (C.asked && now - C.askedAt > 12000 && now - C.micAt > 12000 && now > C.outUntil + 2000) return end("silence");
       if (now - C.micAt < 1500) C.asked = false;
     }
-    function meter() { if (C.ended) return; if (an) { var d = new Float32Array(an.fftSize); an.getFloatTimeDomainData(d); var s = 0; for (var i = 0; i < d.length; i++) s += d[i] * d[i]; C.lvlOut = Math.sqrt(s / d.length); if (o.onLevel) o.onLevel(C.lvlOut); } raf = requestAnimationFrame(meter); }
+    function meter() { if (C.ended) return; mouth.render(ctx); if (an) { var d = new Float32Array(an.fftSize); an.getFloatTimeDomainData(d); var s = 0; for (var i = 0; i < d.length; i++) s += d[i] * d[i]; C.lvlOut = Math.sqrt(s / d.length); if (o.onLevel) o.onLevel(C.lvlOut); } raf = requestAnimationFrame(meter); }
 
     function onMsg(m) {
       if (m.setupComplete) {

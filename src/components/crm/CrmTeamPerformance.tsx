@@ -137,7 +137,7 @@ export const CrmTeamPerformance: React.FC<Partial<CrmTeamPerformanceProps> & { l
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
         <Kpi label="Leads" value={num(team.leads)} info="Leads of the people shown, in the period." />
-        <Kpi label="Won" value={num(team.won)} sub={team.withValue ? fmtEGP(team.value) : undefined} info="Deals closed in the window and their value." tone="text-emerald-600" />
+        <Kpi label="Confirmed won" value={num(team.won)} sub={team.withValue ? fmtEGP(team.value) : undefined} info="Won deals that finance confirmed in the window, and their value. Won deals still waiting for finance are not counted." tone="text-emerald-600" />
         <Kpi label="Avg first action" value={fmtHours(team.avgFirst)} info="Team average time from assignment to the first action on a lead." />
         <Kpi label="Avg to final stage" value={fmtDays(team.avgFinal)} info="Team average days from assignment to Won / Lost." />
         <Kpi label="Overdue follow-ups" value={num(team.overdue)} sub={`${num(team.never)} never contacted`} info="Open leads right now with a past follow-up date." tone="text-rose-600" />

@@ -67,7 +67,7 @@ export const CrmAchievements: React.FC<CrmAchievementsProps> = ({ leads }) => {
       if (PIPELINE_STATUSES.includes(String(l.status))) a.pipeline++;
       for (const e of tl) if (MEET.includes(String(e.title)) || /Scheduled Meeting|Site Visit Scheduled/.test(e.description || '')) a.meetLogs++;
       if (l.contractDate) a.contracts++;
-      if (l.status === 'Won') {
+      if (l.status === 'Won' && l.cashStatus === 'confirmed') {   // 23 Nov 2026: achievements count finance-confirmed deals only
         a.wins++;
         const v = Number(l.dealValue) || 0, sqm = Number(l.soldArea) || 0;
         a.winValue += v; a.winSqm += sqm; a.bestDeal = Math.max(a.bestDeal, sqm);

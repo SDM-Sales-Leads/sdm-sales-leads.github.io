@@ -93,6 +93,10 @@ export interface OfferPrint {
   id: string; contactId?: string; leadId?: string; offerType: string;
   plots: { key?: string; park?: string; unit?: string; areaSqm?: number; status?: string }[];
   totalValue?: number | null; summary?: string; docName?: string; printedBy?: string; printedByName?: string; printedAt: string;
+  /** 23 Nov 2026: the customer's answer (server routes_offers.ts). result = status, or 'confirmed' once finance confirmed the deal */
+  status?: 'open' | 'accepted' | 'rejected' | 'closed'; result?: 'open' | 'accepted' | 'rejected' | 'closed' | 'confirmed';
+  rejectReason?: string; decisionNote?: string; decidedAt?: string | null; decidedByName?: string; holdReq?: number | null; holdNote?: string;
+  canDecide?: boolean; canConfirm?: boolean;
 }
 export async function fetchOfferPrints(params: { contactId?: string; leadId?: string; plotKey?: string }, limit = 100): Promise<OfferPrint[]> {
   const sp = new URLSearchParams();

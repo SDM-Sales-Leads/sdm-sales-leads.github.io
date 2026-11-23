@@ -21,13 +21,12 @@ export async function visibleLead(c: Caller, id: string) {
 }
 
 // Accounts receivable confirms (or re-opens) the cash value of a won deal. Only people with canConfirmCash.
-route("POST", "/crm/leads/:id/cash", async ({ req, c, params }) => {
-  needCrm(c);
+// 23 Nov 2026: the work is in cashAction() so the Land Bank (finance users there) confirms through the same rule; the salesperson
+// gets a bell notification when finance confirms.
+export async function cashAction(c: Caller, leadId: string, action: "confirm" | "reopen", reason: string) {
   if (!(can(c, "canConfirmCash"))) throw forbidden("Only accounts receivable can confirm cash");
   await rateLimit(`cash:${c.id}`, 60, 60);
-  const b = await body(req, 2000);
-  const action = b.action === "reopen" ? "reopen" : "confirm";
-  const ex = await visibleLead(c, params.id);
+  const ex = await visibleLead(c, leadId);
   if (!ex) throw new HttpError(404, "Lead not found");
   if (ex.status !== "Won") throw bad("Only a won deal has cash to confirm");
   const d = { ...ex.data };
@@ -35,18 +34,31 @@ route("POST", "/crm/leads/:id/cash", async ({ req, c, params }) => {
   const before = d.cashStatus || "pending";
   if (action === "confirm") {
     if (!(Number(d.dealValue) > 0)) throw bad("The deal has no value to confirm");
+    if (before === "confirmed") throw bad("This deal is already confirmed");
     d.cashStatus = "confirmed"; d.cashBy = c.name; d.cashDate = now.slice(0, 10);
   } else {
-    const reason = str(b.reason, 300);
+    reason = str(reason, 300);
     if (!reason) throw bad("Say why the cash is re-opened");
     d.cashStatus = "pending"; d.cashBy = ""; d.cashDate = "";
   }
   d.lastUpdated = now;
-  d.timeline = [...(d.timeline || []), { id: crypto.randomUUID(), timestamp: now, type: "Approval", user: c.name, title: action === "confirm" ? "Cash confirmed" : "Cash re-opened", description: action === "confirm" ? `EGP ${Number(d.dealValue).toLocaleString("en-US")} confirmed by accounts receivable.` : `Re-opened: ${str(b.reason, 300)}` }];
+  d.timeline = [...(d.timeline || []), { id: crypto.randomUUID(), timestamp: now, type: "Approval", user: c.name, title: action === "confirm" ? "Cash confirmed" : "Cash re-opened", description: action === "confirm" ? `EGP ${Number(d.dealValue).toLocaleString("en-US")} confirmed — counted in the sales numbers` : str(reason, 300) }];
   const u = await admin.from("crm_leads").update({ data: d }).eq("id", ex.id).eq("updated_at", ex.updated_at).select("*");
   if (u.error || !u.data?.length) throw new HttpError(409, "Someone changed this deal at the same time. Reload and try again.");
-  await admin.from("crm_lead_audit").insert({ lead_id: ex.id, actor_id: c.id, actor_name: c.name, action: "cash", from_value: before, to_value: d.cashStatus, note: action === "reopen" ? str(b.reason, 300) : null });
-  return { success: true, lead: { ...u.data[0].data, id: ex.id, _rev: u.data[0].updated_at } };
+  await admin.from("crm_lead_audit").insert({ lead_id: ex.id, actor_id: c.id, actor_name: c.name, action: "cash", from_value: before, to_value: d.cashStatus, note: action === "reopen" ? reason : null });
+  if (ex.assigned_to && ex.assigned_to !== c.id) {
+    const who = str(d.customerName || d.companyName || "", 120);
+    await admin.from("crm_notifications").insert({ user_id: ex.assigned_to, type: "cash", lead_id: ex.id,
+      title: action === "confirm" ? `Finance confirmed your deal${who ? ": " + who : ""}` : `Finance re-opened your deal${who ? ": " + who : ""}`,
+      body: action === "confirm" ? `EGP ${Number(d.dealValue).toLocaleString("en-US")} now counts in your sales numbers.` : reason }).then(() => {}, () => {});
+  }
+  return { ...u.data[0].data, id: ex.id, _rev: u.data[0].updated_at };
+}
+route("POST", "/crm/leads/:id/cash", async ({ req, c, params }) => {
+  needCrm(c);
+  const b = await body(req, 2000);
+  const lead = await cashAction(c, params.id, b.action === "reopen" ? "reopen" : "confirm", str(b.reason, 300));
+  return { success: true, lead };
 });
 
 // who changed what on one lead

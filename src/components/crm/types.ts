@@ -56,7 +56,7 @@ export interface Attachment {
 export interface TimelineEvent {
   id: string;
   timestamp: string;
-  type: 'Call' | 'Email' | 'Meeting' | 'Visit' | 'WhatsApp' | 'SMS' | 'Comment' | 'Status Change' | 'Assignment' | 'Approval' | 'Creation' | 'Import';
+  type: 'Call' | 'Email' | 'Meeting' | 'Visit' | 'WhatsApp' | 'SMS' | 'Comment' | 'Status Change' | 'Assignment' | 'Approval' | 'Creation' | 'Import' | 'Offer';
   user: string;
   title: string;
   description: string;

@@ -29,10 +29,11 @@ function weight(l: Lead): number {
 }
 
 interface Stat {
-  leads: number; open: number; wonAll: number; wonYear: number; wonValue: number; ext: number;
+  /** wonAll/wonYear/wonValue = finance-CONFIRMED deals only (23 Nov 2026); pendingValue/pendingCount = Won, waiting for finance */
+  leads: number; open: number; wonAll: number; wonYear: number; wonValue: number; ext: number; pendingValue: number; pendingCount: number;
   pipeline: number; weighted: number; worked: number; offers: number;
 }
-const blank = (): Stat => ({ leads: 0, open: 0, wonAll: 0, wonYear: 0, wonValue: 0, ext: 0, pipeline: 0, weighted: 0, worked: 0, offers: 0 });
+const blank = (): Stat => ({ leads: 0, open: 0, wonAll: 0, wonYear: 0, wonValue: 0, ext: 0, pendingValue: 0, pendingCount: 0, pipeline: 0, weighted: 0, worked: 0, offers: 0 });
 
 interface Person { id: string; name: string; role: string; teamLeaderId?: string; target: number }
 
@@ -114,9 +115,12 @@ export const CrmTargets: React.FC<CrmTargetsProps> = ({ leads }) => {
       if (!id || l.mergedInto) continue;
       const s = get(id);
       s.leads++;
-      if (l.status === 'Won') {
+      if (l.status === 'Won' && l.cashStatus === 'confirmed') {
         s.wonAll++;
         if (inPeriod(closingDate(l))) { s.wonYear++; s.wonValue += Number(l.dealValue) || 0; }
+      } else if (l.status === 'Won') {
+        // Won, but finance has not confirmed the cash yet: shown apart, never counted as achieved
+        if (inPeriod(closingDate(l))) { s.pendingCount++; s.pendingValue += Number(l.dealValue) || 0; }
       } else if (!ACTIVE_EXCLUDE.includes(String(l.status))) {
         s.open++;
         const v = Number(l.dealValue) || Number(l.budget) || 0;
@@ -251,7 +255,7 @@ export const CrmTargets: React.FC<CrmTargetsProps> = ({ leads }) => {
                 <span>Still to go: {fmt(Math.max(0, targetOf(meP) - ach))} EGP</span>
               </div>
             </>) : <p className="text-sm text-brand-gray">No target is set for this period yet. Your team leader or Sales Operation sets it.</p>}
-            <p className="text-xs text-brand-gray mt-2">Won in system {fmt(ms.wonValue)} EGP ({ms.wonYear} deals) + external sales {fmt(ms.ext)} EGP</p>
+            <p className="text-xs text-brand-gray mt-2">Finance-confirmed {fmt(ms.wonValue)} EGP ({ms.wonYear} deals) + external sales {fmt(ms.ext)} EGP{ms.pendingCount ? ` · waiting for finance: ${fmt(ms.pendingValue)} EGP (${ms.pendingCount} deals, not counted yet)` : ''}</p>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -261,7 +265,7 @@ export const CrmTargets: React.FC<CrmTargetsProps> = ({ leads }) => {
             <Kpi label="Offers waiting" value={ms.offers} />
             <Kpi label="Open pipeline" value={ms.pipeline > 0 ? `${money(ms.pipeline)} EGP` : '—'} sub="deal value, else budget" />
             <Kpi label="Weighted pipeline" value={ms.pipeline > 0 ? `${money(ms.weighted)} EGP` : '—'} sub="5 / 15 / 35 / 60 % by stage" />
-            <Kpi label={`Won ${plabel}`} value={ms.wonYear} sub={`${fmt(ms.wonValue)} EGP`} />
+            <Kpi label={`Confirmed won ${plabel}`} value={ms.wonYear} sub={`${fmt(ms.wonValue)} EGP${ms.pendingCount ? ` · +${ms.pendingCount} waiting for finance` : ''}`} />
             <Kpi label="External sales confirmed" value={ms.ext > 0 ? `${money(ms.ext)} EGP` : '—'} />
           </div>
 

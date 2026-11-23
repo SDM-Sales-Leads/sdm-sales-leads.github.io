@@ -9,6 +9,7 @@ import {
 } from "./lib.ts";
 import { route } from "./router.ts";
 import { SPECS, teamIds } from "./routes_crm.ts";
+import { offerExtras, checkOfferHold } from "./routes_offers.ts";
 
 const LB_AUTH_URL = "https://ihjlvxmttvjcciafruya.supabase.co/auth/v1/user";
 const LB_PUBLISHABLE_KEY = "sb_publishable_8Q-O8l1q58PmM8kQkEETDQ_g1wwmRbS";
@@ -234,6 +235,8 @@ lbRoute("POST", "/integration/offer-printed", async ({ req, c }) => {
     if (ex && SPECS.leads.owns(c, scope, team, ex)) lead = ex;
   }
 
+  // 23 Nov 2026: a sales offer holds its plots for its salesperson for 1 day; others are refused during that day (routes_offers.ts)
+  if (offerType === "sales_offer") await checkOfferHold(c, plots.map((p: any) => p.key).filter(Boolean));
   const total = num(b.totalValue);
   const label = OFFER_TYPES[offerType];
   const codes = plots.map((p: any) => p.unit || p.key).join(", ").slice(0, 300) || "no plots";
@@ -288,31 +291,33 @@ route("GET", "/crm/offer-prints", async ({ c, query }) => {
   needCrm(c);
   await rateLimit(`prints:${c.id}`, 60, 60);
   const scope = crmScope(c);
-  if (scope === "finance") throw forbidden();
+  // 23 Nov 2026 (Walid): the same rule as the land bank history (printScope): own / team leader = team / admin, finance, Sales Operation,
+  // Sales Director, Executive = everybody's. Finance was refused here before; a customer or lead no longer shows colleagues' offers.
+  const who = await printScope(c);
   const limit = Math.max(1, Math.min(100, parseInt(query.get("limit") || "50") || 50));
   const contactId = str(query.get("contactId"), 60), leadId = str(query.get("leadId"), 60), plotKey = str(query.get("plotKey"), 160);
   let q: any = admin.from("crm_offer_prints").select("*").order("printed_at", { ascending: false }).limit(limit);
-  if (contactId) { await visibleContact(c, contactId); q = q.eq("contact_id", contactId); }
+  if (who) q = q.in("printed_by", who);
+  if (contactId) { if (scope !== "finance") await visibleContact(c, contactId); q = q.eq("contact_id", contactId); }
   else if (leadId) {
     if (!ID_RE.test(leadId)) throw bad("Unknown lead");
     const { data: ex } = await admin.from("crm_leads").select("id,status,assigned_to,created_by").eq("id", leadId).is("deleted_at", null).maybeSingle();
     const team = scope === "team" ? await teamIds(c) : [];
-    if (!ex || !SPECS.leads.owns(c, scope, team, ex)) throw new HttpError(404, "Lead not found");
+    if (!ex || (scope !== "finance" && !SPECS.leads.owns(c, scope, team, ex))) throw new HttpError(404, "Lead not found");
     q = q.eq("lead_id", leadId);
   } else {
     if (plotKey) q = q.contains("plots", JSON.stringify([{ key: plotKey }]));
-    if (scope === "own" || scope === "team") {
-      const ids = scope === "team" ? await teamIds(c) : [c.id];
-      q = q.in("printed_by", ids);
-    }
   }
   const { data, error } = await q;
   if (error) throw new HttpError(500, "Could not load the offers");
+  const ex = await offerExtras(c, data || []);
   return {
     success: true,
     rows: (data || []).map((r: any) => ({
       id: r.id, contactId: r.contact_id, leadId: r.lead_id, offerType: r.offer_type, plots: r.plots || [], totalValue: r.total_value === null ? null : Number(r.total_value),
       summary: r.summary || "", docName: r.doc_name || "", printedBy: r.printed_by, printedByName: r.printed_by_name || "", printedAt: r.printed_at,
+      rejectReason: r.reject_reason || "", decisionNote: r.decision_note || "", decidedAt: r.decided_at || null, decidedByName: r.decided_by_name || "",
+      holdReq: r.lb_hold_req || null, holdNote: r.lb_hold_note || "", ...(ex.get(r.id) || {}),
     })),
   };
 });
@@ -563,9 +568,11 @@ lbRoute("GET", "/integration/offer-stats", async ({ c, query }) => {
 // ---------------------------------------------------------------------------------------------
 const SEE_ALL_ROLES = new Set(["Admin", "Sales Operation", "Sales Director", "Executive (View)"]);
 /** null = everybody's prints, otherwise the people whose prints this caller may see (server-side rule, never the page's) */
-async function printScope(c: Caller): Promise<string[] | null> {
+export async function printScope(c: Caller): Promise<string[] | null> {
   const s = crmScope(c);
-  if (SEE_ALL_ROLES.has(c.role) || s === "all" || s === "viewall" || s === "finance") return null;
+  // 23 Nov 2026 (Walid): everybody's = admin, finance, Sales Operation, Sales Director, Executive (View). "View all leads" (Marketing, HR)
+  // no longer opens everybody's offers: like a rep they see the offers they printed themselves.
+  if (SEE_ALL_ROLES.has(c.role) || s === "all" || s === "finance") return null;
   if (c.role === "Sales Team Leader") return await teamIds(c);
   return [c.id];
 }
@@ -590,9 +597,11 @@ function historyOut(r: any, cm: Map<string, any>, me?: string) {
     totalValue: r.total_value === null || r.total_value === undefined ? null : Number(r.total_value),
     plan: r.plan || null, summary: r.summary || "", docName: r.doc_name || "",
     printedBy: r.printed_by, printedByName: r.printed_by_name || "", mine: !!me && r.printed_by === me, hasOffer: !!r.has_offer,
+    status: r.status || "open", rejectReason: r.reject_reason || "", decisionNote: r.decision_note || "", decidedAt: r.decided_at || null,
+    decidedByName: r.decided_by_name || "", holdReq: r.lb_hold_req || null, holdNote: r.lb_hold_note || "",
   };
 }
-const HIST_COLS = "id,printed_at,offer_type,contact_id,plots,total_value,plan,summary,doc_name,printed_by,printed_by_name,has_offer:offer->>_v";
+const HIST_COLS = "id,printed_at,offer_type,contact_id,lead_id,plots,total_value,plan,summary,doc_name,printed_by,printed_by_name,has_offer:offer->>_v,status,reject_reason,decision_note,decided_at,decided_by_name,lb_hold_req,lb_hold_note";
 
 lbRoute("GET", "/integration/offer-history", async ({ c, query }) => {
   await rateLimit(`lbhist:${c.id}`, 60, 60);
@@ -617,7 +626,8 @@ lbRoute("GET", "/integration/offer-history", async ({ c, query }) => {
   const { data, count, error } = await q;
   if (error) throw new HttpError(500, "Could not load the offers");
   const cm = await contactMap((data || []).map((r: any) => r.contact_id));
-  return { success: true, total: count || 0, rows: (data || []).map((r: any) => historyOut(r, cm, c.id)) };
+  const ex = await offerExtras(c, data || []);
+  return { success: true, total: count || 0, rows: (data || []).map((r: any) => ({ ...historyOut(r, cm, c.id), ...(ex.get(r.id) || {}) })) };
 });
 
 lbRoute("GET", "/integration/offer-history/:id", async ({ c, params }) => {
@@ -630,7 +640,8 @@ lbRoute("GET", "/integration/offer-history/:id", async ({ c, params }) => {
   const cm = await contactMap([r.contact_id]);
   const o = isObj(r.offer) ? { ...r.offer } : null;
   if (o) delete o._v;
-  return { success: true, row: historyOut({ ...r, has_offer: r.offer ? 1 : null }, cm, c.id), offer: o };
+  const ex = await offerExtras(c, [r]);
+  return { success: true, row: { ...historyOut({ ...r, has_offer: r.offer ? 1 : null }, cm, c.id), ...(ex.get(r.id) || {}) }, offer: o };
 });
 
 lbRoute("GET", "/integration/offer-stats/plot", async ({ c, query }) => {

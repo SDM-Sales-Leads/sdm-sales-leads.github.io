@@ -309,7 +309,8 @@ const OFFER_STATUSES = ['Offer Sent – Following Up', 'Scheduled Meeting', 'Sit
 
 export interface P {
   l: Lead; id: string; created: string; closing: string; level: number;
-  won: boolean; lost: boolean; open: boolean;
+  /** won = a finance-CONFIRMED Won deal (counts in every sales number since 23 Nov 2026); pending = Won, waiting for finance */
+  won: boolean; pending: boolean; lost: boolean; open: boolean;
   value: number; area: number; owner: string; ownerName: string; source: string; project: string; reason: string;
   createdMs: number; firstMs: number; assignedMs: number; cycle: number | null; marketing: boolean;
 }
@@ -319,20 +320,22 @@ export function prepare(leads: Lead[]): P[] {
   for (const l of leads) {
     if (isMerged(l)) continue;
     const stage = statusStage(l.status);
-    const won = l.status === 'Won';
+    // 23 Nov 2026 (Walid): a deal counts as a sale only when finance confirmed the cash; a Won lead before that is "waiting for finance"
+    const won = l.status === 'Won' && l.cashStatus === 'confirmed';
+    const pending = l.status === 'Won' && !won;
     const lost = l.status === 'Lost' || l.status === 'Not Interested' || l.status === 'Low Budget';
-    const negotiation = won || l.status === 'Negotiation' || !!l.contractDate;
+    const negotiation = won || pending || l.status === 'Negotiation' || !!l.contractDate;
     const opportunity = negotiation || !!l.offerSent || OFFER_STATUSES.includes(l.status) || !!l.meetingDate;
     const qualified = opportunity || l.qualification === 'Qualified';
     const contacted = qualified || !!l.firstContactAt || (!!l.status && l.status !== 'New' && l.status !== 'Assigned');
     const level = won ? 5 : negotiation ? 4 : opportunity ? 3 : qualified ? 2 : contacted ? 1 : 0;
     const created = dayOf(l.date);
-    const closing = won ? dayOf(closingDate(l)) : '';
+    const closing = won || pending ? dayOf(closingDate(l)) : '';
     const wonDay = dayOf(l.wonDate);
     const cyc = won && wonDay && created ? daysBetween(created, wonDay) : NaN;
     out.push({
-      l, id: l.id, created, closing, level, won, lost,
-      open: !won && !lost && stage !== 'closed',
+      l, id: l.id, created, closing, level, won, pending, lost,
+      open: !won && !pending && !lost && stage !== 'closed',
       value: Number(l.dealValue) > 0 ? Number(l.dealValue) : 0,
       area: Number(l.soldArea) || 0,
       owner: ownerOf(l), ownerName: l.assignedSalespersonName || '',
@@ -379,8 +382,10 @@ function addTo(a: Agg, p: P, r: Range, allTime: boolean) {
     a.won++; a.wonValue += p.value; a.wonArea += p.area;
     if (p.value > 0) a.wonWithValue++;
     if (p.cycle != null) a.cycles.push(p.cycle);
-    if (p.l.cashStatus === 'confirmed') { a.cashConfirmed++; a.cashConfirmedValue += p.value; } else { a.cashPending++; a.cashPendingValue += p.value; }
+    a.cashConfirmed++; a.cashConfirmedValue += p.value;
   }
+  // Won but not yet confirmed by finance: shown as "waiting for finance", never as achieved sales
+  if (p.pending && (allTime || inRange(p.closing, r))) { a.cashPending++; a.cashPendingValue += p.value; }
   if (p.lost) a.lost++;
   if (p.open) {
     a.open++;

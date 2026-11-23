@@ -10,6 +10,10 @@ import { usageGuard } from "./usage.ts";
 import { laraMailTick, runShadow } from "./routes_lara.ts";
 import { appBase, escalateCallCenter, notifyOnHold, resetHoldCache, runReminders, sendAssignDigest } from "./notify.ts";
 import { escalateRecontacts } from "./recontact.ts";
+import { runAuthSync } from "./routes_authsync.ts";
+
+// 22 Nov 2026: the land bank (SID Dashboard) uses the same users and passwords (routes_authsync.ts) and the same reset code
+const LAND_BANK_URL = "https://sdm-land-bank.github.io/";
 
 // ---------------------------------------------------------------------------------------------
 // the bell
@@ -65,13 +69,16 @@ route("POST", "/auth/forgot", async ({ req }) => {
   const code = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
   await admin.from("pw_resets").upsert({ email, code_hash: await sha(`${code}:${email}:${pepper()}`), expires_at: new Date(Date.now() + CODE_MINUTES * 60_000).toISOString(), tries: 0, created_at: nowIso() });
   try {
-    const base = await appBase();
+    const fromLandBank = b.app === "landbank";
+    const base = fromLandBank ? LAND_BANK_URL : await appBase();
+    const appName = fromLandBank ? "SID Dashboard (Land Bank)" : "SDM Sales Leads";
     await sendMail(await loadEws(), {
-      to: [u.email], subject: "Your SDM Sales Leads password reset code",
+      to: [u.email], subject: `Your ${appName} password reset code`,
       html: `<div style="font-family:Segoe UI,Tahoma,Arial,sans-serif;max-width:520px;margin:20px auto;border:1px solid #e1e1e1;border-radius:8px;overflow:hidden">
-<div style="background:#A6192E;padding:16px 22px;color:#fff;font-size:18px;font-weight:600">SDM Sales Leads</div>
+<div style="background:#A6192E;padding:16px 22px;color:#fff;font-size:18px;font-weight:600">${appName}</div>
 <div style="padding:24px;color:#333;line-height:1.6;font-size:15px"><p>Hello ${escHtml(u.name || "")},</p>
 <p>Use this code to set a new password. It is valid for ${CODE_MINUTES} minutes and works once.</p>
+<p style="color:#555;font-size:13px">The new password works for both SDM Sales Leads and the SID Dashboard (Land Bank).</p>
 <p style="font-size:32px;letter-spacing:8px;font-weight:700;color:#A6192E;margin:18px 0">${code}</p>
 <p><a href="${escHtml(base)}#reset=${encodeURIComponent(email)}" style="color:#A6192E;font-weight:700">Open the reset page</a> and enter the code there.</p>
 <p style="color:#888;font-size:13px">If you did not ask for this, ignore this e-mail: your password stays as it is.</p></div></div>`,
@@ -106,6 +113,8 @@ route("POST", "/auth/reset", async ({ req }) => {
   await admin.from("pw_resets").delete().eq("email", email);                    // the code works once
   await admin.from("app_users").update({ must_change_password: false }).eq("id", u.id);
   await logActivity(null, "Password reset", `${u.name || email} reset the password with an e-mailed code`, "security");
+  // copy the new password to the land bank now (the every-minute job would do it too; this way the person can sign in there at once)
+  await runAuthSync().catch(() => {});
   return { success: true };
 }, { public: true });
 

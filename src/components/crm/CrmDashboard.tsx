@@ -108,14 +108,14 @@ export const CrmDashboard: React.FC<CrmDashboardProps> = ({ leads, filters }) =>
           info="Marked Qualified, or already at the offer / meeting stage or beyond." />
         <Kpi label="Opportunities" onClick={drill('Opportunities', (p) => p.level >= 3)} value={t.opportunity} sub="offer or meeting stage" delta={prevAgg ? <Delta now={t.opportunity} prev={prevAgg.opportunity} /> : undefined}
           info="Offer sent, meeting or site visit scheduled or held, negotiation, or won." />
-        <Kpi label="Won deals" onClick={drill('Won deals', (p) => p.won)} value={t.won} sub="closed in this period" tone="text-emerald-600" delta={prevAgg ? <Delta now={t.won} prev={prevAgg.won} /> : undefined}
+        <Kpi label="Won deals" onClick={drill('Won deals', (p) => p.won)} value={t.won} sub={`finance-confirmed in this period${t.cashPending ? ` · ${t.cashPending} waiting for finance` : ''}`} tone="text-emerald-600" delta={prevAgg ? <Delta now={t.won} prev={prevAgg.won} /> : undefined}
           info="Leads with status Won whose closing date falls in the period. Closing date = the date typed on the lead, else EOI date (EOI path), else reservation, EOI or contract date, else lead date. It is NOT the day somebody clicked Won." />
         <Kpi label="Lost" onClick={drill('Lost', (p) => p.lost)} value={t.lost} sub="no deal" tone="text-rose-600" delta={prevAgg ? <Delta now={t.lost} prev={prevAgg.lost} lowerIsBetter /> : undefined}
           info="Status Lost, Not Interested or Low Budget (they are all closed without a deal). Counted from the leads in the period." />
         <Kpi label="Conversion" value={fmtPct(conv, 1)} sub="leads that became deals" delta={dRate('winAll')}
           info="Won in the period ÷ all leads in the period. Win rate against leads actually reached is in the strip below." />
-        <Kpi label="Won revenue" value={fmtEGP(t.wonWithValue ? t.wonValue : null)} sub={`${t.won} deals · ${t.wonWithValue} with a value`} delta={prevAgg ? <Delta now={t.wonWithValue ? t.wonValue : null} prev={prevAgg.wonWithValue ? prevAgg.wonValue : null} /> : undefined}
-          info="Sum of the cash value (EGP) of the deals won in the period. Deals without a recorded value are counted as deals but add nothing here." />
+        <Kpi label="Recognized sales" value={fmtEGP(t.wonWithValue ? t.wonValue : null)} sub={`${t.won} confirmed deals${t.cashPending ? ` · ${fmtEGP(t.cashPendingValue)} waiting for finance` : ""}`} delta={prevAgg ? <Delta now={t.wonWithValue ? t.wonValue : null} prev={prevAgg.wonWithValue ? prevAgg.wonValue : null} /> : undefined}
+          info="Sum of the cash value (EGP) of the deals won in the period AND confirmed by finance. Won deals still waiting for finance are shown apart and not counted." />
         <Kpi label="Open pipeline" onClick={drill('Open pipeline', (p) => p.open)} value={t.openWithValue ? fmtEGP(t.pipelineValue) : '—'} sub={`${t.open} live leads · ${t.openWithValue} with a value`}
           info="Value of open leads (not Won, Lost, Not Interested, Low Budget, Wrong Number). Only leads that carry a deal value add to it, so it understates until values are typed." />
         <Kpi label="Weighted pipeline" value={t.openWithValue ? fmtEGP(t.weightedValue) : '—'} sub={`${t.weightedCount.toFixed(1)} expected deals`}

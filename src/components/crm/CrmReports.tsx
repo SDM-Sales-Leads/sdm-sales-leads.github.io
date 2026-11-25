@@ -99,7 +99,7 @@ export const CrmReports: React.FC<CrmReportsProps> = ({ leads }) => {
   }, [pool, acts]);
   const neverContacted = useMemo(() => pool.filter((p) => p.owner && p.open && !isEngaged(p.l)).length, [pool]);
   // leads right now, ignoring the period (aging, follow-up, forecast tabs)
-  const openAll = useMemo(() => selectPool(all, { ...f, period: 'all' }, range).filter((p) => p.open), [all, f.owner, f.source]); // eslint-disable-line react-hooks/exhaustive-deps
+  const openAll = useMemo(() => selectPool(all, { ...f, period: 'all' }, range).filter((p) => p.open), [all, f.owner, f.source, f.touch, f.age]); // eslint-disable-line react-hooks/exhaustive-deps
   const headline = useMemo(() => { const x = emptyTally(); pool.forEach((p) => tallyAdd(x, p, range, f.period === 'all')); return x; }, [pool, range, f.period]);
   const ctx: ReportCtx = useMemo(() => ({ pool, openAll, range, allTime: f.period === 'all', today: todayISO(), nowMs: Date.now(), acts, manager, periodNote: range.label }), [pool, openAll, range, f.period, acts, manager]);
 

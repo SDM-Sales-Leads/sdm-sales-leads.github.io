@@ -68,6 +68,15 @@ export const LoadBar: React.FC<{ showPeople?: boolean; defaultOpen?: boolean }> 
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-brand-gray/30 font-bold text-brand-black">
+                <td className="py-1.5 pr-3">Total ({people.length})</td>
+                <td className="py-1.5 pr-3 font-mono">{people.reduce((a, p) => a + p.touched, 0)}</td>
+                <td className="py-1.5 pr-3 font-mono">{people.reduce((a, p) => a + p.untouched, 0)}</td>
+                <td className="py-1.5 pr-3 font-mono">{people.reduce((a, p) => a + p.old, 0)}</td>
+                <td className="py-1.5 font-mono">{people.reduce((a, p) => a + p.touched + p.untouched, 0)}</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}

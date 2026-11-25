@@ -134,6 +134,8 @@ const COL_ORDER = ['id', 'date', 'customer', 'project', 'size', 'slaStatus', 'pr
 const COL_DEFAULT_W: Record<string, number> = { id: 10, date: 10, customer: 19, project: 13, size: 8, slaStatus: 11, priority: 7, score: 6, touch: 8, status: 13, assigned: 12, channel: 8, leadSource: 10, customerId: 9 };
 const COL_MIN: Record<string, number> = { id: 62, date: 84, customer: 92, project: 68, size: 50, slaStatus: 64, priority: 64, score: 48, touch: 72, status: 100, assigned: 80, channel: 70, leadSource: 76, customerId: 70 };
 /** when the screen is too narrow for every chosen column, these go first (the Columns menu still lists them) */
+const TOUCH_OPTS = [{ value: 'Touched', label: 'Touched' }, { value: 'Untouched', label: 'Untouched' }];
+const AGE_OPTS = [{ value: 'New', label: 'New leads' }, { value: 'Old', label: 'Old leads (Excel)' }];
 const COL_DROP_FIRST = ['customerId', 'channel', 'touch', 'score', 'leadSource', 'priority'];
 const COL_W_KEY = 'sdm-crm-leads-colw';
 const SEL_W = 32;
@@ -264,6 +266,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   const [filterProject, setFilterProject] = useState<string[]>([]);
   const [filterPriority, setFilterPriority] = useState<string[]>([]);
   const [filterTouch, setFilterTouch] = useState<string[]>([]);
+  const [filterAge, setFilterAge] = useState<string[]>([]);   // 25 Nov 2026: New / Old leads is its own filter, apart from Touched / Untouched
   const [filterSource, setFilterSource] = useState<string[]>([]);
   const [filterSalesperson, setFilterSalesperson] = useState<string[]>([]);
   // a team leader opens the list on the leads assigned to him (the Owner filter or its chip shows the whole team again)
@@ -272,7 +275,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
   // filters the person pinned to the quick bar above the list: remembered for this person on this browser, also after
   // sign-out (a "crm_" key would be wiped at sign-out by lib/storageGuard: this one holds no customer data)
   const pinKey = `sdm-leads-pins-${user?.id ?? 'anon'}`;
-  const [pinned, setPinned] = useState<string[]>(() => { try { const v = JSON.parse(localStorage.getItem(pinKey) || localStorage.getItem(`crm_pinned_filters_${user?.id ?? 'anon'}`) || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; } });
+  const [pinned, setPinned] = useState<string[]>(() => { try { const v = JSON.parse(localStorage.getItem(pinKey) || localStorage.getItem(`crm_pinned_filters_${user?.id ?? 'anon'}`) || '[]'); if (!Array.isArray(v)) return []; const out = v.filter((x) => typeof x === 'string'); if (out.includes('touch') && !out.includes('age') && !localStorage.getItem(`${pinKey}-age`)) { out.push('age'); localStorage.setItem(pinKey, JSON.stringify(out)); localStorage.setItem(`${pinKey}-age`, '1'); } return out; } catch { return []; } });   // 25 Nov 2026: whoever pinned the old mixed filter also gets the new New / Old filter once
   const togglePin = (k: string) => setPinned((cur) => { const next = cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]; try { localStorage.setItem(pinKey, JSON.stringify(next)); } catch { /* ignore */ } return next; });
   const [xf, setXf] = useState<XF>(EMPTY_XF);
   const [savedView, setSavedView] = useState<string>('All');
@@ -544,6 +547,7 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
     setFilterPriority([]);
     setFilterSource([]);
     setFilterTouch([]);
+    setFilterAge([]);
     setFilterSalesperson([]);
     clearSearch();
     setXf(EMPTY_XF);
@@ -633,8 +637,8 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
       if (filterStatus.length && !filterStatus.some((st) => (st === 'OpenLeads' ? isOpenStatus(l.status) : l.status === st))) return false;
       if (filterProject.length && !filterProject.includes(l.project as string)) return false;
       if (filterPriority.length && !filterPriority.includes(prioKey(l.priority) as string)) return false;
-      { const tk = filterTouch.filter((x) => x === 'Touched' || x === 'Untouched'); if (tk.length === 1 && (tk[0] === 'Touched') !== isTouchedLead(l)) return false;
-        const ok = filterTouch.filter((x) => x === 'Old leads' || x === 'Current leads'); if (ok.length === 1 && (ok[0] === 'Old leads') !== !!l.oldLead) return false; }
+      if (filterTouch.length === 1 && (filterTouch[0] === 'Touched') !== isTouchedLead(l)) return false;
+      if (filterAge.length === 1 && (filterAge[0] === 'Old') !== !!l.oldLead) return false;
       if (filterSource.length && !filterSource.includes(l.source as string)) return false;
       if (filterSalesperson.length && !filterSalesperson.some((n) => (n === 'Unassigned' ? !l.assignedSalespersonId : l.assignedSalespersonName === n))) return false;
       if (xfPred && !xfPred(l)) return false;
@@ -682,10 +686,10 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
     }
     return sorted;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, salespeople, leads, searchTerm, filterStatus, filterProject, filterPriority, filterTouch, filterSource, filterSalesperson, savedView, xf, winRates, sortField, sortDirection, idPreset]);
+  }, [user, salespeople, leads, searchTerm, filterStatus, filterProject, filterPriority, filterTouch, filterAge, filterSource, filterSalesperson, savedView, xf, winRates, sortField, sortDirection, idPreset]);
 
   // back to the first page whenever the result set changes shape
-  useEffect(() => { setPage(0); setKanbanCap({}); setCalDay(null); }, [searchTerm, filterStatus, filterProject, filterPriority, filterTouch, filterSource, filterSalesperson, savedView, xf, sortField, sortDirection, idPreset]);
+  useEffect(() => { setPage(0); setKanbanCap({}); setCalDay(null); }, [searchTerm, filterStatus, filterProject, filterPriority, filterTouch, filterAge, filterSource, filterSalesperson, savedView, xf, sortField, sortDirection, idPreset]);
 
   // Project List
   const projects = useMemo(() => {
@@ -718,12 +722,13 @@ export const CrmLeads: React.FC<CrmLeadsProps> = ({ leads, onLeadsUpdated, curre
     if (filterProject.length) out.push({ key: 'project', label: `Project: ${filterProject.join(', ')}`, onClear: () => setFilterProject([]) });
     if (filterPriority.length) out.push({ key: 'priority', label: `Priority: ${filterPriority.join(', ')}`, onClear: () => setFilterPriority([]) });
     if (filterTouch.length) out.push({ key: 'touch', label: filterTouch.join(' + '), onClear: () => setFilterTouch([]) });
+    if (filterAge.length) out.push({ key: 'age', label: filterAge.map((x) => `${x} leads`).join(' + '), onClear: () => setFilterAge([]) });
     if (filterSource.length) out.push({ key: 'source', label: `Source: ${filterSource.join(', ')}`, onClear: () => setFilterSource([]) });
     if (filterSalesperson.length) out.push({ key: 'owner', label: `Owner: ${filterSalesperson.map((x) => (x === 'Unassigned' ? 'Unassigned' : x)).join(', ')}`, onClear: () => setFilterSalesperson([]) });
     for (const c of xfChips(xf)) out.push({ key: c.key, label: c.label, onClear: () => setXf((x) => c.clear(x)) });
     if (idPreset) out.push({ key: 'ids', label: `${idPreset.title} · ${idPreset.ids.size} leads`, onClear: () => setIdPreset(null) });
     return out;
-  }, [filterStatus, filterProject, filterPriority, filterTouch, filterSource, filterSalesperson, xf, idPreset]);
+  }, [filterStatus, filterProject, filterPriority, filterTouch, filterAge, filterSource, filterSalesperson, xf, idPreset]);
 
   // Sources list
   const sources = useMemo(() => {
@@ -1888,7 +1893,10 @@ ${user.name || ''}`);
             <MultiSelect options={projects.map((x) => ({ value: x, label: x }))} value={filterProject} onChange={setFilterProject} allLabel="All projects" name="projects" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterProject.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
           )}
           {pinned.includes('touch') && (
-            <MultiSelect options={[{ value: 'Touched', label: 'Touched' }, { value: 'Untouched', label: 'Untouched' }, { value: 'Old leads', label: 'Old leads (Excel)' }, { value: 'Current leads', label: 'Current leads (not old)' }]} value={filterTouch} onChange={setFilterTouch} allLabel="All leads" name="kinds" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterTouch.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
+            <MultiSelect options={TOUCH_OPTS} value={filterTouch} onChange={setFilterTouch} allLabel="Touched + untouched" name="touch states" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterTouch.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
+          )}
+          {pinned.includes('age') && (
+            <MultiSelect options={AGE_OPTS} value={filterAge} onChange={setFilterAge} allLabel="New + old leads" name="lead ages" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterAge.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
           )}
           {pinned.includes('priority') && (
             <MultiSelect options={PRIORITIES.map((x) => ({ value: x as string, label: x as string }))} value={filterPriority} onChange={setFilterPriority} allLabel="All priorities" name="priorities" className="max-w-[210px] min-w-[130px]" buttonClassName={`bg-brand-gray/5 border rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none flex items-center justify-between gap-2 text-left w-full ${filterPriority.length ? 'border-brand-red/50 text-brand-red' : 'border-brand-gray/20'}`} />
@@ -1929,7 +1937,11 @@ ${user.name || ''}`);
 
               <div>
                 <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('touch')} onChange={() => togglePin('touch')} className="accent-brand-red" /> Touched / Untouched</label>
-                <MultiSelect options={[{ value: 'Touched', label: 'Touched' }, { value: 'Untouched', label: 'Untouched' }, { value: 'Old leads', label: 'Old leads (Excel)' }, { value: 'Current leads', label: 'Current leads (not old)' }]} value={filterTouch} onChange={setFilterTouch} allLabel="All leads" name="kinds" />
+                <MultiSelect options={TOUCH_OPTS} value={filterTouch} onChange={setFilterTouch} allLabel="Touched + untouched" name="touch states" />
+              </div>
+              <div>
+                <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-brand-gray mb-1.5 cursor-pointer select-none" title="Tick to keep this filter in the quick bar above the list"><input type="checkbox" checked={pinned.includes('age')} onChange={() => togglePin('age')} className="accent-brand-red" /> New / Old leads</label>
+                <MultiSelect options={AGE_OPTS} value={filterAge} onChange={setFilterAge} allLabel="New + old leads" name="lead ages" />
               </div>
 
               <div>

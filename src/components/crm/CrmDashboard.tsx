@@ -216,6 +216,22 @@ export const CrmDashboard: React.FC<CrmDashboardProps> = ({ leads, filters }) =>
                   </tr>
                 ))}
               </tbody>
+              {team.reps.length > 1 && (() => {
+                const sum = (k: 'open' | 'overdue' | 'dueToday' | 'noDate' | 'neverContacted' | 'offers') => team.reps.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+                return (
+                  <tfoot>
+                    <tr className="border-t-2 border-brand-gray/30 font-bold text-brand-black">
+                      <td className="py-2 pr-3">Total ({team.reps.length})</td>
+                      <td className="py-2 px-2 text-right font-mono">{sum('open')}</td>
+                      <td className="py-2 px-2 text-right font-mono">{sum('overdue')}</td>
+                      <td className="py-2 px-2 text-right font-mono">{sum('dueToday')}</td>
+                      <td className="py-2 px-2 text-right font-mono">{sum('noDate')}</td>
+                      <td className="py-2 px-2 text-right font-mono">{sum('neverContacted')}</td>
+                      <td className="py-2 pl-2 text-right font-mono">{sum('offers')}</td>
+                    </tr>
+                  </tfoot>
+                );
+              })()}
             </table>
           </div>
           <p className="text-[10px] text-brand-gray">Open leads count only leads not Won, Lost, Not Interested, Low Budget or Wrong Number. Offers sent counts every lead of the person with an offer, closed ones included.</p>

@@ -4,7 +4,7 @@ import { cairoDateISO } from '../../lib/cairoTime';
 // Formulas follow the sales team's previous CRM (migration/oldcrm/spec_A.md sections 4.8 and 5, spec_D.md sections 1-3).
 import type { Lead } from './types';
 import {
-  ACTIVE_EXCLUDE, PIPELINE_STATUSES, channelOf, closingDate, isMarketingSource, leadScore, normProject, normSource, phoneIntl, statusStage,
+  ACTIVE_EXCLUDE, PIPELINE_STATUSES, channelOf, closingDate, isMarketingSource, leadScore, normProject, normSource, phoneIntl, statusStage, isTouchedLead,
 } from './leadConfig';
 
 // ---------------------------------------------------------------------------------------------
@@ -351,13 +351,16 @@ export function prepare(leads: Lead[]): P[] {
   return out;
 }
 
-export interface Filters { period: Period; from: string; to: string; owner: string[]; source: string[] }   // owner / source: tick several; empty = all
-export const DEFAULT_FILTERS: Filters = { period: 'all', from: '', to: '', owner: [], source: [] };
+// owner / source: tick several; empty = all. 25 Nov 2026: touch (Touched / Untouched) and age (New / Old leads from the Excel) are two separate filters
+export interface Filters { period: Period; from: string; to: string; owner: string[]; source: string[]; touch?: string[]; age?: string[] }
+export const DEFAULT_FILTERS: Filters = { period: 'all', from: '', to: '', owner: [], source: [], touch: [], age: [] };
 const inRange = (d: string, r: Range) => !!d && d >= r.from && d <= r.to;
 /** period membership: created in the window, or won with its closing date in the window */
 export function selectPool(all: P[], f: Filters, r: Range): P[] {
   const ar = f.period === 'all';
-  return all.filter((p) => (!f.owner.length || f.owner.includes(p.owner)) && (!f.source.length || f.source.includes(p.source)) && (ar || inRange(p.created, r) || (p.won && inRange(p.closing, r))));
+  const tk = f.touch?.length === 1 ? f.touch[0] === 'Touched' : null, old = f.age?.length === 1 ? f.age[0] === 'Old' : null;
+  return all.filter((p) => (!f.owner.length || f.owner.includes(p.owner)) && (!f.source.length || f.source.includes(p.source))
+    && (tk === null || isTouchedLead(p.l) === tk) && (old === null || !!p.l.oldLead === old) && (ar || inRange(p.created, r) || (p.won && inRange(p.closing, r))));
 }
 
 export interface Agg {

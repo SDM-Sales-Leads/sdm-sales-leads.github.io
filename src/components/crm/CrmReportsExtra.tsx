@@ -8,6 +8,7 @@ import { P, Range, fmtDay, fmtEGP, fmtPct, pc } from './leadMetrics';
 import { BarRow, Card, Kpi, Pill } from './CrmMetricsUi';
 import { crmNav } from './crmNav';
 import { DrillNum } from './DrillNum';
+import { SizeBreakdownCard } from './CrmSizeBreakdown';
 import { DataTable, Column, ExportBar, MiniBar, TD, TH, fmtHours, num } from './ReportParts';
 import {
   Group, Tally, TrendUnit, activityIndex, agingOf, avgDealOf, byLeadsDesc, channelReport, convOf, decidedWinOf, forecastOf,
@@ -300,6 +301,7 @@ export const DemandTab: React.FC<{ c: ReportCtx }> = ({ c }) => {
         <div className="space-y-2">{prj.slice(0, 10).map((g) => <BarRow key={g.key} onClick={() => crmNav.leads({ ids: g.t.ids?.leads || [], title: `${g.label} · Leads` })} label={g.label} value={g.t.leads} max={maxP} right={`${num(g.t.leads)} · ${g.t.won} won`} />)}</div>
         <DataTable rows={prj} rowKey={(g) => g.key} limit={20} cols={[...(tallyCols('Project') as Column<PG>[]), { id: 'med', head: 'Median size', info: 'Median required area on the leads of this project (leads with an area only).', right: true, sort: (g) => med(g.sizes), cell: (g) => { const m = med(g.sizes); return m == null ? '—' : `${num(m)} sqm`; } }] as Column<PG>[]} defaultSort={{ id: 'leads', dir: 'desc' }} />
       </Card>
+      <SizeBreakdownCard c={c} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card title="Plot-size demand" info={`${P0}Required area typed on the lead, in bands. 'Size not recorded' = none typed. Won value = deals closed in the window.`}
           right={<ExportBar name="plot-size-demand" sheets={() => [{ name: 'Plot size', rows: [['Required size', ...TALLY_HEAD], ...sz.map(tallyRow)] }]} disabled={!sz.length} />}>

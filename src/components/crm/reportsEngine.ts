@@ -1,7 +1,7 @@
 // Calculations for the extra Sales Reports tabs and Team Performance. Pure functions, no React, one pass over the data each.
 // Same rule as leadMetrics.ts: when something cannot be measured the value is null (shown as "—"), never an invented number.
 import type { Lead, SalespersonActivity } from './types';
-import { CHANNELS, NO_CHANNEL, channelOf, statusStage } from './leadConfig';
+import { CHANNELS, NO_CHANNEL, channelOf, isTouchedLead, statusStage } from './leadConfig';
 import {
   P, Range, STAGE_NAMES, STAGE_WEIGHT, addDays, dayOf, daysBetween, isEngaged, mean, median, msOf, pc,
 } from './leadMetrics';
@@ -223,6 +223,51 @@ export function sizeDemand(pool: P[], r: Range, allTime: boolean): Group[] {
   const g = groupBy(pool, r, allTime, (p) => sizeBandOf(p.l));
   const order = [...SIZE_BANDS.map((b) => b.label), NO_SIZE];
   return g.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+}
+
+/** Plot-size breakdown (26 Nov 2026, Walid): per size band, who holds the leads (assigned / unassigned), touched or not,
+ *  where they stand (open / waiting for finance / won / lost), new vs old (Excel) leads, area asked, and the split by
+ *  salesperson and by project. Every counter keeps its lead ids so a clicked number opens exactly those leads. */
+export interface SizeRow {
+  key: string; label: string; t: Tally; sizes: number[];
+  assigned: string[]; unassigned: string[]; touched: string[]; untouched: string[];
+  pending: string[]; oldL: string[]; newL: string[];
+  /** open leads that nobody owns: the ones to hand out first */
+  openUnassigned: string[];
+}
+export interface SizeBreakdown {
+  rows: SizeRow[]; total: SizeRow;
+  /** band × salesperson (leads with an owner) and band × project */
+  byOwner: { key: string; label: string; total: number; cells: Map<string, string[]> }[];
+  byProject: { key: string; label: string; total: number; cells: Map<string, string[]> }[];
+}
+export function sizeBreakdown(pool: P[], r: Range, allTime: boolean): SizeBreakdown {
+  const mk = (k: string): SizeRow => ({ key: k, label: k, t: emptyTally(true), sizes: [], assigned: [], unassigned: [], touched: [], untouched: [], pending: [], oldL: [], newL: [], openUnassigned: [] });
+  const order = [...SIZE_BANDS.map((b) => b.label), NO_SIZE];
+  const m = new Map<string, SizeRow>(order.map((k) => [k, mk(k)]));
+  const total = mk('All sizes');
+  const own = new Map<string, { key: string; label: string; total: number; cells: Map<string, string[]> }>();
+  const prj = new Map<string, { key: string; label: string; total: number; cells: Map<string, string[]> }>();
+  const cellAdd = (mp: typeof own, k: string, label: string, band: string, id: string) => {
+    let x = mp.get(k); if (!x) { x = { key: k, label, total: 0, cells: new Map() }; mp.set(k, x); }
+    x.total++; const c = x.cells.get(band); if (c) c.push(id); else x.cells.set(band, [id]);
+  };
+  for (const p of pool) {
+    const band = sizeBandOf(p.l);
+    for (const row of [m.get(band)!, total]) {
+      tallyAdd(row.t, p, r, allTime);
+      const s = Number(p.l.requiredSize); if (Number.isFinite(s) && s > 0) row.sizes.push(s);
+      (p.owner ? row.assigned : row.unassigned).push(p.id);
+      if (!p.owner && p.open) row.openUnassigned.push(p.id);
+      (isTouchedLead(p.l) ? row.touched : row.untouched).push(p.id);
+      if (p.pending) row.pending.push(p.id);
+      (p.l.oldLead ? row.oldL : row.newL).push(p.id);
+    }
+    if (p.owner) cellAdd(own, p.owner, p.ownerName || 'Name not recorded', band, p.id);
+    cellAdd(prj, p.project, p.project, band, p.id);
+  }
+  const desc = (a: { total: number; label: string }, b: { total: number; label: string }) => b.total - a.total || a.label.localeCompare(b.label);
+  return { rows: order.map((k) => m.get(k)!).filter((x) => x.t.leads > 0), total, byOwner: [...own.values()].sort(desc), byProject: [...prj.values()].sort(desc) };
 }
 
 // ---------------------------------------------------------------------------------------------

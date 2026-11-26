@@ -9,19 +9,45 @@ import { fmtSize, formatLeadDateTime, getSlaStatus } from './leadView';
 import { priorityClass, prioKey, statusClass } from './leadRules';
 import { LeadScoreChip } from './LeadScoreChip';
 
-/** "came back" badge: the customer contacted us again (re-contact) or a closed customer returned as a new lead */
+// a real contact by the sales side (same list as REAL_EVENTS in supabase/functions/api/recontact.ts — keep them equal)
+const REAL_EVENTS = new Set(['Call', 'Email', 'Meeting', 'Visit', 'WhatsApp', 'SMS', 'Comment']);
+const lastRealContact = (l: Lead): number => {
+  let t = 0;
+  for (const e of l.timeline || []) if (e && REAL_EVENTS.has(e.type)) t = Math.max(t, Date.parse(e.timestamp) || 0);
+  return t;
+};
+const waitedFor = (ms: number): string => {
+  const h = Math.floor(ms / 3600_000);
+  return h < 1 ? `${Math.max(1, Math.floor(ms / 60_000))}m` : h < 48 ? `${h}h` : `${Math.floor(h / 24)}d`;
+};
+const dt = (t: number) => new Date(t).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+/** "came back" badge: the customer contacted us again (re-contact) or a closed customer returned as a new lead.
+ *  26 Nov 2026: urgent (orange) only while nobody has contacted the customer since they came back; once a real activity
+ *  (call, e-mail, meeting, visit, WhatsApp, SMS, comment) is logged after that moment it turns calm ("answered").
+ *  A status change or a reassignment alone does not answer it. If the customer comes back again, it is urgent again. */
 export const RecontactBadge = React.memo(function RecontactBadge({ l }: { l: Lead }) {
   const n = Number(l.recontactCount) || 0;
   if (!n && !l.returningOf) return null;
-  const at = l.lastRecontactAt ? Date.parse(l.lastRecontactAt) : 0;
-  const hot = n > 0 && at > 0 && Date.now() - at < 7 * 86400_000;   // came back during the last 7 days
+  // the moment the customer came back: the last re-contact, or (for a returning lead) when the new lead was opened
+  const at = (l.lastRecontactAt ? Date.parse(l.lastRecontactAt) : 0) || (l.returningOf ? Date.parse(l.date) || 0 : 0);
+  const touched = lastRealContact(l);
+  const answered = at > 0 && touched >= at;
+  const pending = !answered && at > 0;
   const path = (l.channels && l.channels.length ? l.channels : [l.firstChannel, l.lastChannel].filter(Boolean)).join(' → ');
-  const title = l.returningOf
+  const head = l.returningOf
     ? `Returning customer: earlier lead ${l.returningOf}${l.returningPrevStatus ? ` was ${l.returningPrevStatus}` : ''}`
-    : `Contacted us ${n + 1}× · ${path || 'channel not recorded'}${l.lastRecontactAt ? ` · last ${new Date(l.lastRecontactAt).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}`;
+    : `Contacted us ${n + 1}× · ${path || 'channel not recorded'}${at ? ` · last ${dt(at)}` : ''}`;
+  const state = answered ? `Answered: contacted on ${dt(touched)}` : pending ? `Waiting for a call back for ${waitedFor(Date.now() - at)}` : '';
+  const label = l.returningOf ? '↩ RETURNING' : `CAME BACK ×${n}`;
+  const cls = pending
+    ? 'bg-orange-500 text-white'
+    : answered
+      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+      : 'bg-orange-100 text-orange-800 border border-orange-200';
   return (
-    <span title={title} className={`inline-block w-max mt-0.5 text-[10px] font-extrabold rounded px-1 py-0.5 whitespace-nowrap ${hot ? 'bg-orange-500 text-white' : 'bg-orange-100 text-orange-800 border border-orange-200'}`}>
-      {l.returningOf ? '↩ RETURNING' : `${hot ? '🔥 ' : ''}CAME BACK ×${n}`}
+    <span title={state ? `${head}\n${state}` : head} className={`inline-block w-max mt-0.5 text-[10px] font-extrabold rounded px-1 py-0.5 whitespace-nowrap ${cls}`}>
+      {pending ? `🔥 ${label} · ${waitedFor(Date.now() - at)}` : answered ? `${label} · ✓ answered` : label}
     </span>
   );
 });
